@@ -71,6 +71,7 @@ class _QueuedPlan:
     action: str
     schedule: object
     submitted_at: float
+    disable_after: bool = False
 
 
 @dataclass(frozen=True)
@@ -236,7 +237,7 @@ class KeyboardController:
             except queue.Empty:
                 return result
 
-    def submit(self, action: Action) -> int | str:
+    def submit(self, action: Action, *, disable_after: bool = False) -> int | str:
         if action.kind == "release":
             self.release_all()
             return "release"
@@ -253,7 +254,8 @@ class KeyboardController:
                 ticket = self.next_ticket
                 self.next_ticket += 1
                 item = _QueuedPlan(
-                    ticket, self.generation, action.kind, schedule, time.perf_counter()
+                    ticket, self.generation, action.kind, schedule, time.perf_counter(),
+                    disable_after,
                 )
                 self.queue.put_nowait(item)
                 return ticket
@@ -280,6 +282,8 @@ class KeyboardController:
             finally:
                 with self.lock:
                     self.active = None
+                    if item.disable_after and item.generation == self.generation:
+                        self.stop("Bounded control probe finished", notify=False)
             self._finish(item, result, started_at)
 
     def _cancelled(self, item: _QueuedPlan) -> bool:

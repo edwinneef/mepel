@@ -124,6 +124,28 @@ def test_probe_cannot_start_behind_an_unacknowledged_alarm(app, monkeypatch):
     assert app.controller.backend.events == []
 
 
+def test_completed_probe_can_be_confirmed_after_returning_to_dashboard(app, monkeypatch):
+    from maplebot.perception import Detection, Observation
+
+    observation = Observation(Detection("player", Rect(10, 20, 20, 30), 1.0), [])
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    app.request_probe({"action": "left"})
+    app.pending_at = 0
+    app._process(app.image, time.perf_counter())
+    deadline = time.perf_counter() + 2
+    while app.controller.enabled:
+        assert time.perf_counter() < deadline
+        time.sleep(0.002)
+    app.windows.window = replace(app.windows.window, focused=False)
+    app._process(app.image, time.perf_counter())
+
+    active = app.active_probe
+    assert active is not None and active.phase == "awaiting_confirmation"
+    assert app.controller.backend.events == [("left", True), ("left", False)]
+    assert not app.alarm.snapshot()["active"]
+    assert app.confirm_probe({"id": active.id, "generation": active.generation})["confirmed"]
+
+
 def test_potion_probe_refuses_full_bar_then_confirms_only_fresh_matching_gain(app, tmp_path):
     from test_autopotter import hud
 

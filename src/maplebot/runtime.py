@@ -929,7 +929,7 @@ class Application:
                         return self._process(image, now)
                     action = active.action
                     duration = min(0.12, self.config.input.max_action_seconds)
-                    submitted = self.controller.submit(Action(action, duration))
+                    submitted = self.controller.submit(Action(action, duration), disable_after=True)
                     self.last_action = f"probe {submitted} queued"
                     if isinstance(submitted, int):
                         self.active_probe = replace(active, phase="queued", ticket=submitted)

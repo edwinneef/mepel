@@ -40,6 +40,29 @@ def test_disabled_input_and_replay_send_no_keys(controller):
     assert backend.events == []
 
 
+def test_single_probe_disables_input_before_publishing_completion(controller):
+    control, backend, flags = controller
+    stops = []
+    control.on_stop = lambda code, reason: stops.append(code)
+    control.enable()
+    ticket = control.submit(Action("left", 0.02), disable_after=True)
+    deadline = time.perf_counter() + 2
+    outcomes = []
+    while not outcomes:
+        outcomes = control.poll_outcomes()
+        assert time.perf_counter() < deadline
+        time.sleep(0.002)
+    assert outcomes[0].ticket == ticket
+    assert outcomes[0].result == "left completed"
+    assert not control.enabled
+    assert not control.held
+    flags["focus"] = False
+    time.sleep(0.03)
+    assert stops == []
+    assert backend.events == [("left", True), ("left", False)]
+    assert control.submit(Action("right", 0.02)) == "blocked: input disabled"
+
+
 @pytest.mark.parametrize("key", sorted(EXTENDED_KEYS))
 def test_navigation_keys_use_extended_flags_for_down_and_up(key):
     assert Win32Input.flags_for(key, True) & 0x0001
