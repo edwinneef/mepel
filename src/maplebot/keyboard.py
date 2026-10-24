@@ -437,7 +437,10 @@ class KeyboardController:
                         )
                         deadline = self.execution_started + up.at_seconds
                         if time.perf_counter() >= deadline:
-                            self.stop("Input schedule expired before key down", code="INPUT_BACKEND_FAILURE")
+                            self.stop(
+                                "Input schedule expired before key down",
+                                code="INPUT_BACKEND_FAILURE",
+                            )
                             return "sequence interrupted"
                         self.held[event.key] = deadline
                         self._send(event.key, True)
@@ -491,7 +494,10 @@ class KeyboardController:
                             if later.key == event.key and not later.down
                         )
                         if time.perf_counter() >= self.execution_started + up.at_seconds:
-                            self.stop("Input schedule expired before key down", code="INPUT_BACKEND_FAILURE")
+                            self.stop(
+                                "Input schedule expired before key down",
+                                code="INPUT_BACKEND_FAILURE",
+                            )
                             return f"{item.action} interrupted"
                         self.held[event.key] = self.execution_started + up.at_seconds
                         self._send(event.key, True)
