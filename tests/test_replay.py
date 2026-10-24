@@ -1,11 +1,78 @@
 import json
+from dataclasses import asdict
 
 import cv2
 import numpy as np
+import pytest
 from test_perception import templates
 
 from maplebot.config import Config
-from maplebot.replay import run_replay
+from maplebot.decision import Agent, PolicyInput
+from maplebot.geometry import Rect
+from maplebot.perception import Detection, Observation
+from maplebot.replay import run_policy_replay, run_replay
+
+
+def policy_record(config, sequence, now):
+    agent = Agent(config.agent, config.perception.confidence)
+    agent.start()
+    observation = Observation(
+        Detection("player", Rect(100, 100, 24, 28), 0.99),
+        [Detection("monster", Rect(200, 100, 24, 28), 0.99)],
+    )
+    policy_input = PolicyInput(observation, now, {"status": "not_sent"})
+    policy_before = agent.snapshot()
+    decision = agent.step_input(policy_input)
+    return {
+        "sequence": sequence,
+        "frame": f"{sequence:08d}.png",
+        "policy_input": policy_input.to_dict(),
+        "policy_before": policy_before,
+        "decision": {**asdict(decision), "state": str(decision.state)},
+    }
+
+
+def test_policy_replay_is_input_free_and_rejects_invalid_history(tmp_path):
+    config = Config()
+    record = policy_record(config, 0, 0.0)
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "decisions.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+    assert run_policy_replay(session, config) == []
+    (session / "decisions.jsonl").write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="at least one record"):
+        run_policy_replay(session, config)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda record: record.pop("policy_input"), "Invalid policy record"),
+        (lambda record: record["policy_before"].pop("version"), "Unsupported policy snapshot"),
+    ],
+)
+def test_policy_replay_rejects_legacy_or_incomplete_records(tmp_path, mutate, message):
+    config = Config()
+    record = policy_record(config, 0, 0.0)
+    mutate(record)
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "decisions.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        run_policy_replay(session, config)
+
+
+def test_policy_replay_rejects_duplicate_sequence_or_capture_time(tmp_path):
+    config = Config()
+    first = policy_record(config, 0, 0.0)
+    second = policy_record(config, 0, 0.0)
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "decisions.jsonl").write_text(
+        "\n".join(json.dumps(record) for record in (first, second)) + "\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="sequence must strictly increase"):
+        run_policy_replay(session, config)
 
 
 def test_replay_produces_decisions_metrics_and_annotations_without_win32(tmp_path):

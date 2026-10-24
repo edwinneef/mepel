@@ -14,7 +14,7 @@ import cv2
 from .autopotter import PotionMonitor
 from .capture import Calibration, Capture, Image
 from .config import Config
-from .decision import Action, Agent, Decision
+from .decision import Action, Agent, Decision, PolicyInput
 from .geometry import Rect
 from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win32Input
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
@@ -72,6 +72,8 @@ class Application:
         )
         self.player_uncertain = False
         self.sequence = 0
+        self.policy_outcome: dict[str, Any] = {"status": "not_sent"}
+        self.session_capture_started: float | None = None
         self.lock = threading.Lock()
         self.commands: queue.Queue[tuple[str, dict, Future]] = queue.Queue()
         self.closed = threading.Event()
@@ -420,10 +422,14 @@ class Application:
                 path.with_suffix(".annotated.png").write_bytes(self.latest)
         return str(path)
 
-    def _process(self, image: Image, now: float) -> tuple[Image, dict]:
+    def _process(
+        self, image: Image, now: float, policy_now: float | None = None
+    ) -> tuple[Image, dict]:
+        policy_now = now if policy_now is None else policy_now
         observation = self.detector.detect(image, now)
         for outcome in self.controller.poll_outcomes():
             self.last_action = outcome.result
+            self.policy_outcome = {"status": "completed", **asdict(outcome)}
             if outcome.ticket == self.pending_probe_ticket:
                 self.pending_probe_ticket = None
                 if outcome.result.endswith("completed"):
@@ -484,7 +490,9 @@ class Application:
             if uncertain and not self.player_uncertain and self.recorder.active:
                 self.recorder.trigger("Player detection uncertain", time.perf_counter())
             self.player_uncertain = uncertain
-            decision = self.agent.step(observation, time.perf_counter())
+            policy_input = PolicyInput(observation, policy_now, self.policy_outcome)
+            policy_before = self.agent.snapshot()
+            decision = self.agent.step_input(policy_input)
             if decision.state == "IDLE":
                 self._stop(decision.reason)
             elif self.mode == "live":
@@ -494,8 +502,14 @@ class Application:
                     if isinstance(submitted, int)
                     else submitted
                 )
+                self.policy_outcome = (
+                    {"status": "pending", "ticket": submitted}
+                    if isinstance(submitted, int)
+                    else {"status": "not_sent", "result": submitted}
+                )
             else:
                 self.last_action = f"dry run: intended {decision.action.kind}"
+                self.policy_outcome = {"status": "not_sent"}
             if self.status.get("reason") != decision.reason or decision.action.kind != "release":
                 self.note(f"{decision.state}: {decision.reason} · {self.last_action}")
         else:
@@ -503,6 +517,8 @@ class Application:
             if self.mode in {"pending_arm", "probe_wait"}:
                 reason = f"Focus the game window; input in {max(0, self.pending_at - now):.1f}s"
             decision = Decision(self.agent.state, Action(), reason)
+            policy_input = PolicyInput(observation, policy_now, self.policy_outcome)
+            policy_before = self.agent.snapshot()
         annotated = annotate(image, observation, decision.target, decision.state, decision.reason)
         potter = self.potter.observe(
             image,
@@ -539,6 +555,10 @@ class Application:
             "failures": observation.failures,
             "camera_shift": observation.camera_shift,
             "camera_confidence": observation.camera_confidence,
+            "policy_input": policy_input.to_dict(),
+            "policy_before": policy_before,
+            "decision": asdict(decision),
+            "action_outcome": policy_input.last_outcome,
         }
 
     def _run(self) -> None:
@@ -562,7 +582,10 @@ class Application:
                         continue
                     self.image, self.window, self.region = image, window, region
                     capture_ok = True
-                    annotated, result = self._process(image, capture_began)
+                    if self.session_capture_started is None:
+                        self.session_capture_started = capture_began
+                    policy_now = capture_began - self.session_capture_started
+                    annotated, result = self._process(image, capture_began, policy_now)
                     raw, decorated = png(image), png(annotated)
                     end = time.perf_counter()
                     status = {
