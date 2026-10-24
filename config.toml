@@ -45,6 +45,11 @@ vertical_lease_seconds = 1.0
 vertical_lease_max_seconds = 8.0
 emergency_key = "f8"
 
+[probe]
+potion_effect_seconds = 2.0
+potion_min_gain_percent = 1.0
+potion_full_percent = 95.0
+
 # Software-input realism only. No input-origin concealment or external hardware.
 [timing]
 enabled = true

@@ -13,7 +13,7 @@ from typing import Any
 import cv2
 
 from .alarm import AlarmManager
-from .autopotter import PotionMonitor
+from .autopotter import BarReading, PotionMonitor
 from .capture import Calibration, Capture, Image
 from .config import Config
 from .decision import Action, Agent, Decision, PolicyInput
@@ -46,6 +46,26 @@ class StopRecord:
     clip_path: str | None
     acknowledged: bool
     encoding_complete: bool
+
+
+REQUIRED_PROBES = frozenset({"left", "right", "attack", "jump", "skill"})
+OPTIONAL_PROBES = frozenset({"up", "down", "hp_potion", "mp_potion"})
+PROBE_ACTIONS = REQUIRED_PROBES | OPTIONAL_PROBES
+
+
+@dataclass(frozen=True)
+class ProbeState:
+    id: int
+    generation: int
+    action: str
+    phase: str
+    instruction: str
+    ticket: int | None = None
+    resource: str | None = None
+    baseline_percent: float | None = None
+    pressed_sequence: int | None = None
+    pressed_at: float | None = None
+    deadline: float | None = None
 
 
 STOP_REASONS = {
@@ -95,10 +115,12 @@ class Application:
         self.mode = "capture"
         self.last_action = "none"
         self.pending_at = 0.0
-        self.pending_action: str | None = None
-        self.pending_probe_ticket: int | None = None
         self.calibrating = False
         self.probed: set[str] = set()
+        self.probe_generation = 0
+        self.next_probe_id = 1
+        self.active_probe: ProbeState | None = None
+        self.probe_results: dict[str, dict[str, object]] = {}
         self.stop_reason = (
             "Capture-only session: keyboard output locked; recognition and dry run available"
             if capture_only
@@ -174,6 +196,12 @@ class Application:
             return self.acknowledge_stop()
         if name == "restart_capture":
             return self.restart_capture()
+        if name == "probe":
+            return self.request_probe(payload)
+        if name == "confirm_probe":
+            return self.confirm_probe(payload)
+        if name == "reject_probe":
+            return self.reject_probe(payload)
         if name in {
             "stop",
             "attach",
@@ -212,10 +240,209 @@ class Application:
             return {
                 **self.status,
                 "capture_only": self.capture_only,
+                "bindings": asdict(self.config.input),
+                "required_probes": sorted(REQUIRED_PROBES),
+                "optional_probes": sorted(OPTIONAL_PROBES),
+                "probes": self._probe_snapshot(),
+                "active_probe": asdict(self.active_probe) if self.active_probe else None,
                 "autopotter": potter,
                 "alarm": self.alarm.snapshot(),
                 "history": list(self.history),
             }
+
+    def _probe_snapshot(self) -> dict[str, dict[str, object]]:
+        states: dict[str, dict[str, object]] = {}
+        for action in sorted(PROBE_ACTIONS):
+            states[action] = {
+                "required": action in REQUIRED_PROBES,
+                "confirmed": action in self.probed,
+                "status": "confirmed" if action in self.probed else "not_requested",
+            }
+        for action, result in self.probe_results.items():
+            states[action] = {**states[action], **result}
+        if self.active_probe:
+            states[self.active_probe.action] = {
+                **states[self.active_probe.action],
+                "status": self.active_probe.phase,
+                "id": self.active_probe.id,
+                "generation": self.active_probe.generation,
+                "instruction": self.active_probe.instruction,
+            }
+        return states
+
+    def _cancel_active_probe(self, reason: str) -> None:
+        active = self.active_probe
+        self.probe_generation += 1
+        self.active_probe = None
+        if active:
+            self.probe_results[active.action] = {
+                "status": "cancelled",
+                "reason": reason,
+                "id": active.id,
+                "generation": active.generation,
+            }
+
+    def _finish_probe(self, active: ProbeState, status: str, reason: str) -> None:
+        if self.active_probe != active:
+            return
+        self.probe_results[active.action] = {
+            "status": status,
+            "reason": reason,
+            "id": active.id,
+            "generation": active.generation,
+        }
+        self.active_probe = None
+        self.mode = "capture"
+        self.stop_reason = reason
+
+    def _resource_reading(self, resource: str, image: Image) -> BarReading:
+        bar = self.potter.bars.get(resource)
+        if bar is None:
+            return BarReading(None, 0, f"Calibrate the {resource.upper()} bar before probing")
+        return bar.read(image, resource)
+
+    def request_probe(self, payload: dict) -> dict[str, object]:
+        if self.capture_only:
+            raise ValueError("Capture-only session: gameplay controls are unavailable")
+        action = str(payload.get("action", ""))
+        if action not in PROBE_ACTIONS:
+            raise ValueError("Invalid control probe")
+        if self.active_probe is not None:
+            raise ValueError("A probe is already active; confirm, reject, or stop it first")
+        if self.calibrating:
+            raise ValueError("Return to live view before issuing gameplay input")
+        if not self.hwnd or not self.calibration or not self.calibration.capture_verified:
+            raise ValueError("Crop and verify the Game view before input")
+        window = self.windows.get(self.hwnd)
+        if self.config.capture.window_title.casefold() not in window.title.casefold():
+            raise ValueError("Input is restricted to the configured game window title")
+        resource = {"hp_potion": "hp", "mp_potion": "mp"}.get(action)
+        baseline_percent: float | None = None
+        if resource:
+            if self.image is None:
+                raise ValueError(f"Capture a fresh {resource.upper()} bar frame before probing")
+            reading = self._resource_reading(resource, self.image)
+            if reading.percent is None or reading.confidence < 0.9:
+                raise ValueError(
+                    f"{resource.upper()} bar is unreadable; recalibrate or return to live view"
+                )
+            if reading.percent >= self.config.probe.potion_full_percent:
+                raise ValueError(
+                    f"{resource.upper()} is full; lower it below "
+                    f"{self.config.probe.potion_full_percent:g}% first"
+                )
+            baseline_percent = reading.percent
+        self.safe_stop(
+            "CALIBRATION",
+            "Preparing bounded input; focus the Game view within 3 seconds",
+            invalidate_probes=False,
+        )
+        self.stop_requested.clear()
+        probe_id = self.next_probe_id
+        self.next_probe_id += 1
+        instruction = (
+            "stand away from portals and ropes"
+            if action == "up"
+            else "Click the game window now; F8 cancels"
+        )
+        self.active_probe = ProbeState(
+            probe_id,
+            self.controller.generation,
+            action,
+            "countdown",
+            instruction,
+            resource=resource,
+            baseline_percent=baseline_percent,
+        )
+        self.mode = "probe_wait"
+        self.pending_at = time.perf_counter() + 3
+        return {
+            "mode": self.mode,
+            "id": probe_id,
+            "generation": self.active_probe.generation,
+            "instruction": instruction,
+        }
+
+    def confirm_probe(self, payload: dict) -> dict[str, object]:
+        active = self.active_probe
+        probe_id = payload.get("id")
+        generation = payload.get("generation")
+        if active is None:
+            return {"confirmed": False, "reason": "No active probe to confirm"}
+        if probe_id != active.id or generation != active.generation:
+            return {"confirmed": False, "reason": "Probe confirmation is stale"}
+        if active.phase != "awaiting_confirmation":
+            return {"confirmed": False, "reason": "Probe is not awaiting manual confirmation"}
+        self.probed.add(active.action)
+        self._finish_probe(active, "confirmed", "Operator confirmed the observed probe effect")
+        self.safe_stop("PROBE_COMPLETE", "Control probe confirmed")
+        return {"confirmed": True, "action": active.action}
+
+    def reject_probe(self, payload: dict) -> dict[str, object]:
+        active = self.active_probe
+        if active is None:
+            return {"rejected": False, "reason": "No active probe to reject"}
+        if payload.get("id") != active.id or payload.get("generation") != active.generation:
+            return {"rejected": False, "reason": "Probe rejection is stale"}
+        self._finish_probe(active, "rejected", "Operator rejected the observed probe effect")
+        self.safe_stop("PROBE_COMPLETE", "Control probe rejected")
+        return {"rejected": True, "action": active.action}
+
+    def _handle_probe_outcome(self, outcome: Any) -> None:
+        active = self.active_probe
+        if (
+            active is None
+            or outcome.ticket != active.ticket
+            or outcome.generation != active.generation
+        ):
+            return
+        if not outcome.result.endswith("completed"):
+            self._finish_probe(active, "failed", "Probe key action did not complete")
+            self.safe_stop("PROBE_COMPLETE", "Control probe failed")
+            return
+        if active.resource is None:
+            self.active_probe = replace(active, phase="awaiting_confirmation")
+            self.mode = "probe_confirm"
+            self.stop_reason = "Observe the one key press, then confirm or reject it"
+            return
+        self.active_probe = replace(
+            active,
+            phase="awaiting_effect",
+            pressed_sequence=self.sequence,
+            pressed_at=outcome.finished_at,
+            deadline=outcome.finished_at + self.config.probe.potion_effect_seconds,
+        )
+        self.mode = "probe_effect"
+        self.stop_reason = f"Waiting for a fresh {active.resource.upper()} bar gain"
+
+    def _advance_potion_probe(self, image: Image, now: float) -> None:
+        active = self.active_probe
+        if active is None or active.phase != "awaiting_effect":
+            return
+        assert active.resource is not None
+        assert active.pressed_sequence is not None
+        assert active.pressed_at is not None
+        assert active.deadline is not None
+        if now >= active.deadline:
+            self._finish_probe(
+                active, "failed", "No sufficient potion-bar gain before the probe deadline"
+            )
+            self.safe_stop("PROBE_COMPLETE", "Potion probe timed out")
+            return
+        if self.sequence <= active.pressed_sequence or now <= active.pressed_at:
+            return
+        reading = self._resource_reading(active.resource, image)
+        if reading.percent is None or reading.confidence < 0.9:
+            self._finish_probe(
+                active, "failed", f"{active.resource.upper()} bar is unreadable after probe"
+            )
+            self.safe_stop("PROBE_COMPLETE", "Potion probe could not read a fresh bar")
+            return
+        assert active.baseline_percent is not None
+        if reading.percent - active.baseline_percent >= self.config.probe.potion_min_gain_percent:
+            self.probed.add(active.action)
+            self._finish_probe(active, "confirmed", "Fresh matching potion-bar gain confirmed")
+            self.safe_stop("PROBE_COMPLETE", "Potion probe confirmed")
 
     def note(self, reason: str) -> None:
         with self.lock:
@@ -248,13 +475,14 @@ class Application:
         reason = STOP_REASONS.get(code)
         if reason is None:
             raise ValueError(f"Unknown stop code: {code}")
+        self._cancel_active_probe(message)
         # This must happen before any recorder, encoder, status, or audio work.
         self.controller.stop(message, code=code, notify=False)
         with self.stop_lock:
             if self.stop_record is not None:
                 self.potter.stop()
                 self.agent.stop(message)
-                self.mode, self.stop_reason, self.pending_action = "capture", message, None
+                self.mode, self.stop_reason = "capture", message
                 self.last_action = "release all"
                 if (
                     self.stop_record.severity is StopSeverity.SILENT
@@ -295,7 +523,7 @@ class Application:
                 clip_path = None
             self.potter.stop()
             self.agent.stop(message)
-            self.mode, self.stop_reason, self.pending_action = "capture", message, None
+            self.mode, self.stop_reason = "capture", message
             self.last_action = "release all"
             if (invalidate_probes if invalidate_probes is not None else reason.invalidate_probes):
                 self.probed.clear()
@@ -365,8 +593,7 @@ class Application:
             if self.calibration:
                 self.calibration.capture_verified = False
                 self.calibration.controls_verified = False
-            self.pending_action = None
-            self.pending_probe_ticket = None
+            self._cancel_active_probe("Capture worker restarted")
             self.stop_requested.set()
         with self.worker_lock:
             if self.worker and self.worker.is_alive():
@@ -386,6 +613,10 @@ class Application:
     def _command(self, name: str, payload: dict) -> Any:
         if self.capture_only and name in {"arm", "probe", "confirm_controls"}:
             raise ValueError("Capture-only session: gameplay controls are unavailable")
+        if name == "probe":
+            return self.request_probe(payload)
+        if name == "confirm_controls":
+            raise ValueError("Use the per-probe confirmation controls")
         if name == "autopotter_calibrate":
             self._stop("CALIBRATION", "HUD calibration; potion preview stopped")
             if not self.calibration or not self.calibration.capture_verified or not self.hwnd:
@@ -470,7 +701,7 @@ class Application:
             if self.config.recording.auto:
                 self.recorder.start("dry-run")
             return {"mode": self.mode}
-        if name in {"arm", "probe"}:
+        if name == "arm":
             self.safe_stop(
                 "CALIBRATION",
                 "Preparing bounded input; focus the Game view within 3 seconds",
@@ -483,24 +714,14 @@ class Application:
             window = self.windows.get(self.hwnd)
             if self.config.capture.window_title.casefold() not in window.title.casefold():
                 raise ValueError("Input is restricted to the configured game window title")
-            if name == "arm" and not self.calibration.controls_verified:
-                raise ValueError("Probe and confirm left, right, attack, jump before combat")
-            action = payload.get("action")
-            if name == "probe" and action not in {"left", "right", "attack", "jump"}:
-                raise ValueError("Invalid control probe")
-            self.pending_action = action
+            missing = sorted(REQUIRED_PROBES - self.probed)
+            if missing:
+                raise ValueError("Confirm required probes first: " + ", ".join(missing))
             with self.controller.lock:
                 self.stop_requested.clear()
-            self.mode = "pending_arm" if name == "arm" else "probe_wait"
+            self.mode = "pending_arm"
             self.pending_at = time.perf_counter() + 3
             return {"mode": self.mode, "instruction": "Click the game window now; F8 cancels"}
-        if name == "confirm_controls":
-            if not self.calibration or self.probed != {"left", "right", "attack", "jump"}:
-                raise ValueError("Complete all four bounded probes in this session first")
-            self.calibration.controls_verified = True
-            self.calibration.save(self.data / "calibration.json")
-            self.note("Operator confirmed observed controls; combat may now be armed")
-            return {"ok": True}
         if name == "frozen_png":
             return png(self.frozen[payload["id"]][0])
         if name == "windows":
@@ -645,13 +866,7 @@ class Application:
         for outcome in self.controller.poll_outcomes():
             self.last_action = outcome.result
             self.policy_outcome = {"status": "completed", **asdict(outcome)}
-            if outcome.ticket == self.pending_probe_ticket:
-                self.pending_probe_ticket = None
-                if outcome.result.endswith("completed"):
-                    self.probed.add(outcome.action)
-                self._stop("PROBE_COMPLETE", "Control probe finished")
-                self.mode = "capture"
-                self.stop_reason = "Probe sent; confirm its visible effect yourself"
+            self._handle_probe_outcome(outcome)
         if self.capture_only and self.mode in {"live", "pending_arm", "probe_wait"}:
             self._stop("CAPTURE_ONLY_GUARD", "Capture-only session: keyboard output locked")
         if self.stop_requested.is_set() and self.mode != "capture":
@@ -660,7 +875,7 @@ class Application:
             self.mode != "capture" or self.potter.enabled
         ):
             self._stop("EMERGENCY_STOP", "Emergency stop hotkey")
-        if self.mode in {"live", "pending_arm", "probe_wait"}:
+        if self.mode in {"live", "pending_arm", "probe_wait", "probe_confirm", "probe_effect"}:
             if time.perf_counter() - now > 0.5:
                 self._stop(
                     "PLAYER_UNCERTAIN", "Observation processing exceeded 500 ms; no input sent"
@@ -682,13 +897,19 @@ class Application:
                     self.controller.enable()
                     self._clear_stop_banner()
                 if pending == "probe_wait":
-                    assert self.pending_action is not None
-                    action = self.pending_action
+                    active = self.active_probe
+                    if active is None or active.phase != "countdown":
+                        self._stop("PROBE_COMPLETE", "Probe was canceled before key submission")
+                        return self._process(image, now)
+                    action = active.action
                     duration = min(0.12, self.config.input.max_action_seconds)
                     submitted = self.controller.submit(Action(action, duration))
                     self.last_action = f"probe {submitted} queued"
-                    self.pending_probe_ticket = submitted if isinstance(submitted, int) else None
-                    if not isinstance(submitted, int):
+                    if isinstance(submitted, int):
+                        self.active_probe = replace(active, phase="queued", ticket=submitted)
+                        self.mode = "probe_queued"
+                    else:
+                        self._finish_probe(active, "failed", "Control probe could not be queued")
                         self._stop("INPUT_BACKEND_FAILURE", "Control probe could not be queued")
                         self.mode = "capture"
                 else:
@@ -758,6 +979,7 @@ class Application:
             ),
         )
         self.potter.annotate(annotated, potter)
+        self._advance_potion_probe(image, now)
         if potter["suggestion"]:
             self.note(potter["reason"])
         annotation_ms = (time.perf_counter() - annotation_began) * 1000

@@ -10,7 +10,7 @@ import pytest
 from maplebot.capture import Calibration
 from maplebot.config import Config
 from maplebot.geometry import Rect
-from maplebot.runtime import STOP_REASONS, Application, StopSeverity
+from maplebot.runtime import REQUIRED_PROBES, STOP_REASONS, Application, StopSeverity
 from maplebot.windows import Window
 
 
@@ -97,6 +97,7 @@ def test_calibration_releases_keys_and_blocks_probe_until_live_view(app):
 
 
 def test_emergency_during_countdown_latches_and_never_sends_input(app):
+    app.probed.update(REQUIRED_PROBES)
     app._command("arm", {})
     app.pending_at = 0
     app.controller.stop("Emergency stop hotkey")
@@ -146,9 +147,9 @@ def test_live_processing_continues_while_submitted_key_is_held(app, monkeypatch)
     assert backend.down
 
 
-def test_controls_cannot_be_confirmed_without_session_probes(app):
-    with pytest.raises(ValueError, match="all four"):
-        app._command("confirm_controls", {})
+def test_arm_cannot_start_without_current_session_required_probes(app):
+    with pytest.raises(ValueError, match="Confirm required probes"):
+        app._command("arm", {})
 
 
 def test_manual_region_and_unverified_capture_block_gameplay_input(app):

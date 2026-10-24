@@ -75,6 +75,23 @@ class InputConfig:
 
 
 @dataclass(frozen=True)
+class ProbeConfig:
+    potion_effect_seconds: float = 2.0
+    potion_min_gain_percent: float = 1.0
+    potion_full_percent: float = 95.0
+
+    def __post_init__(self) -> None:
+        for name, low, high in (
+            ("potion_effect_seconds", 0.1, 10.0),
+            ("potion_min_gain_percent", 0.1, 100.0),
+            ("potion_full_percent", 1.0, 100.0),
+        ):
+            value = getattr(self, name)
+            if not math.isfinite(value) or not low <= value <= high:
+                raise ValueError(f"probe.{name} must be between {low} and {high}")
+
+
+@dataclass(frozen=True)
 class TimingConfig:
     enabled: bool = True
     hold_variation: float = 0.20
@@ -138,6 +155,7 @@ class Config:
     perception: PerceptionConfig = field(default_factory=PerceptionConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     input: InputConfig = field(default_factory=InputConfig)
+    probe: ProbeConfig = field(default_factory=ProbeConfig)
     timing: TimingConfig = field(default_factory=TimingConfig)
     recording: RecordingConfig = field(default_factory=RecordingConfig)
 
@@ -154,6 +172,7 @@ class Config:
                     ("perception", PerceptionConfig),
                     ("agent", AgentConfig),
                     ("input", InputConfig),
+                    ("probe", ProbeConfig),
                     ("timing", TimingConfig),
                     ("recording", RecordingConfig),
                 )
