@@ -1,0 +1,95 @@
+---
+last_mapped_commit: 9370ad5f14eb90e5ce4aeae8e7b52bb5b14ac14d
+last_mapped_at: 2026-10-24
+---
+# Technology Stack
+
+**Analysis Date:** 2026-10-24
+
+## Languages
+
+**Primary:**
+- Python 3.12+ - All application code in `src/maplebot/*.py`, tests in `tests/*.py`, tools in `tools/*.py`. `pyproject.toml` sets `requires-python = ">=3.12"`; the project venv is CPython 3.12.10 (`.venv/pyvenv.cfg`).
+
+**Secondary:**
+- HTML/CSS/JavaScript - Single-file browser debugger UI in `src/maplebot/static/index.html`, served by the stdlib HTTP server in `src/maplebot/debugger.py`. No build step, no bundler, no npm.
+- PowerShell - Setup and launch scripts `install.ps1` and `run.ps1` at repo root.
+- TOML - Runtime configuration `config.toml`, project metadata `pyproject.toml`.
+
+## Runtime
+
+**Environment:**
+- CPython 3.12 on Windows 11 (the code uses `ctypes.WinDLL("user32")`, so it is Windows-only at runtime; the project README states "Windows 11 and Python 3.12+").
+- Standard-library features in use that require 3.11+: `enum.StrEnum` (`src/maplebot/*.py`), `tomllib` (`src/maplebot/config.py`).
+
+**Package Manager:**
+- pip with setuptools build backend (`[build-system] requires = ["setuptools>=75"]` in `pyproject.toml`).
+- Install: `install.ps1` creates `.venv` via `py -3.12 -m venv .venv`, then runs `python -m pip install -e '.[dev]'`.
+- Lockfile: missing. Dependencies are declared as version ranges only; no `requirements*.txt`, `uv.lock`, or `poetry.lock` exists.
+- Editable install registers the console script `maplebot` -> `maplebot.__main__:main` (`[project.scripts]`).
+
+## Frameworks
+
+**Core:**
+- None. The application is a plain Python process. Components are hand-written modules (`capture`, `perception`, `decision`, `keyboard`, `recorder`, `replay`, `debugger`, `runtime`, `autopotter`, `catalog`).
+
+**HTTP serving:**
+- `http.server.ThreadingHTTPServer` / `BaseHTTPRequestHandler` (stdlib) in `src/maplebot/debugger.py`. Bound to `127.0.0.1` on `[debugger] port = 8765` in `config.toml`.
+
+**Testing:**
+- pytest `>=8,<10` (dev extra). Configured by `[tool.pytest.ini_options] testpaths = ["tests"]` in `pyproject.toml`. Installed in `.venv`: pytest 9.1.1.
+
+**Build/Dev:**
+- setuptools `>=75` - Build backend. Package discovery from `src/` (`[tool.setuptools.packages.find] where = ["src"]`); `static/*.html` shipped as package data.
+- ruff `>=0.11,<1` (dev extra) - Lint and format config in `[tool.ruff]` / `[tool.ruff.lint]` of `pyproject.toml`: line length 100, rule sets `E`, `F`, `I`, `UP`, `B`. Installed in `.venv`: ruff 0.17.2.
+
+## Key Dependencies
+
+**Critical (declared in `pyproject.toml` `[project] dependencies`):**
+- `mss>=10,<11` - Screen capture of physical pixels; used by `src/maplebot/capture.py`. Installed: 10.2.0.
+- `numpy>=2,<3` - Frame arrays and matching math across `capture.py`, `perception.py`, `replay.py`, `catalog.py`. Installed: 2.5.4.
+- `opencv-python-headless>=4.13,<5` - Template matching, color/structural similarity, image encode/decode, APNG animation decoding (`cv2.imdecodeanimation` in `src/maplebot/catalog.py`). Headless variant, so no GUI backend. Installed: 4.14.0.94.
+
+**Infrastructure / transitive:**
+- `colorama` 0.4.6, `packaging` 26.3, `pluggy` 1.7.0, `pygments` 2.21.0, `iniconfig` 2.3.1 - Present in `.venv` (pytest/ruff dependencies). Not imported by application code.
+
+**Standard library used directly (no extra packages):**
+- `ctypes` / `ctypes.wintypes` - Win32 calls via `user32`: `SendInput`, `GetWindowTextW`, `GetClientRect`, `ClientToScreen`, `SetThreadDpiAwarenessContext`, `GetAsyncKeyState`. See `src/maplebot/keyboard.py` and `src/maplebot/windows.py`.
+- `urllib.request` - HTTP GET for setup-only catalog import in `src/maplebot/catalog.py`.
+- `tomllib` - Config parsing in `src/maplebot/config.py`.
+- `secrets` - Per-run debugger token in `src/maplebot/debugger.py`.
+- `hashlib`, `json`, `threading`, `queue`, `concurrent.futures`, `dataclasses`, `importlib.resources` - Used across modules.
+
+## Configuration
+
+**Environment:**
+- No environment variables are read by the application code (no `os.environ`/`getenv` usage in `src/maplebot/`). All tunables live in `config.toml`.
+- Config is loaded by `src/maplebot/config.py` via `tomllib`; default path `config.toml` (CLI flag `--config`, see `src/maplebot/__main__.py`).
+- Sections in `config.toml`: `[capture]` (fps, `window_title = "MapleStory"`, `data_dir = "data"`), `[debugger]` (port 8765), `[perception]` (confidence, nametag thresholds, tracking seconds), `[agent]`, `[input]` (key bindings, `emergency_key = "f8"`), `[timing]` (human-like timing jitter; `seed` optional), `[recording]` (retention limits).
+- Runtime data paths are relative to the working directory: `data/` (templates, recordings, screenshots, `data/autopotter.json`), `artifacts/` (replay, synthetic, and benchmark output).
+
+**Build:**
+- `pyproject.toml` - Project metadata, dependencies, optional `dev` extra, setuptools and ruff/pytest config.
+- `src/maple_external_bot.egg-info/` - Generated by the editable install (gitignored via `*.egg-info/`).
+- `.gitignore` - Excludes `.venv/`, `__pycache__/`, `*.egg-info/`, `.pytest_cache/`, `.ruff_cache/`, `data/`, `artifacts/`.
+
+## Tooling Scripts
+
+- `install.ps1` - Creates `.venv` (Python 3.12) and installs the package in editable dev mode.
+- `run.ps1` - Starts `python -m maplebot debug --capture-only`. With `-EnableGameplayInput`, omits `--capture-only`. Requires `.venv` to exist.
+- `tools/capture_smoke.py`, `tools/input_smoke.py`, `tools/debugger_smoke.py`, `tools/synthetic_benchmark.py`, `tools/benchmark_catalog.py` - Manual verification and benchmark scripts. Not part of the package.
+- CLI subcommands (`src/maplebot/__main__.py`): `doctor`, `debug`, `replay`, `catalog`.
+
+## Platform Requirements
+
+**Development:**
+- Windows 11 with Python 3.12+ (`py -3.12` launcher used by `install.ps1`).
+- PowerShell for the helper scripts.
+- A visible MapleStory / MapleUnity Editor window for live capture (`window_title` in `config.toml`).
+
+**Production:**
+- Not deployed as a service. Runs locally on the same Windows desktop as the game, in the project `.venv`. The debugger UI is local-only (`127.0.0.1`).
+
+---
+
+*Stack analysis: 2026-10-24*
