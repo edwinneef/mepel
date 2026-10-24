@@ -1,6 +1,8 @@
+import json
 import time
 from concurrent.futures import Future
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -239,3 +241,22 @@ def test_dry_run_auto_records_and_stop_flushes_clip(app):
     app.recorder.close()
     assert (path / "00000000.png").exists()
     assert "Operator stopped" in (path / "events.jsonl").read_text("utf-8")
+
+
+def test_teaching_name_tag_records_other_copies_as_decoys(app):
+    tag = np.full((13, 60, 3), 40, dtype=np.uint8)
+    for x in range(3, 56, 5):
+        tag[2 : 2 + (x % 7) + 3, x : x + 2] = 255
+        tag[6, x : x + 4] = 255
+    frame = np.random.default_rng(5).integers(60, 200, (768, 1024, 3), dtype=np.uint8)
+    frame[300:313, 400:460] = tag
+    frame[740:753, 190:250] = tag
+    app.frozen["f"] = (frame, app.window, app.region)
+    result = app._command(
+        "template", {"id": "f", "kind": "nametag", "x": 400, "y": 300, "width": 60, "height": 13}
+    )
+    meta = json.loads(Path(result["path"]).with_suffix(".json").read_text("utf-8"))
+    # Positions are of the glyph crop: 2 px right, 1 px down from the drawn tag.
+    assert meta["decoys"] == [[192, 741]]
+    assert meta["frame"] == [1024, 768]
+    assert app.detector.nametags[0].decoys == ((192, 741),)

@@ -58,7 +58,7 @@ def run_replay(
                 raise ValueError(f"Unreadable screenshot: {path}")
             now = timestamps.get(path.name, first_time + index / config.capture.fps) - first_time
             began = time.perf_counter()
-            observation = detector.detect(image)
+            observation = detector.detect(image, now)
             potter_status = potter.observe(image, now) if potter else None
             if potter_status and potter_status["suggestion"]:
                 potion_suggestions[potter_status["suggestion"]] += 1

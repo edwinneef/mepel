@@ -10,6 +10,16 @@ port = 8765
 confidence = 0.90
 player_margin = 0.04
 max_candidates = 24
+# Name tag text match; teach it with Add name tag.
+nametag_confidence = 0.90
+# When the player is briefly hidden (grass, another player walking through),
+# weaker evidence is accepted only near the last tracked position. Each frame with
+# evidence extends tracking; it ends after track_seconds without evidence or
+# track_max_seconds since the last confirmed frame. nametag_partial is the score
+# for a partly covered tag there.
+nametag_partial = 0.6  # random scenery near the player scores up to ~0.46
+track_seconds = 1.0
+track_max_seconds = 5.0
 
 [agent]
 platform_tolerance = 18

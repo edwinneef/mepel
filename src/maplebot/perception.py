@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -20,6 +22,9 @@ class Detection:
     box: Rect
     confidence: float
     template: str = ""
+    # Accepted below the confidence threshold because it is close to the last confirmed
+    # position; see TemplateDetector._follow.
+    tracked: bool = False
 
 
 @dataclass(frozen=True)
@@ -32,7 +37,7 @@ class Observation:
 
 
 class Detector(Protocol):
-    def detect(self, image: Image) -> Observation: ...
+    def detect(self, image: Image, now: float | None = None) -> Observation: ...
 
 
 @dataclass(frozen=True)
@@ -51,6 +56,68 @@ class Template:
     anchor: Rect | None = None
     mask: Image | None = None
     signature: SpriteSignature | None = None
+
+
+@dataclass(frozen=True)
+class NameTag:
+    """The character's name label: white text on a translucent dark box under the feet."""
+
+    name: str
+    # Binary glyph pixels, cropped to the text plus 1 px so it stays inside the dark box.
+    text: Image
+    text_top: int
+    player_size: tuple[int, int] = (44, 64)
+    decoys: tuple[tuple[int, int], ...] = ()
+    frame: tuple[int, int] | None = None
+
+
+# Text pixels are near-white. The translucent box behind them stays below this even
+# over white clouds (~180), so glyph shapes compare cleanly on any background.
+NAMETAG_TEXT = 245
+# Gap between the player's feet and the top of the name text, in native pixels.
+NAMETAG_FEET_GAP = 2
+# Only a clean, unobstructed tag may refresh the in-memory player sprite.
+REFRESH_TAG_CONFIDENCE = 0.97
+REFRESH_SECONDS = 3.0
+# Search radius around the last confirmed position: base plus walking speed, capped.
+TRACK_RADIUS, TRACK_SPEED, TRACK_MAX_RADIUS = 12, 240, 80
+
+
+def nametag_parts(image: Image) -> tuple[Image, int, tuple[int, int]]:
+    """Returns the glyph mask, the text top within it, and the mask's origin in `image`."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    text = gray >= NAMETAG_TEXT
+    if np.count_nonzero(text) < 20:
+        raise ValueError("Select the whole name tag, including all of its white text")
+    outside = gray[cv2.dilate(np.uint8(text), np.ones((3, 3), np.uint8)) == 0]
+    if not outside.size or float(outside.mean()) > 120:
+        raise ValueError("Name tag needs its dark background box; select it tightly")
+    ys, xs = np.nonzero(text)
+    top, left = max(0, int(ys.min()) - 1), max(0, int(xs.min()) - 1)
+    bottom, right = min(gray.shape[0], int(ys.max()) + 2), min(gray.shape[1], int(xs.max()) + 2)
+    return np.float32(text[top:bottom, left:right]), int(ys.min()) - top, (left, top)
+
+
+def text_overlap(gray: Image, text: Image) -> Image:
+    """F1 overlap between the glyph mask and near-white pixels at every position.
+
+    The frame is padded left and right so a tag running off the edge still scores; its
+    hidden glyphs count as missing. Index x maps to tag x - (width - 1).
+    """
+    height, width = text.shape
+    observed = cv2.copyMakeBorder(
+        np.float32(gray >= NAMETAG_TEXT), 0, 0, width - 1, width - 1, cv2.BORDER_CONSTANT, value=0
+    )
+    shared = cv2.matchTemplate(observed, text, cv2.TM_CCORR)
+    counts = cv2.boxFilter(
+        observed,
+        -1,
+        (width, height),
+        normalize=False,
+        anchor=(0, 0),
+        borderType=cv2.BORDER_CONSTANT,
+    )[: shared.shape[0], : shared.shape[1]]
+    return 2 * shared / (float(text.sum()) + counts)
 
 
 class CameraTracker:
@@ -76,6 +143,12 @@ class TemplateDetector:
     def __init__(self, directory: Path, config: PerceptionConfig) -> None:
         self.directory, self.config = directory, config
         self.templates: list[Template] = []
+        self.nametags: list[NameTag] = []
+        # Sprites snapshotted from frames where the tag confirmed the player; memory only.
+        self.fresh: deque[list[Template]] = deque(maxlen=2)
+        self.refreshed = float("-inf")
+        # Last position, when it was last confirmed, and when evidence last supported it.
+        self.track: tuple[Rect, float, float] | None = None
         self.camera = CameraTracker()
         self.reload()
 
@@ -152,13 +225,64 @@ class TemplateDetector:
                         )
                     )
         self.templates = templates
+        self.nametags = [
+            self.load_nametag(path) for path in sorted((self.directory / "nametag").glob("*.png"))
+        ]
+        self.fresh.clear()
+        self.track = None
         self.camera = CameraTracker()
         self.catalog_info = {
+            "nametags": len(self.nametags),
             "species": len(catalog_names),
             "frames": catalog_frames,
             "names": sorted(catalog_names),
             "network_during_detection": False,
         }
+
+    @staticmethod
+    def load_nametag(path: Path) -> NameTag:
+        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError(f"Unreadable name tag: {path}")
+        text, text_top, _ = nametag_parts(image)
+        meta_path = path.with_suffix(".json")
+        meta = json.loads(meta_path.read_text("utf-8")) if meta_path.exists() else {}
+        return NameTag(
+            path.stem,
+            text,
+            text_top,
+            tuple(meta.get("player_size", (44, 64))),
+            tuple(tuple(item) for item in meta.get("decoys", [])),
+            tuple(meta["frame"]) if meta.get("frame") else None,
+        )
+
+    def nametag_matches(self, gray: Image, tag: NameTag, floor: float) -> list[Detection]:
+        """Glyph-shape matches. Text on a light background (chat rows, clouds outside
+        the box) adds near-white pixels around the glyphs and lowers the score."""
+        height, width = tag.text.shape
+        if height > gray.shape[0] or width > gray.shape[1]:
+            return []
+        score = text_overlap(gray, tag.text)
+        decoys = tag.decoys if tag.frame == (gray.shape[1], gray.shape[0]) else ()
+        found = []
+        for _ in range(self.config.max_candidates):
+            _, peak, _, (x, y) = cv2.minMaxLoc(score)
+            if peak < floor:
+                break
+            score[max(0, y - height) : y + height, max(0, x - width) : x + width] = 0
+            x -= width - 1
+            if any(abs(x - a) <= 4 and abs(y - b) <= 4 for a, b in decoys):
+                continue  # Static copy of the name, e.g. the HUD status bar.
+            found.append(
+                Detection("nametag", Rect(x, y, width, height), round(float(peak), 6), tag.name)
+            )
+        return found
+
+    @staticmethod
+    def body_from_nametag(tag: NameTag, box: Rect) -> Rect:
+        width, height = tag.player_size
+        feet = box.y + tag.text_top - NAMETAG_FEET_GAP
+        return Rect(round(box.x + box.width / 2 - width / 2), feet - height, width, height)
 
     @staticmethod
     def validate(image: Image) -> None:
@@ -370,12 +494,12 @@ class TemplateDetector:
             ] = -1
         return found
 
-    def detect(self, image: Image) -> Observation:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    def _candidates(
+        self, image: Image, gray: Image, templates: list[Template], floor: float
+    ) -> list[Detection]:
         candidates: list[Detection] = []
         color_index = None
-        floor = max(0.5, self.config.confidence - 0.15)
-        for template in self.templates:
+        for template in templates:
             height, width = template.gray.shape
             if height > image.shape[0] or width > image.shape[1]:
                 continue
@@ -409,19 +533,57 @@ class TemplateDetector:
                     max(0, y - height // 2) : y + height // 2 + 1,
                     max(0, x - width // 2) : x + width // 2 + 1,
                 ] = 0
+        return candidates
+
+    @staticmethod
+    def _suppress(candidates: list[Detection]) -> list[Detection]:
         kept: list[Detection] = []
         for candidate in sorted(candidates, key=lambda item: item.confidence, reverse=True):
             if not any(
                 item.kind == candidate.kind and item.box.iou(candidate.box) > 0.25 for item in kept
             ):
                 kept.append(candidate)
-        players = [item for item in kept if item.kind == "player"]
-        failures = []
+        return kept
+
+    def _resolve(
+        self,
+        players: list[Detection],
+        tags: list[tuple[Detection, NameTag]],
+        failures: list[str],
+    ) -> tuple[Detection | None, float, bool]:
         player = players[0] if players and players[0].confidence >= self.config.confidence else None
         if player and len(players) > 1:
             if player.confidence - players[1].confidence < self.config.player_margin:
                 player = None
                 failures.append("Ambiguous player: multiple similar matches")
+        if not self.nametags:
+            return player, 0.0, False
+        return self._fuse_nametag(tags, player, failures)
+
+    def detect(self, image: Image, now: float | None = None) -> Observation:
+        now = time.monotonic() if now is None else now
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        floor = max(0.5, self.config.confidence - 0.15)
+        candidates = self._candidates(image, gray, self.templates, floor)
+        kept = self._suppress(candidates)
+        players = [item for item in kept if item.kind == "player"]
+        tags = self._nametag_candidates(gray)
+        failures: list[str] = []
+        player, tag_confidence, conflict = self._resolve(players, tags, failures)
+        if player is None and not conflict and self.fresh:
+            # Snapshots are only searched when the taught templates and the tag fall short.
+            fresh = [item for group in self.fresh for item in group]
+            kept = self._suppress(candidates + self._candidates(image, gray, fresh, floor))
+            players = [item for item in kept if item.kind == "player"]
+            failures = []
+            player, tag_confidence, conflict = self._resolve(players, tags, failures)
+        if conflict:
+            self.fresh.clear()
+            self.track = None
+        elif player is not None:
+            self.track = (player.box, now, now)
+        else:
+            player = self._follow(gray, players, now, failures)
         if player is None:
             failures.append("Player detection missing or below confidence threshold")
         monsters = [
@@ -433,8 +595,160 @@ class TemplateDetector:
             failures.append("No visible monster template matches")
         elif not any(item.confidence >= self.config.confidence for item in monsters):
             failures.append("Monster matches below confidence threshold")
+        if player and not player.tracked and tag_confidence >= REFRESH_TAG_CONFIDENCE:
+            self._refresh_sprite(image, player, monsters, now)
         shift, response = self.camera.update(image)
         return Observation(player, monsters, failures, shift, response)
+
+    def _refresh_sprite(
+        self, image: Image, player: Detection, monsters: list[Detection], now: float
+    ) -> None:
+        """Snapshot the sprite above a clean tag, so a new outfit is recognised in grass."""
+        if self.fresh and now - self.refreshed < REFRESH_SECONDS:
+            return
+        body = player.box
+        left, top = max(0, body.x - 16), max(0, body.y - 16)
+        right, bottom = (
+            min(image.shape[1], body.x + body.width + 16),
+            min(image.shape[0], body.feet),
+        )
+        if right - left < 24 or bottom - top < 24:
+            return
+        region = Rect(left, top, right - left, bottom - top)
+        if any(item.box.iou(region) > 0.05 for item in monsters):
+            return  # A neighbouring sprite would become part of the player template.
+        crop = image[top:bottom, left:right].copy()
+        anchor, mask = self._player_anchor(crop)
+        if anchor is None or mask is None:
+            return
+        variants = []
+        for mirrored in (False, True):
+            variant = cv2.flip(crop, 1) if mirrored else crop
+            variant_anchor, variant_mask = anchor, mask
+            if mirrored:
+                variant_anchor = Rect(
+                    crop.shape[1] - anchor.x - anchor.width, anchor.y, anchor.width, anchor.height
+                )
+                variant_mask = cv2.flip(mask, 1)
+            variants.append(
+                Template(
+                    "player",
+                    f"fresh:{round(now, 3)}",
+                    variant,
+                    cv2.cvtColor(variant, cv2.COLOR_BGR2GRAY),
+                    variant_anchor,
+                    variant_mask,
+                )
+            )
+        self.fresh.append(variants)
+        self.refreshed = now
+
+    def _follow(
+        self, gray: Image, players: list[Detection], now: float, failures: list[str]
+    ) -> Detection | None:
+        """Accept weaker evidence only next to the last tracked position.
+
+        Each frame with evidence extends the chain; a gap longer than track_seconds or a
+        chain longer than track_max_seconds since the last confirmed frame ends it.
+        """
+        if self.track is None:
+            return None
+        last, confirmed, seen = self.track
+        elapsed = now - confirmed
+        if now - seen > self.config.track_seconds or elapsed > self.config.track_max_seconds:
+            self.track = None
+            return None
+        radius = min(TRACK_MAX_RADIUS, TRACK_RADIUS + TRACK_SPEED * (now - seen))
+        near = [
+            item
+            for item in players
+            if abs(item.box.center[0] - last.center[0]) <= radius
+            and abs(item.box.feet - last.feet) <= radius + 30
+        ]
+        if len(near) > 1:
+            failures.append("Ambiguous player near last confirmed position")
+            return None
+        box, confidence = (near[0].box, near[0].confidence) if near else (None, 0.0)
+        for tag in self.nametags:
+            score, body = self._partial_nametag(gray, tag, last, radius)
+            if body is not None and score >= self.config.nametag_partial:
+                # The tag fixes the feet more precisely than a loose sprite box.
+                box, confidence = body, max(confidence, score)
+                break
+        if box is None:
+            return None
+        self.track = (box, confirmed, now)
+        failures.append(f"Player tracked from last confirmed position ({elapsed:.1f}s ago)")
+        return Detection("player", box, round(confidence, 6), "tracked", tracked=True)
+
+    def _partial_nametag(
+        self, gray: Image, tag: NameTag, last: Rect, radius: float
+    ) -> tuple[float, Rect | None]:
+        """Tag score near where the tag should be, tolerating partial cover."""
+        height, width = tag.text.shape
+        x = round(last.center[0] - width / 2)
+        y = round(last.feet + NAMETAG_FEET_GAP - tag.text_top)
+        reach = int(radius)
+        left, top = max(0, x - reach), max(0, y - reach)
+        right = min(gray.shape[1], x + width + reach)
+        bottom = min(gray.shape[0], y + height + reach)
+        if right - left < width or bottom - top < height:
+            return 0.0, None
+        score = text_overlap(gray[top:bottom, left:right], tag.text)
+        _, best, _, (dx, dy) = cv2.minMaxLoc(score)
+        box = Rect(left + dx - (width - 1), top + dy, width, height)
+        return float(best), self.body_from_nametag(tag, box)
+
+    def _nametag_candidates(self, gray: Image) -> list[tuple[Detection, NameTag]]:
+        floor = max(0.5, self.config.nametag_confidence - 0.15)
+        matches = sorted(
+            (
+                (match, tag)
+                for tag in self.nametags
+                for match in self.nametag_matches(gray, tag, floor)
+            ),
+            key=lambda item: item[0].confidence,
+            reverse=True,
+        )
+        distinct: list[tuple[Detection, NameTag]] = []
+        for match, tag in matches:
+            if not any(match.box.iou(other.box) > 0.25 for other, _ in distinct):
+                distinct.append((match, tag))
+        return distinct
+
+    def _fuse_nametag(
+        self,
+        distinct: list[tuple[Detection, NameTag]],
+        sprite: Detection | None,
+        failures: list[str],
+    ) -> tuple[Detection | None, float, bool]:
+        """Returns the player, the tag confidence used, and whether tag and sprite conflict."""
+        # The name tag survives gear changes and climbing poses; the sprite cross-checks it.
+        if not distinct or distinct[0][0].confidence < self.config.nametag_confidence:
+            if sprite:
+                failures.append("Name tag not found; located by player sprite")
+            return sprite, 0.0, False
+        match, tag = distinct[0]
+        if len(distinct) > 1 and match.confidence - distinct[1][0].confidence < (
+            self.config.player_margin
+        ):
+            failures.append("Ambiguous name tag: multiple similar matches")
+            return sprite, 0.0, False
+        body = self.body_from_nametag(tag, match.box)
+        if sprite:
+            near = (
+                body.x - 12 <= sprite.box.center[0] <= body.x + body.width + 12
+                and abs(sprite.box.feet - body.feet) <= 40
+            )
+            if not near:
+                failures.append("Name tag and player sprite disagree")
+                return None, match.confidence, True
+        confidence = max(match.confidence, sprite.confidence if sprite else 0)
+        name = f"nametag:{tag.name}"
+        if not sprite:
+            failures.append("Player sprite not matched; located by name tag")
+            name += ":tag-only"
+        return Detection("player", body, round(confidence, 6), name), match.confidence, False
 
 
 def annotate(

@@ -21,6 +21,10 @@ class PerceptionConfig:
     confidence: float = 0.90
     player_margin: float = 0.04
     max_candidates: int = 24
+    nametag_confidence: float = 0.90
+    nametag_partial: float = 0.6
+    track_seconds: float = 1.0
+    track_max_seconds: float = 5.0
 
 
 @dataclass(frozen=True)

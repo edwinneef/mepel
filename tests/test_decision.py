@@ -116,3 +116,12 @@ def test_approach_stops_when_subsequent_screenshots_show_no_progress():
     assert result.state == State.IDLE
     assert result.action.kind == "release"
     assert "No observed approach progress" in result.reason
+
+
+def test_tracked_player_below_threshold_keeps_agent_running():
+    agent = Agent(AgentConfig())
+    agent.start()
+    tracked = Detection("player", Rect(100, 100, 24, 28), 0.5, "tracked", tracked=True)
+    assert agent.step(scene(player=tracked), 0).state != State.IDLE
+    weak = Detection("player", Rect(100, 100, 24, 28), 0.5)
+    assert agent.step(scene(player=weak), 0.1).state == State.IDLE

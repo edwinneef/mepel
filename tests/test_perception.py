@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import cv2
@@ -156,3 +157,196 @@ def test_transparent_enemy_references_match_multiple_enemies_on_new_background(
     strong = [item for item in result.monsters if item.confidence >= 0.9]
     assert len(strong) == 2
     assert {item.box for item in strong} == {Rect(40, 70, 40, 30), Rect(200, 70, 40, 30)}
+
+
+def name_tag(seed: int = 3) -> np.ndarray:
+    # Synthetic stand-in for a name label: white glyph strokes on a dark box.
+    tag = np.full((13, 60, 3), 40, dtype=np.uint8)
+    rng = np.random.default_rng(seed)
+    for x in range(3, 56, 4):
+        top = int(rng.integers(2, 5))
+        tag[top : top + int(rng.integers(4, 8)), x : x + 2] = 255
+        tag[int(rng.integers(3, 9)), x : x + 3] = 255
+    return tag
+
+
+def teach_tag(directory: Path, tag: np.ndarray, **meta) -> None:
+    folder = directory / "nametag"
+    folder.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(folder / "name.png"), tag)
+    if meta:
+        (folder / "name.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+def scenery(seed: int = 5) -> np.ndarray:
+    frame = np.random.default_rng(seed).integers(60, 200, (240, 320, 3), dtype=np.uint8)
+    return cv2.GaussianBlur(frame, (9, 9), 0)
+
+
+def test_name_tag_locates_player_after_gear_change_and_derives_feet(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag, player_size=[30, 50])
+    frame = scenery()
+    frame[150:163, 100:160] = tag
+    result = TemplateDetector(tmp_path, PerceptionConfig()).detect(frame)
+    assert result.player is not None
+    text_top = int(np.nonzero(tag[:, :, 0] >= 200)[0].min())
+    # Centred on the glyphs, which span x 102..158 in this synthetic tag.
+    assert result.player.box == Rect(116, 150 + text_top - 2 - 50, 30, 50)
+    assert result.player.template == "nametag:name:tag-only"
+    assert any("located by name tag" in failure for failure in result.failures)
+
+
+def test_name_tag_ignores_static_decoys_and_light_backgrounds(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag, decoys=[[20, 220]], frame=[320, 240])
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    frame = scenery()
+    frame[220:233, 20:80] = tag  # HUD copy recorded when the tag was taught
+    chat = tag.copy()
+    chat[chat < 250] = 250  # Same glyphs on a near-white background
+    frame[40:53, 200:260] = chat
+    assert detector.detect(frame).player is None
+    frame[150:163, 100:160] = tag
+    result = detector.detect(frame)
+    assert result.player is not None and result.player.box.x == 108
+
+
+def test_name_tag_and_distant_sprite_disagreement_is_not_trusted(tmp_path):
+    player, _ = templates(tmp_path)
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    frame = scenery()
+    frame[150:163, 30:90] = tag
+    frame[60:88, 250:274] = player
+    result = TemplateDetector(tmp_path, PerceptionConfig()).detect(frame)
+    assert result.player is None
+    assert any("disagree" in failure for failure in result.failures)
+
+
+def test_two_identical_name_tags_fall_back_to_the_sprite(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    frame = scenery()
+    frame[150:163, 30:90] = tag
+    frame[150:163, 200:260] = tag
+    result = TemplateDetector(tmp_path, PerceptionConfig()).detect(frame)
+    assert result.player is None
+    assert any("Ambiguous name tag" in failure for failure in result.failures)
+
+
+def tag_scene(tag: np.ndarray, x: int = 110, y: int = 150, sprite: bool = False) -> np.ndarray:
+    frame = np.full((240, 320, 3), (150, 70, 35), dtype=np.uint8)
+    frame[y : y + 13, x : x + 60] = tag
+    if sprite:
+        feet = y + int(np.nonzero(tag[:, :, 0] >= 200)[0].min()) - 2
+        frame[feet - 75 : feet + 1, x - 8 : x + 68] = player_example((150, 70, 35))[:76]
+    return frame
+
+
+def test_clean_tag_refreshes_sprite_so_new_outfit_is_found_with_tag_covered(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    frame = tag_scene(tag, sprite=True)
+    assert detector.detect(frame, now=0).player.template == "nametag:name:tag-only"
+    assert detector.fresh
+    frame[150:163, 110:170] = (90, 140, 60)  # Grass covers the whole tag.
+    result = detector.detect(frame, now=10)
+    assert result.player is not None
+    assert result.player.template.startswith("fresh:")
+    assert not result.player.tracked
+
+
+def test_partly_covered_tag_is_tracked_only_near_last_position_and_briefly(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    confirmed = detector.detect(tag_scene(tag), now=0).player
+    covered = tag.copy()
+    covered[:, 30:] = (90, 140, 60)
+    result = detector.detect(tag_scene(covered), now=0.3)
+    assert result.player is not None and result.player.tracked
+    assert result.player.box == confirmed.box
+    assert result.player.confidence < 0.9
+    assert detector.detect(tag_scene(covered), now=1.5).player is None
+
+
+def test_partly_covered_tag_far_from_last_position_is_not_tracked(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    detector.detect(tag_scene(tag), now=0)
+    covered = tag.copy()
+    covered[:, 30:] = (90, 140, 60)
+    assert detector.detect(tag_scene(covered, x=250), now=0.3).player is None
+
+
+def test_conflicting_tag_and_sprite_drops_fresh_sprites_and_track(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    (tmp_path / "player").mkdir()
+    cv2.imwrite(str(tmp_path / "player" / "pose.png"), player_example((150, 70, 35))[:76])
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    detector.detect(tag_scene(tag, sprite=True), now=0)
+    assert detector.fresh and detector.track
+    frame = tag_scene(tag, x=230)
+    frame[60:136, 20:96] = player_example((150, 70, 35))[:76]
+    result = detector.detect(frame, now=0.2)
+    assert result.player is None
+    assert not detector.fresh and detector.track is None
+
+
+def test_name_tag_over_bright_clouds_is_still_found(tmp_path):
+    # Over white clouds the translucent box turns light grey (up to ~240 in recordings).
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    cloudy = tag.copy()
+    cloudy[cloudy < 200] = 235
+    frame = tag_scene(cloudy)
+    frame[:, :] = np.where(frame == (150, 70, 35), 250, frame)
+    result = TemplateDetector(tmp_path, PerceptionConfig()).detect(frame)
+    assert result.player is not None
+    assert result.player.confidence >= 0.9
+
+
+def test_name_tag_running_off_the_frame_edge_is_still_found(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    wide = np.full((240, 400, 3), (150, 70, 35), dtype=np.uint8)
+    wide[150:163, 266:326] = tag
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    reference = detector.detect(wide, now=0).player
+    # Crop so the last columns of the tag fall outside the frame.
+    clipped = TemplateDetector(tmp_path, PerceptionConfig()).detect(
+        np.ascontiguousarray(wide[:, :320]), now=0
+    )
+    assert clipped.player is not None
+    assert clipped.player.box == reference.box
+
+
+def test_partial_evidence_chains_tracking_up_to_the_cap(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    detector.detect(tag_scene(tag), now=0)
+    covered = tag.copy()
+    covered[:, 30:] = (90, 140, 60)
+    for now in (0.4, 1.2, 2.0, 2.8, 3.6, 4.4):
+        player = detector.detect(tag_scene(covered), now=now).player
+        assert player is not None and player.tracked
+    assert detector.detect(tag_scene(covered), now=5.2).player is None
+
+
+def test_tracking_chain_ends_after_a_gap_without_evidence(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    detector.detect(tag_scene(tag), now=0)
+    covered = tag.copy()
+    covered[:, 30:] = (90, 140, 60)
+    hidden = tag.copy()
+    hidden[:] = (90, 140, 60)
+    assert detector.detect(tag_scene(covered), now=0.5).player.tracked
+    assert detector.detect(tag_scene(hidden), now=1.0).player is None
+    assert detector.detect(tag_scene(covered), now=1.6).player is None

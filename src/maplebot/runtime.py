@@ -17,7 +17,7 @@ from .config import Config
 from .decision import Action, Agent, Decision
 from .geometry import Rect
 from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win32Input
-from .perception import TemplateDetector, annotate
+from .perception import NameTag, TemplateDetector, annotate, nametag_parts
 from .recorder import SessionRecorder
 from .windows import Window, Windows
 
@@ -236,15 +236,18 @@ class Application:
                 raise ValueError("Frozen screenshot no longer matches the current Game crop")
             roi = self._roi(payload, image)
             kind = payload["kind"]
-            if kind not in ("player", "monster"):
-                raise ValueError("Template kind must be player or monster")
+            if kind not in ("player", "monster", "nametag"):
+                raise ValueError("Template kind must be player, monster or nametag")
             sprite = image[roi.y : roi.y + roi.height, roi.x : roi.x + roi.width].copy()
             self.detector.validate(sprite)
+            meta = self._nametag_meta(image, roi, sprite) if kind == "nametag" else None
             key = uuid.uuid4().hex
             directory = self.data / "templates" / kind
             directory.mkdir(parents=True, exist_ok=True)
             path = directory / f"{key}.png"
             path.write_bytes(png(sprite))
+            if meta is not None:
+                path.with_suffix(".json").write_text(json.dumps(meta), encoding="utf-8")
             sources = self.data / "templates" / "sources"
             sources.mkdir(parents=True, exist_ok=True)
             (sources / f"{key}.png").write_bytes(png(image))
@@ -380,6 +383,23 @@ class Application:
             return {"path": str(self.recorder.trigger("Operator saved clip", time.perf_counter()))}
         raise ValueError(f"Unknown command: {name}")
 
+    def _nametag_meta(self, image: Image, roi: Rect, sprite: Image) -> dict:
+        """Record other copies of the name in this frame (HUD, party list) as fixed decoys."""
+        text, text_top, (left, top) = nametag_parts(sprite)
+        tag = NameTag("teaching", text, text_top)
+        floor = max(0.5, self.config.perception.nametag_confidence - 0.15)
+        matches = self.detector.nametag_matches(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), tag, floor)
+        decoys = [
+            [match.box.x, match.box.y]
+            for match in matches
+            if abs(match.box.x - roi.x - left) > 4 or abs(match.box.y - roi.y - top) > 4
+        ]
+        return {
+            "player_size": list(tag.player_size),
+            "decoys": decoys,
+            "frame": [image.shape[1], image.shape[0]],
+        }
+
     @staticmethod
     def _roi(payload: dict, image: Image) -> Rect:
         rect = Rect(**{key: int(payload[key]) for key in ("x", "y", "width", "height")})
@@ -400,7 +420,7 @@ class Application:
         return str(path)
 
     def _process(self, image: Image, now: float) -> tuple[Image, dict]:
-        observation = self.detector.detect(image)
+        observation = self.detector.detect(image, now)
         if self.capture_only and self.mode in {"live", "pending_arm", "probe_wait"}:
             self._stop("Capture-only session: keyboard output locked")
         if self.stop_requested.is_set() and self.mode != "capture":

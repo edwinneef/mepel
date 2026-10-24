@@ -60,7 +60,7 @@ class Agent:
         if self.state == State.IDLE:
             return self._result("Stopped; start dry run or arm combat")
         player = observation.player
-        if player is None or player.confidence < self.confidence:
+        if player is None or (player.confidence < self.confidence and not player.tracked):
             return self.stop("Uncertain player; stop and recalibrate templates")
         candidates = [
             monster
