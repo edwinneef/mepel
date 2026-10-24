@@ -7,7 +7,10 @@ from dataclasses import dataclass
 
 from .config import InputConfig, TimingConfig
 
-ACTIONS = ("left", "right", "attack", "jump")
+ACTIONS = (
+    "left", "right", "attack", "jump", "up", "down", "hp_potion", "mp_potion", "pet_food", "skill",
+)
+MIN_CHORD_LEAD_SECONDS = 0.012
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,23 @@ class InputSchedule:
     events: tuple[KeyEvent, ...]
     delay_seconds: float
     rest_seconds: float
+
+
+def down_then_jump(down_seconds: float = 0.12, jump_seconds: float = 0.06) -> tuple[KeyHold, ...]:
+    """Build a Down+Jump chord with an invariant Down-first lead."""
+    return (KeyHold("down", down_seconds), KeyHold("jump", jump_seconds, MIN_CHORD_LEAD_SECONDS))
+
+
+def direction_then_jump(
+    direction: str, direction_seconds: float = 0.12, jump_seconds: float = 0.06
+) -> tuple[KeyHold, ...]:
+    """Build a direction+Jump chord without delegating ordering to timestamp sorting."""
+    if direction not in {"left", "right"}:
+        raise ValueError("direction_then_jump requires left or right")
+    return (
+        KeyHold(direction, direction_seconds),
+        KeyHold("jump", jump_seconds, MIN_CHORD_LEAD_SECONDS),
+    )
 
 
 class TimingPlanner:

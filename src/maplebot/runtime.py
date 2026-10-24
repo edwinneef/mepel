@@ -51,6 +51,7 @@ class Application:
         self.last_action = "none"
         self.pending_at = 0.0
         self.pending_action: str | None = None
+        self.pending_probe_ticket: int | None = None
         self.calibrating = False
         self.probed: set[str] = set()
         self.stop_reason = (
@@ -421,6 +422,15 @@ class Application:
 
     def _process(self, image: Image, now: float) -> tuple[Image, dict]:
         observation = self.detector.detect(image, now)
+        for outcome in self.controller.poll_outcomes():
+            self.last_action = outcome.result
+            if outcome.ticket == self.pending_probe_ticket:
+                self.pending_probe_ticket = None
+                if outcome.result.endswith("completed"):
+                    self.probed.add(outcome.action)
+                self.controller.stop("Control probe finished")
+                self.mode = "capture"
+                self.stop_reason = "Probe sent; confirm its visible effect yourself"
         if self.capture_only and self.mode in {"live", "pending_arm", "probe_wait"}:
             self._stop("Capture-only session: keyboard output locked")
         if self.stop_requested.is_set() and self.mode != "capture":
@@ -451,12 +461,12 @@ class Application:
                     assert self.pending_action is not None
                     action = self.pending_action
                     duration = min(0.12, self.config.input.max_action_seconds)
-                    self.last_action = self.controller.execute(Action(action, duration))
-                    if self.last_action.endswith("completed"):
-                        self.probed.add(action)
-                    self.controller.stop("Control probe finished")
-                    self.mode = "capture"
-                    self.stop_reason = "Probe sent; confirm its visible effect yourself"
+                    submitted = self.controller.submit(Action(action, duration))
+                    self.last_action = f"probe {submitted} queued"
+                    self.pending_probe_ticket = submitted if isinstance(submitted, int) else None
+                    if not isinstance(submitted, int):
+                        self.controller.stop("Control probe could not be queued")
+                        self.mode = "capture"
                 else:
                     self.mode = "live"
                     self.agent.start()
@@ -478,7 +488,12 @@ class Application:
             if decision.state == "IDLE":
                 self._stop(decision.reason)
             elif self.mode == "live":
-                self.last_action = self.controller.execute(decision.action)
+                submitted = self.controller.submit(decision.action)
+                self.last_action = (
+                    f"{decision.action.kind} queued ({submitted})"
+                    if isinstance(submitted, int)
+                    else submitted
+                )
             else:
                 self.last_action = f"dry run: intended {decision.action.kind}"
             if self.status.get("reason") != decision.reason or decision.action.kind != "release":

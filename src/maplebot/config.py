@@ -43,8 +43,35 @@ class InputConfig:
     right: str = "right"
     attack: str = "z"
     jump: str = "space"
+    up: str = "up"
+    down: str = "down"
+    hp_potion: str = "insert"
+    mp_potion: str = "delete"
+    pet_food: str = "home"
+    skill: str = "a"
     max_action_seconds: float = 0.25
+    vertical_lease_seconds: float = 1.0
+    vertical_lease_max_seconds: float = 8.0
     emergency_key: str = "f8"
+
+    def __post_init__(self) -> None:
+        for name in (
+            "left", "right", "attack", "jump", "up", "down", "hp_potion", "mp_potion",
+            "pet_food", "skill", "emergency_key",
+        ):
+            if not getattr(self, name).strip():
+                raise ValueError(f"input.{name} must be a non-empty key name")
+        for name, low, high in (
+            ("vertical_lease_seconds", 0.01, 8.0),
+            ("vertical_lease_max_seconds", 0.01, 30.0),
+        ):
+            value = getattr(self, name)
+            if not math.isfinite(value) or not low <= value <= high:
+                raise ValueError(f"input.{name} must be between {low} and {high}")
+        if self.vertical_lease_max_seconds < self.vertical_lease_seconds:
+            raise ValueError(
+                "input.vertical_lease_max_seconds must not be below vertical_lease_seconds"
+            )
 
 
 @dataclass(frozen=True)
