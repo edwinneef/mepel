@@ -93,13 +93,43 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (filled by roadmap) | | |
+| FND-01 | Phase 1 | Pending |
+| FND-02 | Phase 1 | Pending |
+| FND-03 | Phase 1 | Pending |
+| FND-04 | Phase 1 | Pending |
+| FND-05 | Phase 1 | Pending |
+| FND-06 | Phase 1 | Pending |
+| SAFE-01 | Phase 1 | Pending |
+| SAFE-02 | Phase 1 | Pending |
+| SAFE-03 | Phase 1 | Pending |
+| SAFE-04 | Phase 2 | Pending |
+| SUST-01 | Phase 3 | Pending |
+| SUST-02 | Phase 3 | Pending |
+| SUST-03 | Phase 3 | Pending |
+| SUST-04 | Phase 3 | Pending |
+| SUST-05 | Phase 3 | Pending |
+| SUST-06 | Phase 3 | Pending |
+| SUST-07 | Phase 3 | Pending |
+| NAV-01 | Phase 2 | Pending |
+| NAV-02 | Phase 2 | Pending |
+| NAV-03 | Phase 2 | Pending |
+| NAV-04 | Phase 4 | Pending |
+| NAV-05 | Phase 4 | Pending |
+| NAV-06 | Phase 4 | Pending |
+| NAV-07 | Phase 4 | Pending |
+| TGT-01 | Phase 5 | Pending |
+| TGT-02 | Phase 5 | Pending |
+| TGT-03 | Phase 5 | Pending |
+| TGT-04 | Phase 5 | Pending |
+| TGT-05 | Phase 5 | Pending |
+| OPS-01 | Phase 5 | Pending |
+| OPS-02 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 31 total
-- Mapped to phases: 0
-- Unmapped: 31 ⚠️
+- Mapped to phases: 31
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-10-24*
-*Last updated: 2026-10-24 after initial definition*
+*Last updated: 2026-10-24 after roadmap creation*
