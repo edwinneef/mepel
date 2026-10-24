@@ -42,7 +42,7 @@ class BarReference:
         hsv = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)
         ring = np.ones(hsv.shape[:2], dtype=bool)
         ring[3:-3, 3:-3] = False
-        return ring & (hsv[:, :, 1] < 35) & (hsv[:, :, 2] > 130)
+        return ring & (hsv[:, :, 1] < 35) & (hsv[:, :, 2] >= 230)
 
     def read(self, image: Image, resource: str) -> BarReading:
         if image.shape[:2] != (self.height, self.width):

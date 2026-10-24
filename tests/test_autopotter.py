@@ -60,6 +60,18 @@ def test_unknown_bright_or_colored_tracks_are_not_treated_as_empty(tmp_path, tra
         assert reading["percent"] is None
 
 
+def test_gray_track_near_border_is_not_a_fixed_anchor_when_hp_fills(tmp_path):
+    potter = PotionMonitor(tmp_path / "autopotter.json")
+    reference = hud(95)
+    reference[31:45, 11 + round(102 * 0.95) : 113] = 185
+    potter.calibrate("hp", reference, Rect(10, 30, 104, 16))
+
+    reading = potter.observe(hud(100), 0)["readings"]["hp"]
+
+    assert reading["percent"] == 100
+    assert reading["confidence"] >= 0.9
+
+
 def test_low_hp_takes_priority_and_cooldown_prevents_repeated_suggestions(tmp_path):
     potter = monitor(tmp_path)
     assert potter.observe(hud(20, 10), 0)["suggestion"] is None
