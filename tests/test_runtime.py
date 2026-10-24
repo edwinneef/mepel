@@ -10,7 +10,7 @@ import pytest
 from maplebot.capture import Calibration
 from maplebot.config import Config
 from maplebot.geometry import Rect
-from maplebot.runtime import Application
+from maplebot.runtime import STOP_REASONS, Application, StopSeverity
 from maplebot.windows import Window
 
 
@@ -312,6 +312,36 @@ def test_safe_stop_releases_before_one_clip_status_and_alarm(app, monkeypatch, t
     assert len([item for item in calls if isinstance(item, tuple)]) == 1
     assert app.snapshot()["stop"]["clip_path"] == str(tmp_path / "clip")
     assert len([item for item in app.history if item.get("id") == first.id]) == 1
+
+
+def test_stop_reason_registry_classifies_every_declared_safety_path():
+    alarm = {
+        "CAPTURE_WORKER_EXIT",
+        "CAPTURE_WORKER_FAILURE",
+        "INPUT_WATCHDOG_FAILURE",
+        "INPUT_BACKEND_FAILURE",
+        "FOCUS_LOSS",
+        "CALIBRATION_INVALID",
+        "PLAYER_UNCERTAIN",
+        "DEBUGGER_TIMEOUT",
+    }
+    silent = {
+        "EMERGENCY_STOP",
+        "OPERATOR_STOP",
+        "CAPTURE_ONLY_GUARD",
+        "PROBE_COMPLETE",
+        "CALIBRATION",
+        "POLICY_STOP",
+        "DRY_RUN_STOP",
+    }
+    alarm_codes = {
+        code for code, reason in STOP_REASONS.items() if reason.severity is StopSeverity.ALARM
+    }
+    silent_codes = {
+        code for code, reason in STOP_REASONS.items() if reason.severity is StopSeverity.SILENT
+    }
+    assert alarm_codes == alarm
+    assert silent_codes == silent
 
 
 def test_capture_stage_timing_excludes_encoder_png_work(app, monkeypatch):
