@@ -37,6 +37,16 @@ class Backend:
         self.events.append((key, down))
 
 
+class HoldingBackend(Backend):
+    def __init__(self):
+        super().__init__()
+        self.down = False
+
+    def send(self, key, down):
+        super().send(key, down)
+        self.down = down
+
+
 @pytest.fixture
 def app(monkeypatch, tmp_path):
     monkeypatch.setattr("maplebot.runtime.Windows", FakeWindows)
@@ -105,6 +115,34 @@ def test_uncertain_detection_cancels_live_mode_without_key_down(app):
     assert app.mode == "capture"
     assert "Uncertain player" in status["reason"]
     assert app.controller.backend.events == []
+
+
+def test_live_processing_continues_while_submitted_key_is_held(app, monkeypatch):
+    backend = HoldingBackend()
+    app.controller.close()
+    app.controller = app.controller.__class__(
+        backend, app.config.input, app._input_safe, lambda: False, timing=app.config.timing
+    )
+    app.controller.enable()
+    app.agent.start()
+    app.mode = "live"
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: type("O", (), {
+        "player": type("P", (), {"confidence": 1.0})(), "failures": [], "camera_shift": (0, 0),
+        "camera_confidence": 1.0, "monsters": []
+    })())
+    monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image)
+    monkeypatch.setattr("maplebot.runtime.asdict", lambda value: {})
+    monkeypatch.setattr(app.agent, "step", lambda observation, now: type("D", (), {
+        "state": "LIVE", "reason": "test", "target": None, "action": __import__("maplebot.decision", fromlist=["Action"]).Action("right", 0.25)
+    })())
+    app._process(app.image, time.perf_counter())
+    deadline = time.perf_counter() + 1
+    while not backend.down:
+        assert time.perf_counter() < deadline
+        time.sleep(0.002)
+    app._process(app.image, time.perf_counter())
+    assert app.mode == "live"
+    assert backend.down
 
 
 def test_controls_cannot_be_confirmed_without_session_probes(app):

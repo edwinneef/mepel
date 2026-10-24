@@ -3,11 +3,12 @@
 import atexit
 import copy
 import ctypes
+import queue
 import threading
 import time
 from collections.abc import Callable, Sequence
 from ctypes import wintypes
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from typing import Protocol
 
 from .config import InputConfig, TimingConfig
@@ -35,6 +36,26 @@ class DisabledInput:
 
     def send(self, key: str, down: bool) -> None:
         raise RuntimeError("Capture-only session: keyboard output is locked")
+
+
+@dataclass(frozen=True)
+class ActionOutcome:
+    ticket: int
+    generation: int
+    action: str
+    result: str
+    submitted_at: float
+    started_at: float | None
+    finished_at: float
+
+
+@dataclass(frozen=True)
+class _QueuedPlan:
+    ticket: int
+    generation: int
+    action: str
+    schedule: object
+    submitted_at: float
 
 
 class Win32Input:
@@ -106,13 +127,21 @@ class KeyboardController:
         self.closed = threading.Event()
         self.lock = threading.RLock()
         self.execution_lock = threading.Lock()
+        self.generation = 0
+        self.next_ticket = 1
+        self.queue: queue.Queue[_QueuedPlan | None] = queue.Queue(maxsize=32)
+        self.outcomes: queue.SimpleQueue[ActionOutcome] = queue.SimpleQueue()
+        self.active: _QueuedPlan | None = None
+        self.errors: dict[int, Exception] = {}
         self.held: dict[str, float] = {}
         self.planner = TimingPlanner(config, timing or TimingConfig())
         self.execution_started = time.perf_counter()
         self.last_timing: dict = {"schedule": None, "events": [], "outcome": "none"}
         self.reason = "Input disabled"
         self.watchdog = threading.Thread(target=self._watch, name="key-watchdog", daemon=True)
+        self.executor = threading.Thread(target=self._execute_queued, name="key-executor", daemon=True)
         self.watchdog.start()
+        self.executor.start()
         atexit.register(self.close)
 
     def enable(self) -> None:
@@ -128,8 +157,87 @@ class KeyboardController:
         with self.lock:
             self.enabled = False
             self.stopped.set()
+            self.generation += 1
             self.reason = reason
+            self._cancel_queued()
             self.release_all()
+
+    def _cancel_queued(self) -> None:
+        while True:
+            try:
+                item = self.queue.get_nowait()
+            except queue.Empty:
+                return
+            if item is not None:
+                self._finish(item, f"{item.action} interrupted", None)
+
+    def _finish(self, item: _QueuedPlan, result: str, started_at: float | None) -> None:
+        self.outcomes.put(
+            ActionOutcome(
+                item.ticket,
+                item.generation,
+                item.action,
+                result,
+                item.submitted_at,
+                started_at,
+                time.perf_counter(),
+            )
+        )
+
+    def poll_outcomes(self) -> list[ActionOutcome]:
+        result: list[ActionOutcome] = []
+        while True:
+            try:
+                result.append(self.outcomes.get_nowait())
+            except queue.Empty:
+                return result
+
+    def submit(self, action: Action) -> int | str:
+        if action.kind == "release":
+            self.release_all()
+            return "release"
+        if action.kind not in ACTIONS:
+            raise ValueError(f"Unknown action: {action.kind}")
+        if not 0 < action.seconds <= self.config.max_action_seconds:
+            self.stop("Maximum action duration exceeded")
+            return "blocked: duration"
+        with self.lock:
+            if self.replay or not self.enabled or self.stopped.is_set():
+                return "blocked: input disabled"
+            try:
+                schedule = self.planner.plan([KeyHold(action.kind, action.seconds)])
+                ticket = self.next_ticket
+                self.next_ticket += 1
+                item = _QueuedPlan(ticket, self.generation, action.kind, schedule, time.perf_counter())
+                self.queue.put_nowait(item)
+                return ticket
+            except queue.Full:
+                return "blocked: queue full"
+
+    def _execute_queued(self) -> None:
+        while not self.closed.is_set():
+            try:
+                item = self.queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            if item is None:
+                return
+            started_at = time.perf_counter()
+            with self.lock:
+                self.active = item
+            try:
+                result = self._execute_schedule(item)
+            except Exception as error:
+                self.errors[item.ticket] = error
+                self.stop("Keyboard backend failure")
+                result = f"{item.action} interrupted"
+            finally:
+                with self.lock:
+                    self.active = None
+            self._finish(item, result, started_at)
+
+    def _cancelled(self, item: _QueuedPlan) -> bool:
+        return self.stopped.is_set() or item.generation != self.generation or not self.enabled
 
     def release_all(self) -> None:
         with self.lock:
@@ -164,19 +272,18 @@ class KeyboardController:
             return copy.deepcopy(self.last_timing)
 
     def execute(self, action: Action) -> str:
-        if action.kind == "release":
-            self.release_all()
-            return "release"
-        if self.replay or not self.enabled or self.stopped.is_set():
-            return "blocked: input disabled"
-        if not 0 < action.seconds <= self.config.max_action_seconds:
-            self.stop("Maximum action duration exceeded")
-            return "blocked: duration"
-        if action.kind not in ("left", "right", "attack", "jump"):
-            raise ValueError(f"Unknown action: {action.kind}")
-        return self.execute_sequence([KeyHold(action.kind, action.seconds)]).replace(
-            "sequence", action.kind, 1
-        )
+        submitted = self.submit(action)
+        if not isinstance(submitted, int):
+            return submitted
+        while not self.closed.is_set():
+            for outcome in self.poll_outcomes():
+                if outcome.ticket == submitted:
+                    if error := self.errors.pop(submitted, None):
+                        raise error
+                    return outcome.result
+                self.outcomes.put(outcome)
+            self.closed.wait(0.001)
+        return f"{action.kind} interrupted"
 
     def execute_sequence(self, holds: Sequence[KeyHold]) -> str:
         """Execute one bounded plan. Movement/jump/attack may overlap; opposites may not."""
@@ -244,6 +351,50 @@ class KeyboardController:
                 if self.last_timing["outcome"] == "running":
                     self.last_timing["outcome"] = "interrupted"
 
+    def _execute_schedule(self, item: _QueuedPlan) -> str:
+        schedule = item.schedule
+        self.release_all()
+        with self.lock:
+            if self._cancelled(item) or self.emergency() or not self.safe():
+                self.stop("Focus/safety lost or emergency stop")
+                return f"{item.action} interrupted"
+            self.execution_started = time.perf_counter()
+            self.last_timing = {"schedule": asdict(schedule), "events": [], "outcome": "running"}
+        last_down = float("-inf")
+        try:
+            for index, event in enumerate(schedule.events):
+                due = self.execution_started + event.at_seconds
+                if event.down and self.planner.config.enabled:
+                    due = max(due, last_down + self.planner.config.key_stagger_seconds)
+                if self.stopped.wait(max(0, due - time.perf_counter())):
+                    return f"{item.action} interrupted"
+                with self.lock:
+                    if self._cancelled(item) or self.emergency() or not self.safe():
+                        self.stop("Focus/safety lost or emergency stop")
+                        return f"{item.action} interrupted"
+                    if event.down:
+                        up = next(
+                            later for later in schedule.events[index + 1 :] if later.key == event.key and not later.down
+                        )
+                        if time.perf_counter() >= self.execution_started + up.at_seconds:
+                            self.stop("Input schedule expired before key down")
+                            return f"{item.action} interrupted"
+                        self.held[event.key] = self.execution_started + up.at_seconds
+                        self._send(event.key, True)
+                        last_down = self.execution_started + self.last_timing["events"][-1]["at_seconds"]
+                    else:
+                        self._release_keys([event.key])
+            if self.stopped.wait(schedule.rest_seconds):
+                return f"{item.action} interrupted"
+            with self.lock:
+                self.last_timing["outcome"] = "completed"
+            return f"{item.action} completed"
+        finally:
+            self.release_all()
+            with self.lock:
+                if self.last_timing["outcome"] == "running":
+                    self.last_timing["outcome"] = "interrupted"
+
     def _watch(self) -> None:
         while not self.closed.wait(0.005):
             try:
@@ -265,6 +416,9 @@ class KeyboardController:
     def close(self) -> None:
         self.stop("Controller closed")
         self.closed.set()
+        self.queue.put_nowait(None)
+        if threading.current_thread() is not self.executor:
+            self.executor.join(timeout=1)
         if threading.current_thread() is not self.watchdog:
             self.watchdog.join(timeout=1)
         atexit.unregister(self.close)

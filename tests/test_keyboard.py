@@ -50,6 +50,54 @@ def test_short_press_releases_and_duration_limit_blocks(controller):
     assert not control.held
 
 
+def test_submit_returns_before_hold_completes_and_reports_terminal_outcome(controller):
+    control, backend, _ = controller
+    control.enable()
+    started = time.perf_counter()
+    ticket = control.submit(Action("right", 0.25))
+    assert isinstance(ticket, int)
+    assert time.perf_counter() - started < 0.05
+    assert backend.down.wait(1)
+    assert control.poll_outcomes() == []
+    deadline = time.perf_counter() + 1
+    outcomes = []
+    while not outcomes:
+        outcomes = control.poll_outcomes()
+        assert time.perf_counter() < deadline
+        time.sleep(0.002)
+    outcome = outcomes[0]
+    assert outcome.ticket == ticket
+    assert outcome.action == "right"
+    assert outcome.result == "right completed"
+    assert outcome.started_at is not None
+    assert outcome.finished_at is not None
+    assert outcome.finished_at >= outcome.started_at >= outcome.submitted_at
+
+
+def test_stop_cancels_queued_and_active_submissions_without_later_key_down():
+    backend = Backend()
+    control = KeyboardController(
+        backend, InputConfig(), lambda: True, lambda: False, timing=TimingConfig(enabled=False)
+    )
+    try:
+        control.enable()
+        first = control.submit(Action("right", 0.25))
+        second = control.submit(Action("jump", 0.05))
+        assert backend.down.wait(1)
+        control.stop("test stop")
+        deadline = time.perf_counter() + 1
+        outcomes = []
+        while len(outcomes) < 2:
+            outcomes.extend(control.poll_outcomes())
+            assert time.perf_counter() < deadline
+            time.sleep(0.002)
+        assert {item.ticket for item in outcomes} == {first, second}
+        assert all(item.result.endswith("interrupted") for item in outcomes)
+        assert backend.events == [("right", True), ("right", False)]
+    finally:
+        control.close()
+
+
 @pytest.mark.parametrize("flag", ["focus", "emergency"])
 def test_watchdog_releases_immediately_on_focus_loss_or_emergency(controller, flag):
     control, backend, flags = controller
