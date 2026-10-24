@@ -12,8 +12,8 @@ from typing import Any
 
 import cv2
 
-from .autopotter import PotionMonitor
 from .alarm import AlarmManager
+from .autopotter import PotionMonitor
 from .capture import Calibration, Capture, Image
 from .config import Config
 from .decision import Action, Agent, Decision, PolicyInput
@@ -213,6 +213,7 @@ class Application:
                 **self.status,
                 "capture_only": self.capture_only,
                 "autopotter": potter,
+                "alarm": self.alarm.snapshot(),
                 "history": list(self.history),
             }
 
@@ -262,7 +263,9 @@ class Application:
             except Exception as error:
                 encoding = {"complete": False, "reason": str(error)}
             try:
-                clip = self.recorder.trigger(message, time.perf_counter(), close=not self.recorder.manual)
+                clip = self.recorder.trigger(
+                    message, time.perf_counter(), close=not self.recorder.manual
+                )
                 clip_path = str(clip)
             except Exception:
                 clip_path = None
@@ -355,13 +358,6 @@ class Application:
             except queue.Empty:
                 return
             future.cancel()
-        self.potter.stop()
-        self.agent.stop(reason)
-        self.mode, self.stop_reason, self.pending_action = "capture", reason, None
-        self.last_action = "release all"
-        self.note(reason)
-        if self.recorder.active:
-            self.recorder.trigger(reason, time.perf_counter(), close=not self.recorder.manual)
 
     def _command(self, name: str, payload: dict) -> Any:
         if self.capture_only and name in {"arm", "probe", "confirm_controls"}:
@@ -642,7 +638,9 @@ class Application:
             self._stop("EMERGENCY_STOP", "Emergency stop hotkey")
         if self.mode in {"live", "pending_arm", "probe_wait"}:
             if time.perf_counter() - now > 0.5:
-                self._stop("PLAYER_UNCERTAIN", "Observation processing exceeded 500 ms; no input sent")
+                self._stop(
+                    "PLAYER_UNCERTAIN", "Observation processing exceeded 500 ms; no input sent"
+                )
         if self.mode in {"pending_arm", "probe_wait"}:
             if self.windows.pressed(KEYS[self.config.input.emergency_key]):
                 self._stop("EMERGENCY_STOP", "Emergency hotkey canceled pending input")
@@ -856,7 +854,10 @@ class Application:
             with self.lock:
                 self.status = {"state": "IDLE", "reason": str(error)}
         finally:
-            self.safe_stop("CAPTURE_WORKER_EXIT", "Capture worker exited")
+            if self.closed.is_set():
+                self.controller.stop("Capture worker exited", notify=False)
+            else:
+                self.safe_stop("CAPTURE_WORKER_EXIT", "Capture worker exited")
             if capture:
                 capture.close()
 

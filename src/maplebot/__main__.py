@@ -1,6 +1,5 @@
 import argparse
 import json
-import time
 from pathlib import Path
 
 from .config import Config
@@ -119,8 +118,8 @@ def main() -> None:
         flush=True,
     )
     try:
-        while app.worker.is_alive():
-            time.sleep(0.25)
+        while not app.closed.wait(0.25):
+            pass
     except KeyboardInterrupt:
         pass
     finally:

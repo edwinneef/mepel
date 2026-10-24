@@ -344,6 +344,26 @@ def test_stop_reason_registry_classifies_every_declared_safety_path():
     assert silent_codes == silent
 
 
+def test_dead_worker_can_acknowledge_and_restart_directly(app, monkeypatch):
+    active = {"value": False}
+    monkeypatch.setattr(app.alarm, "start", lambda incident_id: active.update(value=True))
+    monkeypatch.setattr(app.alarm, "acknowledge", lambda: active.update(value=False))
+    monkeypatch.setattr(app.alarm, "snapshot", lambda: {"active": active["value"]})
+    monkeypatch.setattr(app, "_run", lambda: app.closed.wait(1))
+
+    app.probed.add("jump")
+    app.safe_stop("CAPTURE_WORKER_EXIT", "Injected fatal worker exit")
+    assert app.request("acknowledge", {})["acknowledged"]
+    restarted = app.request("restart_capture", {})
+
+    assert restarted["restarted"] is True
+    assert app.worker is not None and app.worker.is_alive()
+    assert app.probed == set()
+    assert app.calibration is not None and not app.calibration.capture_verified
+    assert not app.controller.enabled
+    assert app.request("restart_capture", {})["restarted"] is False
+
+
 def test_capture_stage_timing_excludes_encoder_png_work(app, monkeypatch):
     monkeypatch.setattr(app.detector, "detect", lambda image, now: type("O", (), {
         "player": None, "monsters": [], "failures": [], "camera_shift": (0, 0),
