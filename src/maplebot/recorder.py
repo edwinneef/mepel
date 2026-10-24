@@ -1,0 +1,153 @@
+"""Session recording: decisions always, frames only around incidents.
+
+Frames arrive as PNG bytes the capture loop has already encoded for the debugger,
+so recording adds no encoding cost. Disk writes run on a separate thread; when it
+falls behind, frames are dropped instead of stalling capture.
+"""
+
+import json
+import math
+import queue
+import shutil
+import threading
+import time
+from collections import deque
+from pathlib import Path
+from typing import Any
+
+from .config import RecordingConfig
+
+
+class SessionRecorder:
+    def __init__(self, root: Path, config: RecordingConfig, fps: float) -> None:
+        self.root = root
+        self.config = config
+        self.buffer: deque[tuple[str, bytes, str]] = deque(
+            maxlen=max(1, math.ceil(config.buffer_seconds * fps))
+        )
+        self.path: Path | None = None
+        self.full = False
+        self.manual = False
+        self.post_until = 0.0
+        self.last_keyframe = float("-inf")
+        self.written: set[str] = set()
+        self.events = 0
+        self.dropped = 0
+        self.pending = 0
+        self.lock = threading.Lock()
+        self.jobs: queue.Queue[tuple[str, Path, Any] | None] = queue.Queue()
+        self.writer = threading.Thread(target=self._write, name="recorder", daemon=True)
+        self.writer.start()
+
+    @property
+    def active(self) -> bool:
+        return self.path is not None
+
+    def start(self, label: str, *, manual: bool = False) -> Path:
+        if self.path is None:
+            self.path = self.root / f"session-{time.time_ns()}-{label}"
+            self.path.mkdir(parents=True)
+            self.written.clear()
+            self.post_until, self.last_keyframe = 0.0, float("-inf")
+            self.events = self.dropped = 0
+            self.manual = manual
+            self.jobs.put(("prune", self.path, None))
+        return self.path
+
+    def stop(self) -> Path | None:
+        path, self.path, self.full, self.manual = self.path, None, False, False
+        return path
+
+    def observe(self, stem: str, raw: bytes, status: dict, now: float) -> None:
+        line = json.dumps({"frame": f"{stem}.png", **status}) + "\n"
+        self.buffer.append((stem, raw, line))
+        if self.path is None:
+            return
+        self.jobs.put(("line", self.path / "decisions.jsonl", line))
+        keyframe = (
+            self.config.keyframe_seconds > 0
+            and now - self.last_keyframe >= self.config.keyframe_seconds
+        )
+        if self.full or now < self.post_until or keyframe:
+            if keyframe:
+                self.last_keyframe = now
+            self._frame(self.path, stem, raw)
+
+    def trigger(self, reason: str, now: float, *, close: bool = False) -> Path:
+        """Flush the buffered frames and log why. Without a session, saves a one-off clip."""
+        clip = self.path is None
+        path = self.start("clip") if clip else self.path
+        assert path is not None
+        for stem, raw, line in self.buffer:
+            if clip:
+                self.jobs.put(("line", path / "decisions.jsonl", line))
+            self._frame(path, stem, raw)
+        self.events += 1
+        event = {"time": round(time.time(), 3), "reason": reason}
+        self.jobs.put(("line", path / "events.jsonl", json.dumps(event) + "\n"))
+        self.post_until = now + self.config.post_seconds
+        if close or clip:
+            self.stop()
+        return path
+
+    def snapshot(self) -> dict:
+        return {
+            "path": str(self.path) if self.path else None,
+            "full": self.full,
+            "events": self.events,
+            "dropped": self.dropped,
+        }
+
+    def close(self) -> None:
+        self.stop()
+        self.jobs.put(None)
+        self.writer.join(timeout=5)
+
+    def _frame(self, path: Path, stem: str, raw: bytes) -> None:
+        if stem in self.written:
+            return
+        with self.lock:
+            if self.pending >= self.config.max_queue_frames:
+                self.dropped += 1
+                return
+            self.pending += 1
+        self.written.add(stem)
+        self.jobs.put(("frame", path / f"{stem}.png", raw))
+
+    def _write(self) -> None:
+        while (job := self.jobs.get()) is not None:
+            kind, path, data = job
+            try:
+                if kind == "frame":
+                    path.write_bytes(data)
+                elif kind == "line":
+                    with path.open("a", encoding="utf-8") as handle:
+                        handle.write(data)
+                else:
+                    self._prune(keep=path)
+            except OSError:
+                if kind == "frame":
+                    with self.lock:
+                        self.dropped += 1
+            finally:
+                if kind == "frame":
+                    with self.lock:
+                        self.pending -= 1
+
+    def _prune(self, keep: Path) -> None:
+        sessions = sorted(
+            (item for item in self.root.glob("session-*") if item.is_dir() and item != keep),
+            key=lambda item: item.stat().st_mtime,
+        )
+        cutoff = time.time() - self.config.max_age_days * 86400
+        budget = self.config.max_total_mb * 1024 * 1024
+        sizes = {
+            item: sum(file.stat().st_size for file in item.iterdir() if file.is_file())
+            for item in sessions
+        }
+        total = sum(sizes.values())
+        for item in sessions:
+            if item.stat().st_mtime >= cutoff and total <= budget:
+                continue
+            shutil.rmtree(item, ignore_errors=True)
+            total -= sizes[item]

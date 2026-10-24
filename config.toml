@@ -1,0 +1,52 @@
+[capture]
+fps = 12
+window_title = "MapleStory"
+data_dir = "data"
+
+[debugger]
+port = 8765
+
+[perception]
+confidence = 0.90
+player_margin = 0.04
+max_candidates = 24
+
+[agent]
+platform_tolerance = 18
+attack_range = 65
+movement_seconds = 0.12
+attack_seconds = 0.06
+verify_seconds = 0.45
+max_attack_attempts = 6
+
+[input]
+left = "left"
+right = "right"
+attack = "ctrl"
+jump = "space"
+max_action_seconds = 0.25
+emergency_key = "f8"
+
+# Software-input realism only. No input-origin concealment or external hardware.
+[timing]
+enabled = true
+hold_variation = 0.20
+min_hold_seconds = 0.015
+reaction_min_seconds = 0.025
+reaction_max_seconds = 0.085
+rest_min_seconds = 0.020
+rest_max_seconds = 0.065
+key_stagger_seconds = 0.012
+offset_variation_seconds = 0.006
+# Set seed = 123 only when reproducible timing is useful for tests.
+
+# Decisions are logged for every dry run / armed run. Frames are kept in memory
+# and saved only around stops, uncertain player detection and "Save last clip".
+[recording]
+auto = true
+buffer_seconds = 10
+keyframe_seconds = 1.0  # 0 disables periodic context frames
+post_seconds = 2.0
+max_queue_frames = 240
+max_total_mb = 2048
+max_age_days = 7

@@ -1,0 +1,116 @@
+import argparse
+import json
+import time
+from pathlib import Path
+
+from .config import Config
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Screenshot-only external MapleUnity agent")
+    parser.add_argument("--config", type=Path, default=Path("config.toml"))
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("doctor", help="Report Python/display/window environment; sends no input")
+    debug = sub.add_parser(
+        "debug", help="Start capture and calibration debugger; input disabled by default"
+    )
+    debug.add_argument(
+        "--capture-only",
+        action="store_true",
+        help="Lock out all keyboard output for this session, including control probes",
+    )
+    replay = sub.add_parser("replay", help="Offline decisions and benchmarks; never sends input")
+    replay.add_argument("frames", type=Path)
+    replay.add_argument("--templates", type=Path, default=Path("data/templates"))
+    replay.add_argument("--output", type=Path, default=Path("artifacts/replay"))
+    replay.add_argument("--labels", type=Path)
+    replay.add_argument("--annotated", action="store_true")
+    replay.add_argument("--autopotter", type=Path, help="Saved HUD calibration for potion preview")
+    catalog = sub.add_parser("catalog", help="Import public enemy sprites for offline detection")
+    catalog.add_argument(
+        "--ids",
+        nargs="+",
+        type=int,
+        help="Monster IDs; defaults to 12 classic ground-monster species",
+    )
+    args = parser.parse_args()
+    config = Config.load(args.config)
+    if args.command == "catalog":
+        from .catalog import STARTER_IDS, import_catalog
+
+        result = import_catalog(
+            Path(config.capture.data_dir) / "templates", args.ids or STARTER_IDS
+        )
+        print(json.dumps(result, indent=2))
+        return
+    if args.command == "replay":
+        from .replay import run_replay
+
+        print(
+            json.dumps(
+                run_replay(
+                    args.frames,
+                    args.templates,
+                    args.output,
+                    config,
+                    args.labels,
+                    args.annotated,
+                    args.autopotter,
+                ),
+                indent=2,
+            )
+        )
+        return
+    if args.command == "doctor":
+        import platform
+
+        import cv2
+        import mss
+
+        from .windows import Windows
+
+        windows = Windows()
+        with mss.MSS() as screen:
+            print(
+                json.dumps(
+                    {
+                        "python": platform.python_version(),
+                        "os": platform.platform(),
+                        "opencv": cv2.__version__,
+                        "monitors": screen.monitors,
+                        "matching_windows": [
+                            window.title
+                            for window in windows.list()
+                            if config.capture.window_title.casefold() in window.title.casefold()
+                        ],
+                    },
+                    indent=2,
+                )
+            )
+        return
+    from .debugger import serve
+    from .runtime import Application
+
+    app = Application(config, capture_only=args.capture_only)
+    server = serve(app, config.debugger.port)
+    app.start()
+    input_status = (
+        "capture-only: keyboard output locked" if args.capture_only else "gameplay input disabled"
+    )
+    print(
+        f"Debugger: http://127.0.0.1:{config.debugger.port} ({input_status})",
+        flush=True,
+    )
+    try:
+        while app.worker.is_alive():
+            time.sleep(0.25)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        app.close()
+        server.shutdown()
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
