@@ -1,12 +1,13 @@
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 
 from maplebot.config import InputConfig, TimingConfig
 from maplebot.decision import Action
 from maplebot.input_timing import KeyHold
-from maplebot.keyboard import EXTENDED_KEYS, KeyboardController, Win32Input
+from maplebot.keyboard import EXTENDED_KEYS, KEYS, KeyboardController, Win32Input
 
 
 class Backend:
@@ -38,6 +39,23 @@ def test_disabled_input_and_replay_send_no_keys(controller):
     with pytest.raises(RuntimeError, match="Replay"):
         control.enable()
     assert backend.events == []
+
+
+def test_alt_jump_is_supported_and_released():
+    backend = Backend()
+    control = KeyboardController(
+        backend, replace(InputConfig(), jump="alt"), lambda: True, lambda: False
+    )
+    try:
+        assert KEYS["alt"] == 0xA4
+        assert Win32Input.flags_for("alt", True) == 0x0008
+        assert Win32Input.flags_for("alt", False) == 0x000A
+        control.enable()
+        assert control.execute(Action("jump", 0.02)) == "jump completed"
+        assert backend.events == [("alt", True), ("alt", False)]
+        assert not control.held
+    finally:
+        control.close()
 
 
 def test_single_probe_disables_input_before_publishing_completion(controller):

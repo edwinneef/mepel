@@ -30,6 +30,7 @@ KEYS = {
     "d": 0x44,
     "z": 0x5A,
     "ctrl": 0xA2,
+    "alt": 0xA4,
     "space": 0x20,
     "f8": 0x77,
     **{chr(code): code - 0x20 for code in range(ord("a"), ord("z") + 1)},
