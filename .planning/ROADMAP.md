@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. A held Up or Down is released within the fixed lease time once renewals stop, and the global per-action hold cap is unchanged.
   5. Every stop, including a crash of the capture worker, releases all keys, saves the incident clip and shows a structured reason in the debugger. Alarm-level stops repeat a sound until the operator acknowledges it with the debugger button or F8, and pauses such as "no targets" stay silent.
 
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -42,7 +42,7 @@ Plans:
 - [x] 01-02-PLAN.md — Capture-time PolicyInput replay, stable diffs and bounded frame encoding
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 01-03-PLAN.md — Idempotent safe stop, repeating alarm and dead-worker recovery
+- [x] 01-03-PLAN.md — Idempotent safe stop, repeating alarm and dead-worker recovery
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 01-04-PLAN.md — Debugger timing, bounded probes, safe local install and operator acceptance
@@ -116,7 +116,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Deterministic Input and Safe Stop | 2/4 | In Progress | - |
+| 1. Deterministic Input and Safe Stop | 3/4 | In Progress | - |
 | 2. Spot Teaching and Localization | 0/TBD | Not started | - |
 | 3. Sustain | 0/TBD | Not started | - |
 | 4. Verified Movement | 0/TBD | Not started | - |

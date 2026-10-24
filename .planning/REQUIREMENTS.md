@@ -18,9 +18,9 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Safety
 
-- [ ] **SAFE-01**: Every stop releases all keys, saves the incident clip and shows a structured reason in the debugger.
-- [ ] **SAFE-02**: Alarm-level stops play a sound on the PC that repeats until the operator acknowledges it (debugger button or F8). Pauses such as "no targets" stay silent.
-- [ ] **SAFE-03**: If the capture worker crashes, the bot still releases keys and sounds the alarm.
+- [x] **SAFE-01**: Every stop releases all keys, saves the incident clip and shows a structured reason in the debugger.
+- [x] **SAFE-02**: Alarm-level stops play a sound on the PC that repeats until the operator acknowledges it (debugger button or F8). Pauses such as "no targets" stay silent.
+- [x] **SAFE-03**: If the capture worker crashes, the bot still releases keys and sounds the alarm.
 - [ ] **SAFE-04**: The bot stops with the alarm on: death (HP 0 %), spot anchors lost (map change or unexpected screen), player unknown for more than 5 s, HP/MP unreadable for more than 5 s while armed, and focus or calibration lost.
 
 ### Sustain
@@ -99,9 +99,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FND-04 | Phase 1 | Complete |
 | FND-05 | Phase 1 | Complete |
 | FND-06 | Phase 1 | Complete |
-| SAFE-01 | Phase 1 | Pending |
-| SAFE-02 | Phase 1 | Pending |
-| SAFE-03 | Phase 1 | Pending |
+| SAFE-01 | Phase 1 | Complete |
+| SAFE-02 | Phase 1 | Complete |
+| SAFE-03 | Phase 1 | Complete |
 | SAFE-04 | Phase 2 | Pending |
 | SUST-01 | Phase 3 | Pending |
 | SUST-02 | Phase 3 | Pending |
