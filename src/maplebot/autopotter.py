@@ -58,8 +58,10 @@ class BarReference:
         roi = self.interior
         strip = patch[roi.y : roi.feet, roi.x : roi.x + roi.width]
         filled = fill_pixels(strip, resource).mean(axis=0) >= 0.35
-        dark = (strip.max(axis=2) < 70).mean(axis=0) >= 0.5
-        known = float(np.mean(filled | dark))
+        hsv = cv2.cvtColor(strip, cv2.COLOR_BGR2HSV)
+        empty_pixels = (strip.max(axis=2) < 70) | ((hsv[:, :, 1] < 35) & (hsv[:, :, 2] < 230))
+        empty = empty_pixels.mean(axis=0) >= 0.5
+        known = float(np.mean(filled | empty))
         # Choose the left-filled/right-empty split with the fewest inconsistent columns.
         errors = np.r_[0, np.cumsum(~filled)] + np.r_[np.cumsum(filled[::-1])[::-1], 0]
         edge = int(np.argmin(errors))

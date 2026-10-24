@@ -33,6 +33,33 @@ def test_bar_reading_is_from_pixels_with_a_stable_hud_anchor(tmp_path, percent):
         assert reading["confidence"] >= 0.9
 
 
+@pytest.mark.parametrize("percent", [0, 25, 50, 75])
+@pytest.mark.parametrize("empty_gray", [168, 185, 210])
+def test_partial_bars_with_gray_empty_tracks_remain_readable(tmp_path, percent, empty_gray):
+    potter = monitor(tmp_path)
+    image = hud(percent, percent)
+    for x in (10, 150):
+        end = x + 1 + round(102 * percent / 100)
+        image[31:45, end : x + 103] = empty_gray
+
+    status = potter.observe(image, 0)
+
+    for reading in status["readings"].values():
+        assert reading["percent"] == pytest.approx(percent, abs=2)
+        assert reading["confidence"] >= 0.9
+
+
+@pytest.mark.parametrize("track_color", [(245, 245, 245), (0, 210, 0)])
+def test_unknown_bright_or_colored_tracks_are_not_treated_as_empty(tmp_path, track_color):
+    potter = monitor(tmp_path)
+    image = hud(25, 25)
+    for x in (10, 150):
+        image[31:45, x + 27 : x + 103] = track_color
+
+    for reading in potter.observe(image, 0)["readings"].values():
+        assert reading["percent"] is None
+
+
 def test_low_hp_takes_priority_and_cooldown_prevents_repeated_suggestions(tmp_path):
     potter = monitor(tmp_path)
     assert potter.observe(hud(20, 10), 0)["suggestion"] is None
