@@ -305,6 +305,8 @@ class Application:
     def request_probe(self, payload: dict) -> dict[str, object]:
         if self.capture_only:
             raise ValueError("Capture-only session: gameplay controls are unavailable")
+        if self.alarm.snapshot()["active"]:
+            raise ValueError("Acknowledge the active alarm before starting a control probe")
         action = str(payload.get("action", ""))
         if action not in PROBE_ACTIONS:
             raise ValueError("Invalid control probe")
@@ -333,6 +335,7 @@ class Application:
                     f"{self.config.probe.potion_full_percent:g}% first"
                 )
             baseline_percent = reading.percent
+        self._clear_stop_banner()
         self.safe_stop(
             "CALIBRATION",
             "Preparing bounded input; focus the Game view within 3 seconds",
@@ -450,18 +453,26 @@ class Application:
             self.history.appendleft({"time": round(time.time(), 3), "reason": reason})
 
     def _input_safe(self) -> bool:
+        return self._input_block_reason() is None
+
+    def _input_block_reason(self) -> str | None:
         if self.capture_only:
-            return False
-        if not self.hwnd or not self.calibration or not self.calibration.capture_verified:
-            return False
+            return "Capture-only session: gameplay controls are unavailable"
+        if not self.hwnd or not self.calibration:
+            return "Select and crop the game window before input"
+        if not self.calibration.capture_verified:
+            return "Confirm capture before issuing gameplay input"
         window = self.windows.get(self.hwnd)
+        if self.config.capture.window_title.casefold() not in window.title.casefold():
+            return "Input is restricted to the configured game window title"
+        if not self.calibration.valid_for(window):
+            return "Game window size or DPI changed; recalibrate and confirm capture"
+        if not window.focused:
+            return "Click the actual game window before the countdown ends"
         region = self.calibration.crop.translated(window.client.x, window.client.y)
-        return (
-            self.config.capture.window_title.casefold() in window.title.casefold()
-            and self.calibration.valid_for(window)
-            and window.focused
-            and self.windows.unobscured(window.hwnd, region)
-        )
+        if not self.windows.unobscured(window.hwnd, region):
+            return "Game view is covered by another window; move the covering window away"
+        return None
 
     def _controller_stop(self, code: str, message: str) -> None:
         if code == "EMERGENCY_STOP" and self.alarm.snapshot()["active"]:
@@ -898,7 +909,18 @@ class Application:
                     if self.stop_requested.is_set():
                         self._stop("OPERATOR_STOP", "Operator stopped pending input")
                         return self._process(image, now)
-                    self.controller.enable()
+                    try:
+                        self.controller.enable()
+                    except RuntimeError:
+                        if pending != "probe_wait":
+                            raise
+                        reason = self._input_block_reason() or (
+                            "Input safety changed or the emergency key was held; probe canceled"
+                        )
+                        if self.active_probe is not None:
+                            self._finish_probe(self.active_probe, "cancelled", reason)
+                        self._stop("PROBE_COMPLETE", reason)
+                        return self._process(image, now)
                     self._clear_stop_banner()
                 if pending == "probe_wait":
                     active = self.active_probe

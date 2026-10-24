@@ -83,6 +83,47 @@ def test_stop_cancels_probe_and_arm_requires_only_five_manual_permissions(app):
     assert app.mode == "pending_arm"
 
 
+@pytest.mark.parametrize(
+    ("blocker", "message"),
+    [
+        ("focus", "Click the actual game window"),
+        ("visibility", "covered by another window"),
+        ("verification", "Confirm capture"),
+    ],
+)
+def test_probe_reports_the_failed_guard_without_a_capture_crash(app, monkeypatch, blocker, message):
+    from maplebot.perception import Detection, Observation
+
+    app.request_probe({"action": "left"})
+    app.pending_at = 0
+    observation = Observation(Detection("player", Rect(10, 20, 20, 30), 1.0), [])
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    if blocker == "focus":
+        app.windows.window = replace(app.windows.window, focused=False)
+    elif blocker == "visibility":
+        monkeypatch.setattr(app.windows, "unobscured", lambda *args: False)
+    else:
+        app.calibration.capture_verified = False
+
+    app._process(app.image, time.perf_counter())
+
+    assert app.probe_results["left"]["status"] == "cancelled"
+    assert message in app.probe_results["left"]["reason"]
+    assert app.stop_record.code == "PROBE_COMPLETE"
+    assert not app.alarm.snapshot()["active"]
+    assert app.controller.backend.events == []
+
+
+def test_probe_cannot_start_behind_an_unacknowledged_alarm(app, monkeypatch):
+    monkeypatch.setattr(app.alarm, "snapshot", lambda: {"active": True})
+
+    with pytest.raises(ValueError, match="Acknowledge"):
+        app.request_probe({"action": "left"})
+
+    assert app.active_probe is None
+    assert app.controller.backend.events == []
+
+
 def test_potion_probe_refuses_full_bar_then_confirms_only_fresh_matching_gain(app, tmp_path):
     from test_autopotter import hud
 
