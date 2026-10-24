@@ -78,6 +78,16 @@ def run_policy_replay(directory: Path, config: Config) -> list[dict]:
     return differences
 
 
+def write_policy_diff(directory: Path, output: Path, config: Config) -> dict:
+    differences = run_policy_replay(directory, config)
+    output.mkdir(parents=True, exist_ok=True)
+    path = output / "policy-diff.jsonl"
+    with path.open("w", encoding="utf-8") as handle:
+        for difference in differences:
+            handle.write(json.dumps(difference, sort_keys=True, separators=(",", ":")) + "\n")
+    return {"differences": len(differences), "output": str(path.resolve()), "input_sent": False}
+
+
 def run_replay(
     directory: Path,
     templates: Path,

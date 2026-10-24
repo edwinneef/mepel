@@ -1,4 +1,5 @@
 import json
+import sys
 from dataclasses import asdict
 
 import cv2
@@ -10,7 +11,7 @@ from maplebot.config import Config
 from maplebot.decision import Agent, PolicyInput
 from maplebot.geometry import Rect
 from maplebot.perception import Detection, Observation
-from maplebot.replay import run_policy_replay, run_replay
+from maplebot.replay import run_policy_replay, run_replay, write_policy_diff
 
 
 def policy_record(config, sequence, now):
@@ -73,6 +74,46 @@ def test_policy_replay_rejects_duplicate_sequence_or_capture_time(tmp_path):
     )
     with pytest.raises(ValueError, match="sequence must strictly increase"):
         run_policy_replay(session, config)
+
+
+def test_policy_diff_writes_one_stable_row_for_changed_decision(tmp_path):
+    config = Config()
+    record = policy_record(config, 0, 0.0)
+    record["decision"]["reason"] = "deliberately changed"
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "decisions.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+    result = write_policy_diff(session, tmp_path / "output", config)
+    rows = (tmp_path / "output" / "policy-diff.jsonl").read_text("utf-8").splitlines()
+    assert result["differences"] == 1
+    assert result["input_sent"] is False
+    assert json.loads(rows[0]) == {
+        "actual": {"reason": "Acquired nearest same-platform target"},
+        "expected": {"reason": "deliberately changed"},
+        "fields": ["reason"],
+        "frame": "00000000.png",
+        "sequence": 0,
+    }
+
+
+def test_policy_only_cli_returns_success_for_an_exact_replay(tmp_path, monkeypatch, capsys):
+    from maplebot.__main__ import main
+
+    config = Config()
+    session = tmp_path / "session"
+    session.mkdir()
+    (session / "decisions.jsonl").write_text(
+        json.dumps(policy_record(config, 0, 0.0)) + "\n", encoding="utf-8"
+    )
+    output = tmp_path / "output"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["maplebot", "replay", str(session), "--policy-only", "--output", str(output)],
+    )
+    main()
+    assert json.loads(capsys.readouterr().out)["differences"] == 0
+    assert (output / "policy-diff.jsonl").read_text("utf-8") == ""
 
 
 def test_replay_produces_decisions_metrics_and_annotations_without_win32(tmp_path):
