@@ -28,6 +28,7 @@ class SessionRecorder:
         self.path: Path | None = None
         self.full = False
         self.manual = False
+        self.closing = False
         self.post_until = 0.0
         self.last_keyframe = float("-inf")
         self.written: set[str] = set()
@@ -41,9 +42,11 @@ class SessionRecorder:
 
     @property
     def active(self) -> bool:
-        return self.path is not None
+        return self.path is not None and not self.closing
 
     def start(self, label: str, *, manual: bool = False) -> Path:
+        if self.closing:
+            self.stop()
         if self.path is None:
             self.path = self.root / f"session-{time.time_ns()}-{label}"
             self.path.mkdir(parents=True)
@@ -52,10 +55,14 @@ class SessionRecorder:
             self.events = self.dropped = 0
             self.manual = manual
             self.jobs.put(("prune", self.path, None))
+            # Pre-roll: buffered frames may be flushed later, so log their decisions too.
+            for _, _, line in self.buffer:
+                self.jobs.put(("line", self.path / "decisions.jsonl", line))
         return self.path
 
     def stop(self) -> Path | None:
         path, self.path, self.full, self.manual = self.path, None, False, False
+        self.closing = False
         return path
 
     def observe(self, stem: str, raw: bytes, status: dict, now: float) -> None:
@@ -72,22 +79,28 @@ class SessionRecorder:
             if keyframe:
                 self.last_keyframe = now
             self._frame(self.path, stem, raw)
+        if self.closing:
+            self.stop()
 
     def trigger(self, reason: str, now: float, *, close: bool = False) -> Path:
-        """Flush the buffered frames and log why. Without a session, saves a one-off clip."""
-        clip = self.path is None
+        """Flush the buffered frames and log why. Without a session, saves a one-off clip.
+
+        `close` ends the session after the next observed frame, so the decision that
+        caused the stop is still logged.
+        """
+        clip = not self.active
         path = self.start("clip") if clip else self.path
         assert path is not None
-        for stem, raw, line in self.buffer:
-            if clip:
-                self.jobs.put(("line", path / "decisions.jsonl", line))
+        for stem, raw, _ in self.buffer:
             self._frame(path, stem, raw)
         self.events += 1
         event = {"time": round(time.time(), 3), "reason": reason}
         self.jobs.put(("line", path / "events.jsonl", json.dumps(event) + "\n"))
         self.post_until = now + self.config.post_seconds
-        if close or clip:
+        if clip:
             self.stop()
+        elif close:
+            self.closing = True
         return path
 
     def snapshot(self) -> dict:

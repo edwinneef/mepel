@@ -113,3 +113,25 @@ def test_new_session_prunes_old_and_oversized_sessions(tmp_path):
         assert recent.exists() and other.exists() and current.exists()
     finally:
         recorder.close()
+
+
+def test_close_waits_for_the_stopping_frame_and_logs_pre_roll(recorder):
+    feed(recorder, 0, 2)
+    path = recorder.start("dry-run")
+    recorder.trigger("No confident same-platform targets; stopped", now=0.0, close=True)
+    assert not recorder.active
+    feed(recorder, 2, 1)
+    feed(recorder, 3, 1)
+    flush(recorder)
+    assert recorder.path is None
+    lines = (path / "decisions.jsonl").read_text("utf-8").splitlines()
+    assert [json.loads(line)["frame"] for line in lines] == [
+        "00000000.png",
+        "00000001.png",
+        "00000002.png",
+    ]
+    assert sorted(item.stem for item in path.glob("*.png")) == [
+        "00000000",
+        "00000001",
+        "00000002",
+    ]
