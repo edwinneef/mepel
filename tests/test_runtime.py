@@ -280,6 +280,40 @@ def test_dry_run_auto_records_and_stop_flushes_clip(app):
     assert "Operator stopped" in (path / "events.jsonl").read_text("utf-8")
 
 
+def test_safe_stop_releases_before_one_clip_status_and_alarm(app, monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(
+        app.controller,
+        "stop",
+        lambda *args, **kwargs: calls.append("release"),
+    )
+    monkeypatch.setattr(
+        app.encoder,
+        "flush_through",
+        lambda *args, **kwargs: calls.append("flush") or {"complete": True},
+    )
+    monkeypatch.setattr(
+        app.recorder,
+        "trigger",
+        lambda *args, **kwargs: calls.append("clip") or tmp_path / "clip",
+    )
+    monkeypatch.setattr(
+        app.alarm,
+        "start",
+        lambda incident_id: calls.append(("alarm", incident_id)),
+    )
+
+    first = app.safe_stop("CAPTURE_WORKER_FAILURE", "Injected capture failure")
+    second = app.safe_stop("CAPTURE_WORKER_FAILURE", "Injected capture failure")
+
+    assert first == second
+    assert calls[:3] == ["release", "flush", "clip"]
+    assert calls.count("release") == 2
+    assert len([item for item in calls if isinstance(item, tuple)]) == 1
+    assert app.snapshot()["stop"]["clip_path"] == str(tmp_path / "clip")
+    assert len([item for item in app.history if item.get("id") == first.id]) == 1
+
+
 def test_capture_stage_timing_excludes_encoder_png_work(app, monkeypatch):
     monkeypatch.setattr(app.detector, "detect", lambda image, now: type("O", (), {
         "player": None, "monsters": [], "failures": [], "camera_shift": (0, 0),

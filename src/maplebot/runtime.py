@@ -5,13 +5,15 @@ import time
 import uuid
 from collections import deque
 from concurrent.futures import Future
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, replace
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 import cv2
 
 from .autopotter import PotionMonitor
+from .alarm import AlarmManager
 from .capture import Calibration, Capture, Image
 from .config import Config
 from .decision import Action, Agent, Decision, PolicyInput
@@ -21,6 +23,48 @@ from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
 from .recorder import SessionRecorder
 from .windows import Window, Windows
+
+
+class StopSeverity(StrEnum):
+    ALARM = "ALARM"
+    SILENT = "SILENT"
+
+
+@dataclass(frozen=True)
+class StopReason:
+    severity: StopSeverity
+    invalidate_probes: bool = False
+
+
+@dataclass(frozen=True)
+class StopRecord:
+    id: str
+    code: str
+    severity: StopSeverity
+    message: str
+    time: float
+    clip_path: str | None
+    acknowledged: bool
+    encoding_complete: bool
+
+
+STOP_REASONS = {
+    "CAPTURE_WORKER_EXIT": StopReason(StopSeverity.ALARM, True),
+    "CAPTURE_WORKER_FAILURE": StopReason(StopSeverity.ALARM, True),
+    "INPUT_WATCHDOG_FAILURE": StopReason(StopSeverity.ALARM, True),
+    "INPUT_BACKEND_FAILURE": StopReason(StopSeverity.ALARM, True),
+    "FOCUS_LOSS": StopReason(StopSeverity.ALARM, True),
+    "CALIBRATION_INVALID": StopReason(StopSeverity.ALARM, True),
+    "PLAYER_UNCERTAIN": StopReason(StopSeverity.ALARM),
+    "DEBUGGER_TIMEOUT": StopReason(StopSeverity.ALARM),
+    "EMERGENCY_STOP": StopReason(StopSeverity.SILENT),
+    "OPERATOR_STOP": StopReason(StopSeverity.SILENT),
+    "CAPTURE_ONLY_GUARD": StopReason(StopSeverity.SILENT),
+    "PROBE_COMPLETE": StopReason(StopSeverity.SILENT),
+    "CALIBRATION": StopReason(StopSeverity.SILENT, True),
+    "POLICY_STOP": StopReason(StopSeverity.SILENT),
+    "DRY_RUN_STOP": StopReason(StopSeverity.SILENT),
+}
 
 
 def png(frame: Image) -> bytes:
@@ -77,11 +121,15 @@ class Application:
         self.policy_outcome: dict[str, Any] = {"status": "not_sent"}
         self.session_capture_started: float | None = None
         self.lock = threading.Lock()
+        self.stop_lock = threading.RLock()
+        self.worker_lock = threading.RLock()
+        self.stop_record: StopRecord | None = None
+        self.alarm = AlarmManager()
         self.commands: queue.Queue[tuple[str, dict, Future]] = queue.Queue()
         self.closed = threading.Event()
         self.frame_ready = threading.Event()
         self.stop_requested = threading.Event()
-        self.worker = threading.Thread(target=self._run, name="capture", daemon=True)
+        self.worker: threading.Thread | None = None
         self.latest: bytes | None = None
         self.raw: bytes | None = None
         self.status: dict[str, Any] = {
@@ -104,20 +152,28 @@ class Application:
             lambda: self.windows.pressed(KEYS[config.input.emergency_key]),
             replay=capture_only,
             timing=config.timing,
+            on_stop=self._controller_stop,
         )
 
     def start(self) -> None:
-        self.worker.start()
+        self.start_capture_worker()
 
     def close(self) -> None:
-        self.controller.stop("Application closing")
+        self.safe_stop("OPERATOR_STOP", "Application closing")
         self.closed.set()
-        self.worker.join(timeout=3)
+        worker = self.worker
+        if worker and worker is not threading.current_thread():
+            worker.join(timeout=3)
         self.controller.close()
         self.encoder.close()
         self.recorder.close()
+        self.alarm.close()
 
     def request(self, name: str, payload: dict) -> Any:
+        if name == "acknowledge":
+            return self.acknowledge_stop()
+        if name == "restart_capture":
+            return self.restart_capture()
         if name in {
             "stop",
             "attach",
@@ -131,18 +187,16 @@ class Application:
             "reload_templates",
         }:
             # Release now, without waiting for a capture/detector operation to finish.
-            with self.controller.lock:
-                self.stop_requested.set()
-                self.controller.stop("Debugger stop/calibration")
+            self.stop_requested.set()
+            self.safe_stop("CALIBRATION", "Debugger stop/calibration")
         future: Future = Future()
         self.commands.put((name, payload, future))
         try:
             return future.result(timeout=10)
         except TimeoutError:
             future.cancel()
-            with self.controller.lock:
-                self.stop_requested.set()
-                self.controller.stop("Debugger command timed out")
+            self.stop_requested.set()
+            self.safe_stop("DEBUGGER_TIMEOUT", "Debugger command timed out")
             raise RuntimeError("Debugger command timed out; input stopped") from None
 
     def snapshot(self) -> dict:
@@ -180,8 +234,127 @@ class Application:
             and self.windows.unobscured(window.hwnd, region)
         )
 
-    def _stop(self, reason: str) -> None:
-        self.controller.stop(reason)
+    def _controller_stop(self, code: str, message: str) -> None:
+        self.safe_stop(code, message)
+
+    def safe_stop(
+        self,
+        code: str,
+        message: str,
+        *,
+        invalidate_probes: bool | None = None,
+    ) -> StopRecord:
+        reason = STOP_REASONS.get(code)
+        if reason is None:
+            raise ValueError(f"Unknown stop code: {code}")
+        # This must happen before any recorder, encoder, status, or audio work.
+        self.controller.stop(message, code=code, notify=False)
+        with self.stop_lock:
+            if self.stop_record is not None and (
+                self.stop_record.severity is StopSeverity.ALARM
+                or reason.severity is StopSeverity.SILENT
+            ):
+                self.potter.stop()
+                return self.stop_record
+            cutoff = max(self.sequence - 1, self.encoder.snapshot()["accepted_sequence"])
+            try:
+                encoding = self.encoder.flush_through(cutoff, timeout=0.5)
+            except Exception as error:
+                encoding = {"complete": False, "reason": str(error)}
+            try:
+                clip = self.recorder.trigger(message, time.perf_counter(), close=not self.recorder.manual)
+                clip_path = str(clip)
+            except Exception:
+                clip_path = None
+            self.potter.stop()
+            self.agent.stop(message)
+            self.mode, self.stop_reason, self.pending_action = "capture", message, None
+            self.last_action = "release all"
+            if (invalidate_probes if invalidate_probes is not None else reason.invalidate_probes):
+                self.probed.clear()
+                if self.calibration:
+                    self.calibration.controls_verified = False
+            record = StopRecord(
+                uuid.uuid4().hex,
+                code,
+                reason.severity,
+                message,
+                round(time.time(), 3),
+                clip_path,
+                reason.severity is StopSeverity.SILENT,
+                bool(encoding.get("complete")),
+            )
+            self.stop_record = record
+            serialized = asdict(record)
+            with self.lock:
+                self.history.appendleft({"reason": message, **serialized})
+                self.status = {
+                    **self.status,
+                    "state": "IDLE",
+                    "mode": "capture",
+                    "reason": message,
+                    "stop": serialized,
+                }
+            if reason.severity is StopSeverity.ALARM:
+                self.alarm.start(record.id)
+            return record
+
+    def _stop(self, code: str, message: str) -> StopRecord:
+        return self.safe_stop(code, message)
+
+    def _clear_stop_banner(self) -> None:
+        with self.stop_lock:
+            self.stop_record = None
+            with self.lock:
+                self.status.pop("stop", None)
+
+    def acknowledge_stop(self) -> dict[str, object]:
+        with self.stop_lock:
+            if self.stop_record is None:
+                return {"acknowledged": False, "reason": "No active stop incident"}
+            self.alarm.acknowledge()
+            self.stop_record = replace(self.stop_record, acknowledged=True)
+            serialized = asdict(self.stop_record)
+            with self.lock:
+                self.status = {**self.status, "stop": serialized}
+                if self.history and self.history[0].get("id") == self.stop_record.id:
+                    self.history[0] = {"reason": self.stop_record.message, **serialized}
+            return {"acknowledged": True, "stop": serialized}
+
+    def start_capture_worker(self) -> bool:
+        with self.worker_lock:
+            if self.closed.is_set() or (self.worker and self.worker.is_alive()):
+                return False
+            self.worker = threading.Thread(target=self._run, name="capture", daemon=True)
+            self.worker.start()
+            return True
+
+    def restart_capture(self) -> dict[str, object]:
+        with self.stop_lock:
+            if self.alarm.snapshot()["active"]:
+                raise RuntimeError("Acknowledge the active alarm before restarting capture")
+            self.controller.stop("Capture restart", notify=False)
+            self.probed.clear()
+            if self.calibration:
+                self.calibration.capture_verified = False
+                self.calibration.controls_verified = False
+            self.pending_action = None
+            self.pending_probe_ticket = None
+            self.stop_requested.set()
+        with self.worker_lock:
+            if self.worker and self.worker.is_alive():
+                return {"restarted": False, "reason": "Capture worker is still running"}
+            self._drain_pending_commands()
+            started = self.start_capture_worker()
+        return {"restarted": started, "mode": "capture", "input_enabled": self.controller.enabled}
+
+    def _drain_pending_commands(self) -> None:
+        while True:
+            try:
+                _, _, future = self.commands.get_nowait()
+            except queue.Empty:
+                return
+            future.cancel()
         self.potter.stop()
         self.agent.stop(reason)
         self.mode, self.stop_reason, self.pending_action = "capture", reason, None
@@ -194,7 +367,7 @@ class Application:
         if self.capture_only and name in {"arm", "probe", "confirm_controls"}:
             raise ValueError("Capture-only session: gameplay controls are unavailable")
         if name == "autopotter_calibrate":
-            self._stop("HUD calibration; potion preview stopped")
+            self._stop("CALIBRATION", "HUD calibration; potion preview stopped")
             if not self.calibration or not self.calibration.capture_verified or not self.hwnd:
                 raise ValueError("Verify capture before calibrating HP/MP bars")
             image, window, region = self.frozen[payload["id"]]
@@ -219,7 +392,7 @@ class Application:
                 raise ValueError("Verify capture before starting potion preview")
             if self.windows.pressed(KEYS[self.config.input.emergency_key]):
                 raise ValueError("Release the emergency stop key before starting preview")
-            self._stop("Potion preview: gameplay input disabled")
+            self._stop("CALIBRATION", "Potion preview: gameplay input disabled")
             self.stop_requested.clear()
             self.potter.start()
             return self.potter.snapshot()
@@ -227,9 +400,9 @@ class Application:
             self.potter.stop()
             return self.potter.snapshot()
         if name in {"attach", "manual", "reset_crop", "freeze", "crop", "template"}:
-            self._stop("Calibration: gameplay input disabled")
+            self._stop("CALIBRATION", "Calibration: gameplay input disabled")
         if name == "stop":
-            self._stop("Operator stopped the agent")
+            self._stop("OPERATOR_STOP", "Operator stopped the agent")
             return {"ok": True}
         if name == "resume_view":
             self.calibrating = False
@@ -265,19 +438,24 @@ class Application:
             self.note(f"Added {kind} template from screenshot pixels")
             return {"path": str(path), "variants": len(self.detector.templates)}
         if name == "reload_templates":
-            self._stop("Reloading templates; input disabled")
+            self._stop("CALIBRATION", "Reloading templates; input disabled")
             self.detector.reload()
             return {"variants": len(self.detector.templates), "catalog": self.detector.catalog_info}
         if name == "dry_run":
-            self.controller.stop("Dry run: no keyboard input")
+            self._stop("DRY_RUN_STOP", "Dry run: no keyboard input")
             self.stop_requested.clear()
             self.agent.start()
             self.mode = "dry_run"
+            self._clear_stop_banner()
             if self.config.recording.auto:
                 self.recorder.start("dry-run")
             return {"mode": self.mode}
         if name in {"arm", "probe"}:
-            self._stop("Preparing bounded input; focus the Game view within 3 seconds")
+            self.safe_stop(
+                "CALIBRATION",
+                "Preparing bounded input; focus the Game view within 3 seconds",
+                invalidate_probes=False,
+            )
             if self.calibrating:
                 raise ValueError("Return to live view before issuing gameplay input")
             if not self.hwnd or not self.calibration or not self.calibration.capture_verified:
@@ -451,23 +629,23 @@ class Application:
                 self.pending_probe_ticket = None
                 if outcome.result.endswith("completed"):
                     self.probed.add(outcome.action)
-                self.controller.stop("Control probe finished")
+                self._stop("PROBE_COMPLETE", "Control probe finished")
                 self.mode = "capture"
                 self.stop_reason = "Probe sent; confirm its visible effect yourself"
         if self.capture_only and self.mode in {"live", "pending_arm", "probe_wait"}:
-            self._stop("Capture-only session: keyboard output locked")
+            self._stop("CAPTURE_ONLY_GUARD", "Capture-only session: keyboard output locked")
         if self.stop_requested.is_set() and self.mode != "capture":
-            self._stop("Operator stop or calibration requested")
+            self._stop("CALIBRATION", "Operator stop or calibration requested")
         if self.controller.reason == "Emergency stop hotkey" and (
             self.mode != "capture" or self.potter.enabled
         ):
-            self._stop("Emergency stop hotkey")
+            self._stop("EMERGENCY_STOP", "Emergency stop hotkey")
         if self.mode in {"live", "pending_arm", "probe_wait"}:
             if time.perf_counter() - now > 0.5:
-                self._stop("Observation processing exceeded 500 ms; no input sent")
+                self._stop("PLAYER_UNCERTAIN", "Observation processing exceeded 500 ms; no input sent")
         if self.mode in {"pending_arm", "probe_wait"}:
             if self.windows.pressed(KEYS[self.config.input.emergency_key]):
-                self._stop("Emergency hotkey canceled pending input")
+                self._stop("EMERGENCY_STOP", "Emergency hotkey canceled pending input")
             elif now >= self.pending_at:
                 if (
                     observation.player is None
@@ -477,9 +655,10 @@ class Application:
                 pending = self.mode
                 with self.controller.lock:
                     if self.stop_requested.is_set():
-                        self._stop("Operator stopped pending input")
+                        self._stop("OPERATOR_STOP", "Operator stopped pending input")
                         return self._process(image, now)
                     self.controller.enable()
+                    self._clear_stop_banner()
                 if pending == "probe_wait":
                     assert self.pending_action is not None
                     action = self.pending_action
@@ -488,7 +667,7 @@ class Application:
                     self.last_action = f"probe {submitted} queued"
                     self.pending_probe_ticket = submitted if isinstance(submitted, int) else None
                     if not isinstance(submitted, int):
-                        self.controller.stop("Control probe could not be queued")
+                        self._stop("INPUT_BACKEND_FAILURE", "Control probe could not be queued")
                         self.mode = "capture"
                 else:
                     self.mode = "live"
@@ -498,7 +677,7 @@ class Application:
         if self.mode == "live" and (
             not self.controller.enabled or self.controller.stopped.is_set()
         ):
-            self._stop(self.controller.reason)
+            self._stop("INPUT_BACKEND_FAILURE", self.controller.reason)
         if self.mode in {"live", "dry_run"}:
             policy_began = time.perf_counter()
             uncertain = (
@@ -512,7 +691,7 @@ class Application:
             policy_before = self.agent.snapshot()
             decision = self.agent.step_input(policy_input)
             if decision.state == "IDLE":
-                self._stop(decision.reason)
+                self._stop("PLAYER_UNCERTAIN" if uncertain else "POLICY_STOP", decision.reason)
                 self.policy_outcome = {"status": "not_sent"}
             elif self.mode == "live":
                 submitted = self.controller.submit(decision.action)
@@ -650,7 +829,7 @@ class Application:
                     )
                     self.sequence += 1
                 except Exception as error:
-                    self._stop(str(error))
+                    self._stop("CAPTURE_WORKER_FAILURE", str(error))
                     if self.calibration and not capture_ok:
                         self.calibration.capture_verified = False
                         self.calibration.controls_verified = False
@@ -677,7 +856,7 @@ class Application:
             with self.lock:
                 self.status = {"state": "IDLE", "reason": str(error)}
         finally:
-            self.controller.stop("Capture worker exited")
+            self.safe_stop("CAPTURE_WORKER_EXIT", "Capture worker exited")
             if capture:
                 capture.close()
 
