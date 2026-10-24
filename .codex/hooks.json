@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"D:/projects/maple-external-bot/.codex/hooks/gsd-check-update.cmd\"",
+            "commandWindows": "\"D:/projects/maple-external-bot/.codex/hooks/gsd-check-update.cmd\""
+          }
+        ]
+      }
+    ]
+  }
+}
