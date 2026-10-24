@@ -7,7 +7,9 @@ from dataclasses import dataclass
 
 from .config import InputConfig, TimingConfig
 
-ACTIONS = ("left", "right", "attack", "jump", "up", "down", "hp_potion", "mp_potion", "pet_food", "skill")
+ACTIONS = (
+    "left", "right", "attack", "jump", "up", "down", "hp_potion", "mp_potion", "pet_food", "skill",
+)
 MIN_CHORD_LEAD_SECONDS = 0.012
 
 

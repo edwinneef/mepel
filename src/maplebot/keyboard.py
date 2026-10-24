@@ -171,7 +171,9 @@ class KeyboardController:
         self.last_timing: dict = {"schedule": None, "events": [], "outcome": "none"}
         self.reason = "Input disabled"
         self.watchdog = threading.Thread(target=self._watch, name="key-watchdog", daemon=True)
-        self.executor = threading.Thread(target=self._execute_queued, name="key-executor", daemon=True)
+        self.executor = threading.Thread(
+            target=self._execute_queued, name="key-executor", daemon=True
+        )
         self.watchdog.start()
         self.executor.start()
         atexit.register(self.close)
@@ -240,7 +242,9 @@ class KeyboardController:
                 schedule = self.planner.plan([KeyHold(action.kind, action.seconds)])
                 ticket = self.next_ticket
                 self.next_ticket += 1
-                item = _QueuedPlan(ticket, self.generation, action.kind, schedule, time.perf_counter())
+                item = _QueuedPlan(
+                    ticket, self.generation, action.kind, schedule, time.perf_counter()
+                )
                 self.queue.put_nowait(item)
                 return ticket
             except queue.Full:
@@ -324,7 +328,8 @@ class KeyboardController:
                 return False
             renewed = VerticalLease(
                 lease.lease_id, lease.generation, lease.action, lease.key,
-                min(now + self.config.vertical_lease_seconds, lease.total_deadline), lease.total_deadline,
+                min(now + self.config.vertical_lease_seconds, lease.total_deadline),
+                lease.total_deadline,
             )
             self.leases[lease_id] = renewed
             self.held[lease.key] = renewed.deadline
@@ -471,14 +476,18 @@ class KeyboardController:
                         return f"{item.action} interrupted"
                     if event.down:
                         up = next(
-                            later for later in schedule.events[index + 1 :] if later.key == event.key and not later.down
+                            later
+                            for later in schedule.events[index + 1 :]
+                            if later.key == event.key and not later.down
                         )
                         if time.perf_counter() >= self.execution_started + up.at_seconds:
                             self.stop("Input schedule expired before key down")
                             return f"{item.action} interrupted"
                         self.held[event.key] = self.execution_started + up.at_seconds
                         self._send(event.key, True)
-                        last_down = self.execution_started + self.last_timing["events"][-1]["at_seconds"]
+                        last_down = (
+                            self.execution_started + self.last_timing["events"][-1]["at_seconds"]
+                        )
                     else:
                         self._release_keys([event.key])
             if self.stopped.wait(schedule.rest_seconds):

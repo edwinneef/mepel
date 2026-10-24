@@ -38,7 +38,9 @@ def main() -> None:
     try:
         controller.enable()
         timings = []
-        for action in ("left", "right", "up", "down", "attack", "jump", "down_jump", "direction_jump"):
+        for action in (
+            "left", "right", "up", "down", "attack", "jump", "down_jump", "direction_jump"
+        ):
             errors = []
 
             def execute(name=action, failures=errors):

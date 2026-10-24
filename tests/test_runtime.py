@@ -133,7 +133,8 @@ def test_live_processing_continues_while_submitted_key_is_held(app, monkeypatch)
     monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image)
     monkeypatch.setattr("maplebot.runtime.asdict", lambda value: {})
     monkeypatch.setattr(app.agent, "step", lambda observation, now: type("D", (), {
-        "state": "LIVE", "reason": "test", "target": None, "action": __import__("maplebot.decision", fromlist=["Action"]).Action("right", 0.25)
+        "state": "LIVE", "reason": "test", "target": None,
+        "action": __import__("maplebot.decision", fromlist=["Action"]).Action("right", 0.25),
     })())
     app._process(app.image, time.perf_counter())
     deadline = time.perf_counter() + 1

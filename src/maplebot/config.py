@@ -69,7 +69,9 @@ class InputConfig:
             if not math.isfinite(value) or not low <= value <= high:
                 raise ValueError(f"input.{name} must be between {low} and {high}")
         if self.vertical_lease_max_seconds < self.vertical_lease_seconds:
-            raise ValueError("input.vertical_lease_max_seconds must not be below vertical_lease_seconds")
+            raise ValueError(
+                "input.vertical_lease_max_seconds must not be below vertical_lease_seconds"
+            )
 
 
 @dataclass(frozen=True)
