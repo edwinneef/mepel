@@ -775,7 +775,4 @@ def annotate(
             1,
             cv2.LINE_AA,
         )
-    cv2.rectangle(output, (0, 0), (image.shape[1], 46), (20, 27, 24), -1)
-    cv2.putText(output, state, (8, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 240, 200), 1)
-    cv2.putText(output, reason[:110], (8, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (220, 220, 240), 1)
     return output

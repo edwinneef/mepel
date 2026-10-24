@@ -24,6 +24,14 @@ Post-install checks: full pytest suite **177 passed**, Ruff **passed**, `pip che
 
 ## Resume conditions
 
+### Walkthrough interrupted: 2026-10-25
+
+Setup did not pass: the operator reported missing top-of-game pixels, no visible alarm acknowledgment, and F8 not silencing the alarm. Testing stopped before the probe round; no native probe is marked passed.
+
+Confirmed and fixed: the annotated preview painted a 46-pixel status strip over the game; encoder frame publication discarded the stop banner fields; the F8 callback stopped input without acknowledging audio. The debugger now preserves game pixels, publishes stop details from the persistent incident record, and keeps Acknowledge alarm in the header. F8 acknowledges active audio independently of the capture worker, and the direct acknowledge action also handles an alarm without a banner.
+
+Fix verification: five regression tests first reproduced the failures; the full suite then passed **182 tests**, Ruff passed, and browser DOM checks against a silent capture-only screenshot fixture confirmed the visible header button and its acknowledgment API action. Browser screenshot automation timed out; no rendered screenshot or speaker/game effect is claimed. The fixed checkout is installed offline; its previous source/metadata are backed up in `artifacts/debugger-fix-backup-20261025-004840/`, and all 678 existing config/data files are unchanged. Resume with capture-only `./run.ps1`, reset the crop and confirm the full game view before returning to input-capable probes.
+
 The install prerequisite is satisfied. One bounded operator acceptance round from `01-04-PLAN.md` remains. No recording is required. Stop after the first failure; do not click Arm.
 
 1. Start `./run.ps1 -EnableGameplayInput` yourself. Stay unarmed. Attach the MapleStory window, calibrate and verify capture.

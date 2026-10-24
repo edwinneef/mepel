@@ -10,6 +10,18 @@ from maplebot.geometry import Rect
 from maplebot.perception import CameraTracker, TemplateDetector
 
 
+def test_annotation_does_not_cover_game_pixels_with_a_status_strip(tmp_path):
+    from maplebot.perception import annotate
+
+    image = np.random.default_rng(45).integers(0, 255, (120, 160, 3), dtype=np.uint8)
+    observation = TemplateDetector(tmp_path, PerceptionConfig()).detect(image)
+
+    output = annotate(image, observation, None, "IDLE", "Emergency stop hotkey")
+
+    assert output.shape == image.shape
+    np.testing.assert_array_equal(output, image)
+
+
 def sprite(seed: int, height: int = 28, width: int = 24) -> np.ndarray:
     # Deliberately synthetic, textured sprites; not evidence about MapleUnity artwork.
     image = np.random.default_rng(seed).integers(20, 230, (height, width, 3), dtype=np.uint8)

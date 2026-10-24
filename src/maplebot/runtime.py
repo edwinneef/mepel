@@ -228,7 +228,7 @@ class Application:
             raise RuntimeError("Debugger command timed out; input stopped") from None
 
     def snapshot(self) -> dict:
-        with self.lock:
+        with self.stop_lock, self.lock:
             potter = {
                 "readings": {},
                 "reason": "Calibrate full HP/MP bars; preview sends no input",
@@ -239,6 +239,7 @@ class Application:
                 potter.update(suggestion=None, reason="Potion preview stopped")
             return {
                 **self.status,
+                "stop": asdict(self.stop_record) if self.stop_record else None,
                 "capture_only": self.capture_only,
                 "bindings": asdict(self.config.input),
                 "required_probes": sorted(REQUIRED_PROBES),
@@ -463,6 +464,9 @@ class Application:
         )
 
     def _controller_stop(self, code: str, message: str) -> None:
+        if code == "EMERGENCY_STOP" and self.alarm.snapshot()["active"]:
+            self.acknowledge_stop()
+            return
         self.safe_stop(code, message)
 
     def safe_stop(
@@ -565,9 +569,9 @@ class Application:
 
     def acknowledge_stop(self) -> dict[str, object]:
         with self.stop_lock:
+            acknowledged = self.alarm.acknowledge()
             if self.stop_record is None:
-                return {"acknowledged": False, "reason": "No active stop incident"}
-            self.alarm.acknowledge()
+                return {"acknowledged": acknowledged, "reason": "No active stop incident"}
             self.stop_record = replace(self.stop_record, acknowledged=True)
             serialized = asdict(self.stop_record)
             with self.lock:

@@ -54,6 +54,9 @@ def app(monkeypatch, tmp_path):
     config = Config()
     config = replace(config, capture=replace(config.capture, data_dir=str(tmp_path)))
     app = Application(config)
+    monkeypatch.setattr(app.alarm.backend, "play_loop", lambda path: None)
+    monkeypatch.setattr(app.alarm.backend, "stop", lambda: None)
+    monkeypatch.setattr(app.alarm.backend, "beep", lambda: None)
     app.hwnd = 1
     app.calibration = Calibration("MapleStory", 1024, 768, 96, Rect(0, 0, 1024, 768), True, True)
     app.image = np.zeros((768, 1024, 3), dtype=np.uint8)
@@ -327,6 +330,41 @@ def test_safe_stop_promotes_a_racing_silent_stop_without_a_second_incident(app, 
     assert second.severity is StopSeverity.ALARM
     assert starts == [first.id]
     assert len([item for item in app.history if item.get("id") == first.id]) == 1
+
+
+def test_new_encoded_frame_cannot_hide_an_active_alarm_stop(app):
+    from maplebot.frame_encoder import FramePacket
+
+    incident = app.safe_stop("CAPTURE_WORKER_EXIT", "Worker exited")
+    packet = FramePacket(0, "00000000", app.image, app.image, {"state": "IDLE"}, 0.0)
+    app._encoded(packet, b"raw", b"annotated", 1.0)
+
+    status = app.snapshot()
+    assert status["alarm"]["active"]
+    assert status["stop"]["id"] == incident.id
+    assert status["stop"]["code"] == "CAPTURE_WORKER_EXIT"
+    app.acknowledge_stop()
+
+
+def test_f8_watchdog_acknowledges_alarm_without_a_capture_worker(app, monkeypatch):
+    app.safe_stop("CAPTURE_WORKER_EXIT", "Worker exited")
+    assert app.worker is None
+    monkeypatch.setattr(app.windows, "pressed", lambda key: True)
+
+    deadline = time.monotonic() + 1
+    while app.alarm.snapshot()["active"] and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert not app.alarm.snapshot()["active"]
+    assert app.snapshot()["stop"]["acknowledged"]
+    assert not app.controller.enabled
+
+
+def test_acknowledge_silences_alarm_even_without_a_stop_banner(app):
+    app.alarm.start("orphaned-audio")
+
+    assert app.request("acknowledge", {})["acknowledged"]
+    assert not app.alarm.snapshot()["active"]
 
 
 def test_stop_reason_registry_classifies_every_declared_safety_path():
