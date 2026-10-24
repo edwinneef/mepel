@@ -13,7 +13,7 @@ provides:
 affects: [runtime, debugger, capture lifecycle, recording]
 actuals:
   tasks: 3
-  commits: 4
+  commits: 5
 tech-stack:
   added: []
   patterns: [stop registry, release-first terminal ordering, direct dead-worker controls]
@@ -46,6 +46,7 @@ status: complete
 2. **Task 2: Package the looping alarm and enforce the severity registry** - `2b99e38` (feat)
 3. **Safe-stop formatting correction** - `8f04b90` (fix)
 4. **Task 3: Keep debugger acknowledge and worker restart alive after failure** - `747dde0` (feat)
+5. **Racing stop coalescing correction** - `dad4f04` (fix)
 
 ## Verification
 
