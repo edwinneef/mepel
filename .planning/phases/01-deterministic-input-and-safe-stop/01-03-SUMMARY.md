@@ -49,7 +49,7 @@ status: complete
 
 ## Verification
 
-- `D:\projects\maple-external-bot\.venv\Scripts\python.exe -m pytest -q tests/test_runtime.py tests/test_recorder.py tests/test_alarm.py` - PASS, 32 tests.
+- `D:\projects\maple-external-bot\.venv\Scripts\python.exe -m pytest -q tests/test_runtime.py tests/test_recorder.py tests/test_alarm.py` - PASS, 33 tests.
 - `D:\projects\maple-external-bot\.venv\Scripts\ruff.exe check src tests tools` - PASS.
 - Package-resource assertion using `importlib.resources.files('maplebot').joinpath('static/alarm.wav').is_file()` - PASS.
 - `git diff --check` - PASS.
@@ -60,6 +60,7 @@ All checks used fake input/audio boundaries or offline fixtures. No game was lau
 
 - Used the existing project virtual environment at `D:\projects\maple-external-bot\.venv` because this isolated checkout has no local `.venv`.
 - Corrected Ruff formatting in the new keyboard callback calls after task verification; no behavior changed.
+- Promoted a racing SILENT incident to ALARM in place, preserving one incident id, clip, history entry, and alarm start.
 
 ## Files Changed
 

@@ -314,6 +314,20 @@ def test_safe_stop_releases_before_one_clip_status_and_alarm(app, monkeypatch, t
     assert len([item for item in app.history if item.get("id") == first.id]) == 1
 
 
+def test_safe_stop_promotes_a_racing_silent_stop_without_a_second_incident(app, monkeypatch):
+    starts = []
+    monkeypatch.setattr(app.recorder, "trigger", lambda *args, **kwargs: app.data / "clip")
+    monkeypatch.setattr(app.alarm, "start", starts.append)
+
+    first = app.safe_stop("OPERATOR_STOP", "Operator stopped")
+    second = app.safe_stop("CAPTURE_WORKER_EXIT", "Worker exited")
+
+    assert first.id == second.id
+    assert second.severity is StopSeverity.ALARM
+    assert starts == [first.id]
+    assert len([item for item in app.history if item.get("id") == first.id]) == 1
+
+
 def test_stop_reason_registry_classifies_every_declared_safety_path():
     alarm = {
         "CAPTURE_WORKER_EXIT",

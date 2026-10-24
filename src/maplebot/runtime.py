@@ -251,11 +251,35 @@ class Application:
         # This must happen before any recorder, encoder, status, or audio work.
         self.controller.stop(message, code=code, notify=False)
         with self.stop_lock:
-            if self.stop_record is not None and (
-                self.stop_record.severity is StopSeverity.ALARM
-                or reason.severity is StopSeverity.SILENT
-            ):
+            if self.stop_record is not None:
                 self.potter.stop()
+                self.agent.stop(message)
+                self.mode, self.stop_reason, self.pending_action = "capture", message, None
+                self.last_action = "release all"
+                if (
+                    self.stop_record.severity is StopSeverity.SILENT
+                    and reason.severity is StopSeverity.ALARM
+                ):
+                    self.stop_record = replace(
+                        self.stop_record,
+                        code=code,
+                        severity=StopSeverity.ALARM,
+                        message=message,
+                        acknowledged=False,
+                    )
+                    serialized = asdict(self.stop_record)
+                    with self.lock:
+                        self.status = {**self.status, "reason": message, "stop": serialized}
+                        if self.history and self.history[0].get("id") == self.stop_record.id:
+                            self.history[0] = {"reason": message, **serialized}
+                    self.alarm.start(self.stop_record.id)
+                elif self.stop_record.severity is StopSeverity.SILENT:
+                    self.stop_record = replace(self.stop_record, code=code, message=message)
+                    serialized = asdict(self.stop_record)
+                    with self.lock:
+                        self.status = {**self.status, "reason": message, "stop": serialized}
+                        if self.history and self.history[0].get("id") == self.stop_record.id:
+                            self.history[0] = {"reason": message, **serialized}
                 return self.stop_record
             cutoff = max(self.sequence - 1, self.encoder.snapshot()["accepted_sequence"])
             try:
