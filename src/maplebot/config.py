@@ -7,7 +7,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class CaptureConfig:
     fps: float = 12
-    window_title: str = "MapleUnity"
+    window_title: str = "MapleStory"
     data_dir: str = "data"
 
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "maple-external-bot"
 version = "0.1.0"
-description = "Screenshot-only external MapleUnity agent and calibration debugger"
+description = "Screenshot-only external MapleStory agent and calibration debugger"
 requires-python = ">=3.12"
 dependencies = ["mss>=10,<11", "numpy>=2,<3", "opencv-python-headless>=4.13,<5"]
 

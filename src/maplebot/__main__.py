@@ -7,7 +7,7 @@ from .config import Config
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Screenshot-only external MapleUnity agent")
+    parser = argparse.ArgumentParser(description="Screenshot-only external MapleStory agent")
     parser.add_argument("--config", type=Path, default=Path("config.toml"))
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Report Python/display/window environment; sends no input")

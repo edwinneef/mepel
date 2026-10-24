@@ -278,7 +278,7 @@ class Application:
                 raise ValueError("Crop and verify the Game view before input")
             window = self.windows.get(self.hwnd)
             if self.config.capture.window_title.casefold() not in window.title.casefold():
-                raise ValueError("Input is restricted to the configured MapleUnity window title")
+                raise ValueError("Input is restricted to the configured game window title")
             if name == "arm" and not self.calibration.controls_verified:
                 raise ValueError("Probe and confirm left, right, attack, jump before combat")
             action = payload.get("action")
@@ -289,7 +289,7 @@ class Application:
                 self.stop_requested.clear()
             self.mode = "pending_arm" if name == "arm" else "probe_wait"
             self.pending_at = time.perf_counter() + 3
-            return {"mode": self.mode, "instruction": "Click Unity Game view now; F8 cancels"}
+            return {"mode": self.mode, "instruction": "Click the game window now; F8 cancels"}
         if name == "confirm_controls":
             if not self.calibration or self.probed != {"left", "right", "attack", "jump"}:
                 raise ValueError("Complete all four bounded probes in this session first")
@@ -486,7 +486,7 @@ class Application:
         else:
             reason = self.stop_reason
             if self.mode in {"pending_arm", "probe_wait"}:
-                reason = f"Focus Unity Game view; input in {max(0, self.pending_at - now):.1f}s"
+                reason = f"Focus the game window; input in {max(0, self.pending_at - now):.1f}s"
             decision = Decision(self.agent.state, Action(), reason)
         annotated = annotate(image, observation, decision.target, decision.state, decision.reason)
         potter = self.potter.observe(

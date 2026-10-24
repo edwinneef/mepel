@@ -1,6 +1,6 @@
 # Maple External
 
-An independent Python application for Windows 11 and Python 3.12+. It reads visible screenshot pixels and can send ordinary, bounded keyboard input. MapleUnity is never modified. No memory, Unity APIs, save files, NX assets, networking to the game, or debugging interfaces are used.
+An independent Python application for Windows 11 and Python 3.12+. It reads visible screenshot pixels and can send ordinary, bounded keyboard input. The game client is never modified. No memory, game APIs, save files, NX assets, networking to the game, or debugging interfaces are used.
 
 ## Install and launch
 
@@ -19,7 +19,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
-The helpers only install this application in its local virtual environment. They do not install, change, or launch MapleUnity. Existing screenshots/templates are preserved. Replaced calibration files receive timestamped backups.
+The helpers only install this application in its local virtual environment. They do not install, change, or launch the game. Existing screenshots/templates are preserved. Replaced calibration files receive timestamped backups.
 
 For temporary MapleStory recognition testing, use the default launcher and play manually. Attach the visible game window, confirm the correct crop, then inspect boxes or save screenshots. Enemy matching needs native 1x pixels. Saved screenshots and recordings can be replayed offline.
 
@@ -35,7 +35,7 @@ Select the Game tab and keep it unobscured. The documented attack defaults are *
 
 ## Calibration: capture first
 
-1. Start the debugger. Use **Refresh windows**, select the MapleUnity Unity Editor window, and **Attach**. No gameplay input is sent.
+1. Start the debugger. Use **Refresh windows**, select the window titled **MapleStory** (`capture.window_title`), and **Attach**. No gameplay input is sent.
 2. Use **Reset crop** if a previous crop exists. **Freeze for selection**, then drag a rectangle tightly around the rendered Game view, excluding tabs, toolbars and letterboxing. **Apply selected crop**.
 3. Inspect the live pixels. They should show the actual running game at the expected size and detail. Check **I see the correct, unscaled live Game view**, then **Confirm capture**. An evidence screenshot is saved.
 4. To select a screen region without attaching a window, expand **Manual desktop region** and enter physical x, y, width and height. Negative coordinates support monitors to the left/top. This mode is observation only and cannot arm input.
@@ -77,7 +77,7 @@ Template matching was chosen as the first inspectable, training-free implementat
 ## Verify keyboard control, then combat
 
 1. Verify capture and recognition first. Keep the player on one ground platform with one nearby visible monster. Combat is required only for the attack-effect probe and combat run, not capture calibration.
-2. Click **Left** under **Verify controls**, then click inside the Unity **Game view** during the three-second countdown. Observe a short leftward movement. Repeat **Right**, **Attack**, and **Jump** separately. An accepted SendInput call does not prove the game responded; visually inspect each effect.
+2. Click **Left** under **Verify controls**, then click inside the game window during the three-second countdown. Observe a short leftward movement. Repeat **Right**, **Attack**, and **Jump** separately. An accepted SendInput call does not prove the game responded; visually inspect each effect.
 3. If a probe has no effect, stop. Check Game-tab focus and actual bindings; adjust config and restart. No alternative injection mechanism or privileged workaround is used.
 4. After observing all four effects, check the acknowledgement and **Confirm controls**. This records your observation, not an automatically inferred success.
 5. Click **Arm combat**, then focus the Game view during the three-second countdown. The agent selects a confident same-platform monster, moves in short steps, faces it, attacks, releases input, and checks later screenshots. Initially stop after one visible approach/attack attempt and inspect the saved evidence. **F8** stops immediately; the debugger's **STOP** also releases keys.

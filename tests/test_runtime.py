@@ -16,7 +16,7 @@ from maplebot.windows import Window
 
 class FakeWindows:
     def __init__(self):
-        self.window = Window(1, "MapleUnity - Unity", Rect(0, 0, 1024, 768), True, 96)
+        self.window = Window(1, "MapleStory", Rect(0, 0, 1024, 768), True, 96)
         self.visible = True
 
     def get(self, hwnd):
@@ -45,9 +45,7 @@ def app(monkeypatch, tmp_path):
     config = replace(config, capture=replace(config.capture, data_dir=str(tmp_path)))
     app = Application(config)
     app.hwnd = 1
-    app.calibration = Calibration(
-        "MapleUnity - Unity", 1024, 768, 96, Rect(0, 0, 1024, 768), True, True
-    )
+    app.calibration = Calibration("MapleStory", 1024, 768, 96, Rect(0, 0, 1024, 768), True, True)
     app.image = np.zeros((768, 1024, 3), dtype=np.uint8)
     app.window = app.windows.window
     app.region = app.window.client
@@ -165,7 +163,7 @@ def test_capture_only_blocks_input_even_with_verified_capture_and_supplied_backe
     try:
         application.hwnd = 1
         application.calibration = Calibration(
-            "MapleUnity - Unity", 1024, 768, 96, Rect(0, 0, 1024, 768), True, True
+            "MapleStory", 1024, 768, 96, Rect(0, 0, 1024, 768), True, True
         )
         assert not application._input_safe()
         assert application.snapshot()["capture_only"] is True
@@ -194,7 +192,7 @@ def test_potion_preview_is_independent_of_combat_and_global_stop_disables_it(app
     app.image = hud()
     app.region = Rect(0, 0, 300, 100)
     app.windows.window = app.window = replace(app.window, client=app.region)
-    app.calibration = Calibration("MapleUnity - Unity", 300, 100, 96, app.region, True, False)
+    app.calibration = Calibration("MapleStory", 300, 100, 96, app.region, True, False)
     frozen = app._command("freeze", {})
     app._command(
         "autopotter_calibrate",
