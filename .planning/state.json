@@ -6,7 +6,7 @@
     {
       "number": "1",
       "name": "Deterministic Input and Safe Stop",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "2",
@@ -34,5 +34,5 @@
     "label": "Advance to the next step",
     "reason": "Phase 1 of 5 · 0% · executing"
   },
-  "updated_at": "2026-10-24T18:38:57.603Z"
+  "updated_at": "2026-10-24T19:47:17.000Z"
 }
