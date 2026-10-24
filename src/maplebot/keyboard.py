@@ -143,6 +143,7 @@ class KeyboardController:
         *,
         replay: bool = False,
         timing: TimingConfig | None = None,
+        on_stop: Callable[[str, str], None] | None = None,
     ) -> None:
         for key in (
             config.left, config.right, config.attack, config.jump, config.up, config.down,
@@ -152,6 +153,7 @@ class KeyboardController:
                 raise ValueError(f"Unsupported key: {key}")
         self.backend, self.config = backend, config
         self.safe, self.emergency, self.replay = safe, emergency, replay
+        self.on_stop = on_stop
         self.enabled = False
         self.stopped = threading.Event()
         self.closed = threading.Event()
@@ -187,7 +189,13 @@ class KeyboardController:
             self.stopped.clear()
             self.reason, self.enabled = "Ready", True
 
-    def stop(self, reason: str = "Stopped") -> None:
+    def stop(
+        self,
+        reason: str = "Stopped",
+        *,
+        code: str = "INPUT_BACKEND_FAILURE",
+        notify: bool = True,
+    ) -> None:
         with self.lock:
             self.enabled = False
             self.stopped.set()
@@ -195,6 +203,8 @@ class KeyboardController:
             self.reason = reason
             self._cancel_queued()
             self.release_all()
+        if notify and self.on_stop is not None:
+            self.on_stop(code, reason)
 
     def _cancel_queued(self) -> None:
         while True:
@@ -233,7 +243,7 @@ class KeyboardController:
         if action.kind not in ACTIONS:
             raise ValueError(f"Unknown action: {action.kind}")
         if not 0 < action.seconds <= self.config.max_action_seconds:
-            self.stop("Maximum action duration exceeded")
+            self.stop("Maximum action duration exceeded", code="INPUT_BACKEND_FAILURE")
             return "blocked: duration"
         with self.lock:
             if self.replay or not self.enabled or self.stopped.is_set():
@@ -265,7 +275,7 @@ class KeyboardController:
                 result = self._execute_schedule(item)
             except Exception as error:
                 self.errors[item.ticket] = error
-                self.stop("Keyboard backend failure")
+                self.stop("Keyboard backend failure", code="INPUT_BACKEND_FAILURE")
                 result = f"{item.action} interrupted"
             finally:
                 with self.lock:
@@ -306,7 +316,7 @@ class KeyboardController:
             try:
                 self._send(key, True)
             except Exception:
-                self.stop("Keyboard backend failure")
+                self.stop("Keyboard backend failure", code="INPUT_BACKEND_FAILURE")
                 raise
             return lease_id
 
@@ -417,7 +427,7 @@ class KeyboardController:
                     return "sequence interrupted"
                 with self.lock:
                     if not self.enabled or self.emergency() or not self.safe():
-                        self.stop("Focus/safety lost or emergency stop")
+                        self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
                         return "sequence interrupted"
                     if event.down:
                         up = next(
@@ -427,7 +437,10 @@ class KeyboardController:
                         )
                         deadline = self.execution_started + up.at_seconds
                         if time.perf_counter() >= deadline:
-                            self.stop("Input schedule expired before key down")
+                            self.stop(
+                                "Input schedule expired before key down",
+                                code="INPUT_BACKEND_FAILURE",
+                            )
                             return "sequence interrupted"
                         self.held[event.key] = deadline
                         self._send(event.key, True)
@@ -442,10 +455,10 @@ class KeyboardController:
                 self.last_timing["outcome"] = "completed"
             return "sequence completed"
         except ValueError:
-            self.stop("Invalid input sequence")
+            self.stop("Invalid input sequence", code="INPUT_BACKEND_FAILURE")
             raise
         except Exception:
-            self.stop("Keyboard backend failure")
+            self.stop("Keyboard backend failure", code="INPUT_BACKEND_FAILURE")
             raise
         finally:
             self.release_all()
@@ -458,7 +471,7 @@ class KeyboardController:
         self.release_all()
         with self.lock:
             if self._cancelled(item) or self.emergency() or not self.safe():
-                self.stop("Focus/safety lost or emergency stop")
+                self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
                 return f"{item.action} interrupted"
             self.execution_started = time.perf_counter()
             self.last_timing = {"schedule": asdict(schedule), "events": [], "outcome": "running"}
@@ -472,7 +485,7 @@ class KeyboardController:
                     return f"{item.action} interrupted"
                 with self.lock:
                     if self._cancelled(item) or self.emergency() or not self.safe():
-                        self.stop("Focus/safety lost or emergency stop")
+                        self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
                         return f"{item.action} interrupted"
                     if event.down:
                         up = next(
@@ -481,7 +494,10 @@ class KeyboardController:
                             if later.key == event.key and not later.down
                         )
                         if time.perf_counter() >= self.execution_started + up.at_seconds:
-                            self.stop("Input schedule expired before key down")
+                            self.stop(
+                                "Input schedule expired before key down",
+                                code="INPUT_BACKEND_FAILURE",
+                            )
                             return f"{item.action} interrupted"
                         self.held[event.key] = self.execution_started + up.at_seconds
                         self._send(event.key, True)
@@ -505,9 +521,9 @@ class KeyboardController:
         while not self.closed.wait(0.005):
             try:
                 if self.emergency():
-                    self.stop("Emergency stop hotkey")
+                    self.stop("Emergency stop hotkey", code="EMERGENCY_STOP")
                 elif self.enabled and not self.safe():
-                    self.stop("Target focus, geometry, or visibility lost")
+                    self.stop("Target focus, geometry, or visibility lost", code="FOCUS_LOSS")
                 else:
                     with self.lock:
                         expired = [
@@ -517,10 +533,10 @@ class KeyboardController:
                         ]
                         self._release_keys(expired)
             except Exception as error:
-                self.stop(f"Input watchdog failure: {error}")
+                self.stop(f"Input watchdog failure: {error}", code="INPUT_WATCHDOG_FAILURE")
 
     def close(self) -> None:
-        self.stop("Controller closed")
+        self.stop("Controller closed", notify=False)
         self.closed.set()
         self.queue.put_nowait(None)
         if threading.current_thread() is not self.executor:

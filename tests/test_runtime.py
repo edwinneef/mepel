@@ -10,7 +10,7 @@ import pytest
 from maplebot.capture import Calibration
 from maplebot.config import Config
 from maplebot.geometry import Rect
-from maplebot.runtime import Application
+from maplebot.runtime import STOP_REASONS, Application, StopSeverity
 from maplebot.windows import Window
 
 
@@ -278,6 +278,104 @@ def test_dry_run_auto_records_and_stop_flushes_clip(app):
     app.recorder.close()
     assert (path / "00000000.png").exists()
     assert "Operator stopped" in (path / "events.jsonl").read_text("utf-8")
+
+
+def test_safe_stop_releases_before_one_clip_status_and_alarm(app, monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(
+        app.controller,
+        "stop",
+        lambda *args, **kwargs: calls.append("release"),
+    )
+    monkeypatch.setattr(
+        app.encoder,
+        "flush_through",
+        lambda *args, **kwargs: calls.append("flush") or {"complete": True},
+    )
+    monkeypatch.setattr(
+        app.recorder,
+        "trigger",
+        lambda *args, **kwargs: calls.append("clip") or tmp_path / "clip",
+    )
+    monkeypatch.setattr(
+        app.alarm,
+        "start",
+        lambda incident_id: calls.append(("alarm", incident_id)),
+    )
+
+    first = app.safe_stop("CAPTURE_WORKER_FAILURE", "Injected capture failure")
+    second = app.safe_stop("CAPTURE_WORKER_FAILURE", "Injected capture failure")
+
+    assert first == second
+    assert calls[:3] == ["release", "flush", "clip"]
+    assert calls.count("release") == 2
+    assert len([item for item in calls if isinstance(item, tuple)]) == 1
+    assert app.snapshot()["stop"]["clip_path"] == str(tmp_path / "clip")
+    assert len([item for item in app.history if item.get("id") == first.id]) == 1
+
+
+def test_safe_stop_promotes_a_racing_silent_stop_without_a_second_incident(app, monkeypatch):
+    starts = []
+    monkeypatch.setattr(app.recorder, "trigger", lambda *args, **kwargs: app.data / "clip")
+    monkeypatch.setattr(app.alarm, "start", starts.append)
+
+    first = app.safe_stop("OPERATOR_STOP", "Operator stopped")
+    second = app.safe_stop("CAPTURE_WORKER_EXIT", "Worker exited")
+
+    assert first.id == second.id
+    assert second.severity is StopSeverity.ALARM
+    assert starts == [first.id]
+    assert len([item for item in app.history if item.get("id") == first.id]) == 1
+
+
+def test_stop_reason_registry_classifies_every_declared_safety_path():
+    alarm = {
+        "CAPTURE_WORKER_EXIT",
+        "CAPTURE_WORKER_FAILURE",
+        "INPUT_WATCHDOG_FAILURE",
+        "INPUT_BACKEND_FAILURE",
+        "FOCUS_LOSS",
+        "CALIBRATION_INVALID",
+        "PLAYER_UNCERTAIN",
+        "DEBUGGER_TIMEOUT",
+    }
+    silent = {
+        "EMERGENCY_STOP",
+        "OPERATOR_STOP",
+        "CAPTURE_ONLY_GUARD",
+        "PROBE_COMPLETE",
+        "CALIBRATION",
+        "POLICY_STOP",
+        "DRY_RUN_STOP",
+    }
+    alarm_codes = {
+        code for code, reason in STOP_REASONS.items() if reason.severity is StopSeverity.ALARM
+    }
+    silent_codes = {
+        code for code, reason in STOP_REASONS.items() if reason.severity is StopSeverity.SILENT
+    }
+    assert alarm_codes == alarm
+    assert silent_codes == silent
+
+
+def test_dead_worker_can_acknowledge_and_restart_directly(app, monkeypatch):
+    active = {"value": False}
+    monkeypatch.setattr(app.alarm, "start", lambda incident_id: active.update(value=True))
+    monkeypatch.setattr(app.alarm, "acknowledge", lambda: active.update(value=False))
+    monkeypatch.setattr(app.alarm, "snapshot", lambda: {"active": active["value"]})
+    monkeypatch.setattr(app, "_run", lambda: app.closed.wait(1))
+
+    app.probed.add("jump")
+    app.safe_stop("CAPTURE_WORKER_EXIT", "Injected fatal worker exit")
+    assert app.request("acknowledge", {})["acknowledged"]
+    restarted = app.request("restart_capture", {})
+
+    assert restarted["restarted"] is True
+    assert app.worker is not None and app.worker.is_alive()
+    assert app.probed == set()
+    assert app.calibration is not None and not app.calibration.capture_verified
+    assert not app.controller.enabled
+    assert app.request("restart_capture", {})["restarted"] is False
 
 
 def test_capture_stage_timing_excludes_encoder_png_work(app, monkeypatch):

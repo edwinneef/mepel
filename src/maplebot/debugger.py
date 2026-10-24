@@ -66,7 +66,13 @@ def serve(app: Application, port: int) -> ThreadingHTTPServer:
                 if not 0 < length <= 16384:
                     raise ValueError("Invalid request length")
                 payload = json.loads(self.rfile.read(length))
-                result = app.request(self.path.removeprefix("/api/"), payload)
+                command = self.path.removeprefix("/api/")
+                if command == "acknowledge":
+                    result = app.acknowledge_stop()
+                elif command == "restart_capture":
+                    result = app.restart_capture()
+                else:
+                    result = app.request(command, payload)
                 self.reply(200, json.dumps(result).encode(), "application/json")
             except Exception as error:
                 self.reply(400, json.dumps({"error": str(error)}).encode(), "application/json")

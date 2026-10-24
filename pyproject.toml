@@ -19,7 +19,7 @@ maplebot = "maplebot.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-maplebot = ["static/*.html"]
+maplebot = ["static/*.html", "static/*.wav"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
