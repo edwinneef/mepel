@@ -34,7 +34,15 @@ left = "left"
 right = "right"
 attack = "ctrl"
 jump = "space"
+up = "up"
+down = "down"
+hp_potion = "insert"
+mp_potion = "delete"
+pet_food = "home"
+skill = "a"
 max_action_seconds = 0.25
+vertical_lease_seconds = 1.0
+vertical_lease_max_seconds = 8.0
 emergency_key = "f8"
 
 # Software-input realism only. No input-origin concealment or external hardware.

@@ -18,6 +18,14 @@ from .input_timing import ACTIONS, KeyHold, TimingPlanner
 KEYS = {
     "left": 0x25,
     "right": 0x27,
+    "up": 0x26,
+    "down": 0x28,
+    "insert": 0x2D,
+    "delete": 0x2E,
+    "home": 0x24,
+    "end": 0x23,
+    "pageup": 0x21,
+    "pagedown": 0x22,
     "a": 0x41,
     "d": 0x44,
     "z": 0x5A,
@@ -25,6 +33,10 @@ KEYS = {
     "space": 0x20,
     "f8": 0x77,
 }
+
+EXTENDED_KEYS = frozenset(
+    {"left", "right", "up", "down", "insert", "delete", "home", "end", "pageup", "pagedown"}
+)
 
 
 class InputBackend(Protocol):
@@ -56,6 +68,16 @@ class _QueuedPlan:
     action: str
     schedule: object
     submitted_at: float
+
+
+@dataclass(frozen=True)
+class VerticalLease:
+    lease_id: int
+    generation: int
+    action: str
+    key: str
+    deadline: float
+    total_deadline: float
 
 
 class Win32Input:
@@ -94,7 +116,7 @@ class Win32Input:
 
         vk = KEYS[key]
         flags = 0x0008 | (0 if down else 0x0002)
-        if key in ("left", "right"):
+        if key in EXTENDED_KEYS:
             flags |= 0x0001
         event = Input(
             type=1,
@@ -117,7 +139,10 @@ class KeyboardController:
         replay: bool = False,
         timing: TimingConfig | None = None,
     ) -> None:
-        for key in (config.left, config.right, config.attack, config.jump, config.emergency_key):
+        for key in (
+            config.left, config.right, config.attack, config.jump, config.up, config.down,
+            config.hp_potion, config.mp_potion, config.pet_food, config.skill, config.emergency_key,
+        ):
             if key not in KEYS:
                 raise ValueError(f"Unsupported key: {key}")
         self.backend, self.config = backend, config
@@ -133,6 +158,8 @@ class KeyboardController:
         self.outcomes: queue.SimpleQueue[ActionOutcome] = queue.SimpleQueue()
         self.active: _QueuedPlan | None = None
         self.errors: dict[int, Exception] = {}
+        self.leases: dict[int, VerticalLease] = {}
+        self.next_lease_id = 1
         self.held: dict[str, float] = {}
         self.planner = TimingPlanner(config, timing or TimingConfig())
         self.execution_started = time.perf_counter()
@@ -237,7 +264,7 @@ class KeyboardController:
             self._finish(item, result, started_at)
 
     def _cancelled(self, item: _QueuedPlan) -> bool:
-        return self.stopped.is_set() or item.generation != self.generation or not self.enabled
+        return self._cancelled_generation(item.generation)
 
     def release_all(self) -> None:
         with self.lock:
@@ -249,6 +276,68 @@ class KeyboardController:
             raise ValueError(f"Unknown action: {action}")
         with self.lock:
             self._release_keys([getattr(self.config, action)])
+
+    def start_vertical_lease(self, action: str) -> int:
+        if action not in {"up", "down"}:
+            raise ValueError("Only configured up/down actions may use a vertical lease")
+        with self.lock:
+            if self._cancelled_generation(self.generation) or self.emergency() or not self.safe():
+                raise RuntimeError("Input is not safe for a vertical lease")
+            now = time.perf_counter()
+            key = getattr(self.config, action)
+            lease_id = self.next_lease_id
+            self.next_lease_id += 1
+            lease = VerticalLease(
+                lease_id, self.generation, action, key,
+                now + self.config.vertical_lease_seconds,
+                now + self.config.vertical_lease_max_seconds,
+            )
+            self.held[key] = lease.deadline
+            self.leases[lease_id] = lease
+            try:
+                self._send(key, True)
+            except Exception:
+                self.stop("Keyboard backend failure")
+                raise
+            return lease_id
+
+    def renew_vertical_lease(self, lease_id: int) -> bool:
+        with self.lock:
+            lease = self.leases.get(lease_id)
+            if lease is None:
+                return False
+            now = time.perf_counter()
+            if (
+                now >= lease.deadline
+                or now >= lease.total_deadline
+                or lease.generation != self.generation
+                or self._cancelled_generation(lease.generation)
+                or self.emergency()
+                or not self.safe()
+            ):
+                self._release_lease(lease_id)
+                return False
+            renewed = VerticalLease(
+                lease.lease_id, lease.generation, lease.action, lease.key,
+                min(now + self.config.vertical_lease_seconds, lease.total_deadline), lease.total_deadline,
+            )
+            self.leases[lease_id] = renewed
+            self.held[lease.key] = renewed.deadline
+            return True
+
+    def release_vertical_lease(self, lease_id: int) -> bool:
+        with self.lock:
+            return self._release_lease(lease_id)
+
+    def _release_lease(self, lease_id: int) -> bool:
+        lease = self.leases.pop(lease_id, None)
+        if lease is None:
+            return False
+        self._release_keys([lease.key])
+        return True
+
+    def _cancelled_generation(self, generation: int) -> bool:
+        return self.stopped.is_set() or generation != self.generation or not self.enabled
 
     def _send(self, key: str, down: bool) -> None:
         at_seconds = time.perf_counter() - self.execution_started
@@ -262,6 +351,9 @@ class KeyboardController:
             try:
                 self._send(key, False)
                 del self.held[key]
+                for lease_id, lease in tuple(self.leases.items()):
+                    if lease.key == key:
+                        del self.leases[lease_id]
             except Exception as error:
                 self.reason = f"Key release failed: {error}"
                 self.stopped.set()

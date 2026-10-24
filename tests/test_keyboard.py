@@ -160,6 +160,33 @@ def test_watchdog_caps_held_key_even_if_action_thread_stalls(controller):
     assert not control.held
 
 
+def test_vertical_lease_renews_only_before_expiry_and_respects_total_cap():
+    backend = Backend()
+    config = InputConfig(vertical_lease_seconds=0.03, vertical_lease_max_seconds=0.06)
+    control = KeyboardController(backend, config, lambda: True, lambda: False)
+    try:
+        control.enable()
+        lease = control.start_vertical_lease("up")
+        time.sleep(0.01)
+        assert control.renew_vertical_lease(lease)
+        time.sleep(0.06)
+        assert not control.renew_vertical_lease(lease)
+        assert backend.events == [("up", True), ("up", False)]
+        assert not control.release_vertical_lease(lease)
+    finally:
+        control.close()
+
+
+def test_vertical_lease_rejects_non_vertical_actions_and_empty_operations(controller):
+    control, backend, _ = controller
+    control.enable()
+    with pytest.raises(ValueError, match="up/down"):
+        control.start_vertical_lease("right")
+    assert not control.renew_vertical_lease(404)
+    assert not control.release_vertical_lease(404)
+    assert backend.events == []
+
+
 def test_overlapping_keys_release_independently_and_backend_can_be_replaced():
     backend = Backend()
     control = KeyboardController(
