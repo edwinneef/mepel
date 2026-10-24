@@ -2,16 +2,16 @@
 gsd_state_version: "1.0"
 current_phase: 1
 current_phase_name: Deterministic Input and Safe Stop
-status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-10-24T18:06:13.773Z"
+status: executing
+stopped_at: Phase 1 planned and verified; ready to execute
+last_updated: "2026-10-24T18:39:26.642Z"
 last_activity: 2026-10-24
 last_activity_desc: Roadmap created (5 phases, 31/31 v1 requirements mapped)
-state_head: fbc22376108783dce314e62610ea43e84da60813
+state_head: eab280dc0bba818f378332521ff4527dd4a679cd
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
+  total_plans: 4
   completed_plans: 0
   percent: 0
 ---
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-10-24)
 
 ## Current Position
 
-Phase: 1 of 5 (Deterministic Input and Safe Stop)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-10-24 - Roadmap created (5 phases, 31/31 v1 requirements mapped)
+Phase: 1 (Deterministic Input and Safe Stop) — READY TO EXECUTE
+Plan: 0 of 4 in current phase
+Status: Ready to execute
+Last activity: 2026-10-24 - Phase 1 researched and planned; 4 plans in 4 waves, checker and coverage gates passed
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -71,7 +71,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1]: Decide input on its own thread vs a synchronous loop with renewable leases (research files disagree).
+- [Phase 1, resolved]: One serial input-executor thread keeps capture non-blocking; the existing watchdog owns safety gates and bounded vertical-lease expiry. See 01-RESEARCH.md and 01-01-PLAN.md.
 - [Phase 2]: Before planning, check on recordings or a capture-only walk whether the camera scrolls on the target spot. The answer decides the layout data model.
 - [Phase 3]: SUST-04 reads potion counts from the quickslot, while research deferred count reading and preferred an icon check. Confirm the digits are legible at 1x before planning.
 - [Phase 4]: Processing runs at 250-400 ms per frame (about 3 fps). Move verification windows must hold at that rate.
@@ -87,6 +87,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-24T18:06:13.750Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-deterministic-input-and-safe-stop/01-CONTEXT.md
+Last session: 2026-10-24T18:39:26.617Z
+Stopped at: Phase 1 planned and verified; ready to execute
+Resume file: .planning/phases/01-deterministic-input-and-safe-stop/01-01-PLAN.md

@@ -1,0 +1,38 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": null,
+  "phases": [
+    {
+      "number": "1",
+      "name": "Deterministic Input and Safe Stop",
+      "status": "pending"
+    },
+    {
+      "number": "2",
+      "name": "Spot Teaching and Localization",
+      "status": "pending"
+    },
+    {
+      "number": "3",
+      "name": "Sustain",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "Verified Movement",
+      "status": "pending"
+    },
+    {
+      "number": "5",
+      "name": "Multi-Platform Grinding and Recovery",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "$gsd-progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 1 of 5 · 0% · executing"
+  },
+  "updated_at": "2026-10-24T18:38:57.603Z"
+}
