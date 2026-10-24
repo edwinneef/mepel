@@ -35,51 +35,62 @@ class SessionRecorder:
         self.events = 0
         self.dropped = 0
         self.pending = 0
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.jobs: queue.Queue[tuple[str, Path, Any] | None] = queue.Queue()
         self.writer = threading.Thread(target=self._write, name="recorder", daemon=True)
         self.writer.start()
 
     @property
     def active(self) -> bool:
-        return self.path is not None and not self.closing
+        with self.lock:
+            return self.path is not None and not self.closing
 
     def start(self, label: str, *, manual: bool = False) -> Path:
-        if self.closing:
-            self.stop()
-        if self.path is None:
-            self.path = self.root / f"session-{time.time_ns()}-{label}"
-            self.path.mkdir(parents=True)
-            self.written.clear()
-            self.post_until, self.last_keyframe = 0.0, float("-inf")
-            self.events = self.dropped = 0
-            self.manual = manual
-            self.jobs.put(("prune", self.path, None))
-            # Pre-roll: buffered frames may be flushed later, so log their decisions too.
-            for _, _, line in self.buffer:
-                self.jobs.put(("line", self.path / "decisions.jsonl", line))
-        return self.path
+        with self.lock:
+            if self.closing:
+                self.stop()
+            if self.path is None:
+                self.path = self.root / f"session-{time.time_ns()}-{label}"
+                self.path.mkdir(parents=True)
+                self.written.clear()
+                self.post_until, self.last_keyframe = 0.0, float("-inf")
+                self.events = self.dropped = 0
+                self.manual = manual
+                path = self.path
+                lines = [line for _, _, line in self.buffer]
+            else:
+                path, lines = self.path, []
+        self.jobs.put(("prune", path, None))
+        # Pre-roll: buffered frames may be flushed later, so log their decisions too.
+        for line in lines:
+            self.jobs.put(("line", path / "decisions.jsonl", line))
+        return path
 
     def stop(self) -> Path | None:
-        path, self.path, self.full, self.manual = self.path, None, False, False
-        self.closing = False
-        return path
+        with self.lock:
+            path, self.path, self.full, self.manual = self.path, None, False, False
+            self.closing = False
+            return path
 
     def observe(self, stem: str, raw: bytes, status: dict, now: float) -> None:
         line = json.dumps({"frame": f"{stem}.png", **status}) + "\n"
-        self.buffer.append((stem, raw, line))
-        if self.path is None:
-            return
-        self.jobs.put(("line", self.path / "decisions.jsonl", line))
-        keyframe = (
-            self.config.keyframe_seconds > 0
-            and now - self.last_keyframe >= self.config.keyframe_seconds
-        )
-        if self.full or now < self.post_until or keyframe:
+        with self.lock:
+            self.buffer.append((stem, raw, line))
+            path = self.path
+            if path is None:
+                return
+            keyframe = (
+                self.config.keyframe_seconds > 0
+                and now - self.last_keyframe >= self.config.keyframe_seconds
+            )
+            frame = self.full or now < self.post_until or keyframe
             if keyframe:
                 self.last_keyframe = now
-            self._frame(self.path, stem, raw)
-        if self.closing:
+            closing = self.closing
+        self.jobs.put(("line", path / "decisions.jsonl", line))
+        if frame:
+            self._frame(path, stem, raw)
+        if closing:
             self.stop()
 
     def trigger(self, reason: str, now: float, *, close: bool = False) -> Path:
@@ -88,28 +99,31 @@ class SessionRecorder:
         `close` ends the session after the next observed frame, so the decision that
         caused the stop is still logged.
         """
-        clip = not self.active
-        path = self.start("clip") if clip else self.path
-        assert path is not None
-        for stem, raw, _ in self.buffer:
+        with self.lock:
+            clip = self.path is None or self.closing
+            path = self.start("clip") if clip else self.path
+            assert path is not None
+            frames = list(self.buffer)
+            self.events += 1
+            self.post_until = now + self.config.post_seconds
+            if not clip and close:
+                self.closing = True
+        for stem, raw, _ in frames:
             self._frame(path, stem, raw)
-        self.events += 1
         event = {"time": round(time.time(), 3), "reason": reason}
         self.jobs.put(("line", path / "events.jsonl", json.dumps(event) + "\n"))
-        self.post_until = now + self.config.post_seconds
         if clip:
             self.stop()
-        elif close:
-            self.closing = True
         return path
 
     def snapshot(self) -> dict:
-        return {
-            "path": str(self.path) if self.path else None,
-            "full": self.full,
-            "events": self.events,
-            "dropped": self.dropped,
-        }
+        with self.lock:
+            return {
+                "path": str(self.path) if self.path else None,
+                "full": self.full,
+                "events": self.events,
+                "dropped": self.dropped,
+            }
 
     def close(self) -> None:
         self.stop()
@@ -117,14 +131,14 @@ class SessionRecorder:
         self.writer.join(timeout=5)
 
     def _frame(self, path: Path, stem: str, raw: bytes) -> None:
-        if stem in self.written:
-            return
         with self.lock:
+            if stem in self.written:
+                return
             if self.pending >= self.config.max_queue_frames:
                 self.dropped += 1
                 return
             self.pending += 1
-        self.written.add(stem)
+            self.written.add(stem)
         self.jobs.put(("frame", path / f"{stem}.png", raw))
 
     def _write(self) -> None:
