@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 1
 current_phase_name: Deterministic Input and Safe Stop
 status: executing
-stopped_at: Phase 1 planned and verified; ready to execute
-last_updated: "2026-10-24T20:11:45.478Z"
+stopped_at: "Plan 01-04 blocking-human checkpoint: local install backend unavailable"
+last_updated: "2026-10-24T20:28:32.253Z"
 last_activity: 2026-10-24
 last_activity_desc: Roadmap created (5 phases, 31/31 v1 requirements mapped)
-state_head: ce607dd1c3c52f69497a5a092d1f7bd346bbbf28
+state_head: e49ca49eeb887a8b933da848481a29637142dd7e
 progress:
   total_phases: 5
   completed_phases: 0
@@ -76,6 +76,7 @@ None yet.
 - [Phase 3]: SUST-04 reads potion counts from the quickslot, while research deferred count reading and preferred an icon check. Confirm the digits are legible at 1x before planning.
 - [Phase 4]: Processing runs at 250-400 ms per frame (about 3 fps). Move verification windows must hold at that rate.
 - README's MapleUnity setup section and docs/VERIFICATION.md still describe the old target. No v1 requirement covers updating them.
+- Plan 01-04 local editable install blocked: project .venv has no setuptools.build_meta; no install claim or native acceptance.
 
 ## Deferred Items
 
@@ -87,6 +88,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-24T18:39:26.617Z
-Stopped at: Phase 1 planned and verified; ready to execute
-Resume file: .planning/phases/01-deterministic-input-and-safe-stop/01-01-PLAN.md
+Last session: 2026-10-24T20:28:32.227Z
+Stopped at: Plan 01-04 blocking-human checkpoint: local install backend unavailable
+Resume file: .planning/phases/01-deterministic-input-and-safe-stop/01-04-CHECKPOINT.md
