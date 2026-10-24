@@ -1,6 +1,7 @@
 import json
 import secrets
 import threading
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from urllib.parse import parse_qs, urlparse
@@ -8,8 +9,11 @@ from urllib.parse import parse_qs, urlparse
 from .runtime import Application
 
 
-def serve(app: Application, port: int) -> ThreadingHTTPServer:
+def serve(
+    app: Application, port: int, *, on_restart: Callable[[], None] | None = None
+) -> ThreadingHTTPServer:
     token = secrets.token_urlsafe(32)
+    instance_id = secrets.token_hex(12)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
@@ -40,7 +44,12 @@ def serve(app: Application, port: int) -> ThreadingHTTPServer:
                     200, html.replace("__TOKEN__", token).encode(), "text/html; charset=utf-8"
                 )
             elif parsed.path == "/api/status":
-                self.reply(200, json.dumps(app.snapshot()).encode(), "application/json")
+                status = {
+                    **app.snapshot(),
+                    "instance_id": instance_id,
+                    "restart_available": on_restart is not None,
+                }
+                self.reply(200, json.dumps(status).encode(), "application/json")
             elif parsed.path == "/frame.png":
                 key = parse_qs(parsed.query).get("id", [None])[0]
                 if key:
@@ -67,7 +76,18 @@ def serve(app: Application, port: int) -> ThreadingHTTPServer:
                     raise ValueError("Invalid request length")
                 payload = json.loads(self.rfile.read(length))
                 command = self.path.removeprefix("/api/")
-                if command == "acknowledge":
+                if command == "restart_bot":
+                    if on_restart is None:
+                        raise RuntimeError("Bot restart is unavailable in this session")
+                    app.safe_stop("OPERATOR_STOP", "Bot restart requested")
+                    self.reply(
+                        200,
+                        json.dumps({"restarting": True, "instance_id": instance_id}).encode(),
+                        "application/json",
+                    )
+                    on_restart()
+                    return
+                elif command == "acknowledge":
                     result = app.acknowledge_stop()
                 elif command == "restart_capture":
                     result = app.restart_capture()

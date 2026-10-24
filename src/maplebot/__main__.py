@@ -104,11 +104,17 @@ def main() -> None:
                 )
             )
         return
+    import os
+    import subprocess
+    import sys
+    import threading
+
     from .debugger import serve
     from .runtime import Application
 
     app = Application(config, capture_only=args.capture_only)
-    server = serve(app, config.debugger.port)
+    restart_requested = threading.Event()
+    server = serve(app, config.debugger.port, on_restart=restart_requested.set)
     app.start()
     input_status = (
         "capture-only: keyboard output locked" if args.capture_only else "gameplay input disabled"
@@ -118,7 +124,7 @@ def main() -> None:
         flush=True,
     )
     try:
-        while not app.closed.wait(0.25):
+        while not restart_requested.is_set() and not app.closed.wait(0.25):
             pass
     except KeyboardInterrupt:
         pass
@@ -126,6 +132,11 @@ def main() -> None:
         app.close()
         server.shutdown()
         server.server_close()
+    if restart_requested.is_set():
+        arguments = [sys.executable, "-m", "maplebot", *sys.argv[1:]]
+        if os.name == "nt":
+            arguments = [subprocess.list2cmdline([argument]) for argument in arguments]
+        os.execv(sys.executable, arguments)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,88 @@
+import json
+import re
+import threading
+from http.client import HTTPConnection
+
+from maplebot.debugger import serve
+
+
+class RestartApp:
+    def __init__(self):
+        self.events = []
+        self.held = {"up"}
+
+    def snapshot(self):
+        return {"state": "IDLE", "capture_only": True}
+
+    def safe_stop(self, code, message):
+        assert code == "OPERATOR_STOP"
+        self.held.clear()
+        self.events.append("released")
+
+
+def request(server, method, path, token=None):
+    connection = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+    headers = {"Host": "127.0.0.1:0"}
+    if token is not None:
+        headers["X-Debug-Token"] = token
+    try:
+        connection.request(method, path, body="{}" if method == "POST" else None, headers=headers)
+        response = connection.getresponse()
+        return response.status, response.read().decode()
+    finally:
+        connection.close()
+
+
+def test_restart_releases_keys_and_returns_the_instance_before_restarting():
+    app = RestartApp()
+    restarted = threading.Event()
+
+    def on_restart():
+        app.events.append("restart")
+        restarted.set()
+
+    server = serve(app, 0, on_restart=on_restart)
+    try:
+        _, page = request(server, "GET", "/")
+        token = re.search(r"const token='([^']+)'", page)[1]
+        _, status = request(server, "GET", "/api/status")
+        code, body = request(server, "POST", "/api/restart_bot", token)
+
+        assert code == 200
+        assert json.loads(body)["restarting"]
+        assert json.loads(body)["instance_id"] == json.loads(status)["instance_id"]
+        assert restarted.wait(1)
+        assert app.held == set()
+        assert app.events == ["released", "restart"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_restart_requires_the_debugger_token():
+    app = RestartApp()
+    server = serve(app, 0, on_restart=lambda: app.events.append("restart"))
+    try:
+        code, _ = request(server, "POST", "/api/restart_bot", "invalid")
+        assert code == 403
+        assert app.events == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_restart_is_unavailable_when_the_server_has_no_process_supervisor():
+    app = RestartApp()
+    server = serve(app, 0)
+    try:
+        _, page = request(server, "GET", "/")
+        token = re.search(r"const token='([^']+)'", page)[1]
+        _, status = request(server, "GET", "/api/status")
+        assert json.loads(status)["restart_available"] is False
+        code, body = request(server, "POST", "/api/restart_bot", token)
+        assert code == 400
+        assert "unavailable" in json.loads(body)["error"].lower()
+        assert app.events == []
+    finally:
+        server.shutdown()
+        server.server_close()
