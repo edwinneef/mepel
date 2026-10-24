@@ -3,7 +3,7 @@ import random
 import pytest
 
 from maplebot.config import InputConfig, TimingConfig
-from maplebot.input_timing import KeyHold, TimingPlanner
+from maplebot.input_timing import KeyHold, TimingPlanner, direction_then_jump, down_then_jump
 
 
 def planner(profile=None, seed=71):
@@ -69,6 +69,19 @@ def test_variation_cannot_extend_sequence_beyond_safety_budget():
             max(event.at_seconds for event in schedule.events) - schedule.delay_seconds
             <= 0.25 + 1e-9
         )
+
+
+def test_ordered_chords_keep_required_down_order_across_seeded_jitter():
+    for seed in range(1_000):
+        timing = planner(seed=seed)
+        for holds, first in ((down_then_jump(), "down"), (direction_then_jump("right"), "right")):
+            downs = [event.action for event in timing.plan(holds).events if event.down]
+            assert downs.index(first) < downs.index("jump")
+
+
+def test_direction_then_jump_rejects_non_direction():
+    with pytest.raises(ValueError, match="left or right"):
+        direction_then_jump("up")
 
 
 @pytest.mark.parametrize(

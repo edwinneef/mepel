@@ -8,7 +8,7 @@ from pathlib import Path
 
 from maplebot.config import InputConfig
 from maplebot.decision import Action
-from maplebot.input_timing import KeyHold
+from maplebot.input_timing import direction_then_jump, down_then_jump
 from maplebot.keyboard import KeyboardController, Win32Input
 from maplebot.windows import Windows
 
@@ -38,18 +38,15 @@ def main() -> None:
     try:
         controller.enable()
         timings = []
-        for action in ("left", "right", "attack", "jump", "overlap"):
+        for action in ("left", "right", "up", "down", "attack", "jump", "down_jump", "direction_jump"):
             errors = []
 
             def execute(name=action, failures=errors):
                 try:
-                    if name == "overlap":
-                        result = controller.execute_sequence(
-                            [
-                                KeyHold("right", 0.18),
-                                KeyHold("jump", 0.06, 0.04),
-                            ]
-                        )
+                    if name == "down_jump":
+                        result = controller.execute_sequence(down_then_jump())
+                    elif name == "direction_jump":
+                        result = controller.execute_sequence(direction_then_jump("right"))
                     else:
                         result = controller.execute(Action(name, 0.06))
                     if not result.endswith("completed"):
@@ -67,19 +64,20 @@ def main() -> None:
             timings.append(controller.timing_snapshot())
         expected = [
             [key, direction]
-            for key in ("Left", "Right", "z", "space")
+            for key in ("Left", "Right", "Up", "Down", "z", "space")
             for direction in ("down", "up")
         ]
+        expected.extend([["Down", "down"], ["space", "down"], ["space", "up"], ["Down", "up"]])
         expected.extend([["Right", "down"], ["space", "down"], ["space", "up"], ["Right", "up"]])
         assert events == expected, events
         result = {
-            "source": "own Tk test window, NOT Unity Game view",
+            "source": "own Tk test window, NOT a game view",
             "backend": "SendInput scan codes",
             "events": events,
             "result": "passed",
-            "unity_verified": False,
+            "game_verified": False,
             "timing_executions": timings,
-            "compatible_overlap": "right + jump; independent releases observed",
+            "ordered_chords": "Down+Jump and Right+Jump; own-window receipt only",
         }
         directory = Path("artifacts")
         directory.mkdir(exist_ok=True)
@@ -91,7 +89,7 @@ def main() -> None:
                     "result": "passed",
                     "events": events,
                     "evidence": str(path),
-                    "unity_verified": False,
+                    "game_verified": False,
                 },
                 indent=2,
             )

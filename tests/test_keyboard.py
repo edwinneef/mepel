@@ -6,7 +6,7 @@ import pytest
 from maplebot.config import InputConfig, TimingConfig
 from maplebot.decision import Action
 from maplebot.input_timing import KeyHold
-from maplebot.keyboard import KeyboardController
+from maplebot.keyboard import EXTENDED_KEYS, KeyboardController, Win32Input
 
 
 class Backend:
@@ -38,6 +38,18 @@ def test_disabled_input_and_replay_send_no_keys(controller):
     with pytest.raises(RuntimeError, match="Replay"):
         control.enable()
     assert backend.events == []
+
+
+@pytest.mark.parametrize("key", sorted(EXTENDED_KEYS))
+def test_navigation_keys_use_extended_flags_for_down_and_up(key):
+    assert Win32Input.flags_for(key, True) & 0x0001
+    assert Win32Input.flags_for(key, False) & 0x0001
+
+
+@pytest.mark.parametrize("key", ["a", "1", "space"])
+def test_ordinary_keys_do_not_use_extended_flags(key):
+    assert not Win32Input.flags_for(key, True) & 0x0001
+    assert not Win32Input.flags_for(key, False) & 0x0001
 
 
 def test_short_press_releases_and_duration_limit_blocks(controller):

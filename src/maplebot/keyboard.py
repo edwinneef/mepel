@@ -32,6 +32,9 @@ KEYS = {
     "ctrl": 0xA2,
     "space": 0x20,
     "f8": 0x77,
+    **{chr(code): code - 0x20 for code in range(ord("a"), ord("z") + 1)},
+    **{str(digit): 0x30 + digit for digit in range(10)},
+    **{f"f{number}": 0x6F + number for number in range(1, 13)},
 }
 
 EXTENDED_KEYS = frozenset(
@@ -115,9 +118,7 @@ class Win32Input:
             _fields_ = [("type", wintypes.DWORD), ("value", InputUnion)]
 
         vk = KEYS[key]
-        flags = 0x0008 | (0 if down else 0x0002)
-        if key in EXTENDED_KEYS:
-            flags |= 0x0001
+        flags = self.flags_for(key, down)
         event = Input(
             type=1,
             value=InputUnion(
@@ -126,6 +127,10 @@ class Win32Input:
         )
         if self.api.SendInput(1, ctypes.byref(event), ctypes.sizeof(event)) != 1:
             raise OSError("SendInput failed (focus/integrity restriction possible); input stopped")
+
+    @staticmethod
+    def flags_for(key: str, down: bool) -> int:
+        return 0x0008 | (0 if down else 0x0002) | (0x0001 if key in EXTENDED_KEYS else 0)
 
 
 class KeyboardController:
