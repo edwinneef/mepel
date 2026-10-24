@@ -9,12 +9,12 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Foundation
 
-- [ ] **FND-01**: Every decision, timer and move check uses the frame's capture timestamp. A recorded session replays to identical decisions, and policy-only replay reports any difference.
+- [x] **FND-01**: Every decision, timer and move check uses the frame's capture timestamp. A recorded session replays to identical decisions, and policy-only replay reports any difference.
 - [x] **FND-02**: Keyboard actions no longer block capture: frames keep arriving while a key is held.
 - [x] **FND-03**: Operator can bind and probe Up, Down, HP potion, MP potion, pet food and skill keys. Extended keys (arrows, Insert, Delete, Home, End, PgUp, PgDn) are sent with the extended flag.
 - [x] **FND-04**: Bot can hold Up/Down for climbing as a lease it renews on each frame that confirms the climb. The keyboard controller releases it within a fixed time if renewals stop. The global per-action cap stays.
 - [x] **FND-05**: Down+Jump and direction+Jump are sent as ordered key combinations that timing jitter cannot reorder.
-- [ ] **FND-06**: Operator can see per-stage frame timing in the debugger, and PNG encoding no longer runs on the capture worker.
+- [x] **FND-06**: Operator can see per-stage frame timing in the debugger, and PNG encoding no longer runs on the capture worker.
 
 ### Safety
 
@@ -93,12 +93,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FND-01 | Phase 1 | Pending |
+| FND-01 | Phase 1 | Complete |
 | FND-02 | Phase 1 | Complete |
 | FND-03 | Phase 1 | Complete |
 | FND-04 | Phase 1 | Complete |
 | FND-05 | Phase 1 | Complete |
-| FND-06 | Phase 1 | Pending |
+| FND-06 | Phase 1 | Complete |
 | SAFE-01 | Phase 1 | Pending |
 | SAFE-02 | Phase 1 | Pending |
 | SAFE-03 | Phase 1 | Pending |
