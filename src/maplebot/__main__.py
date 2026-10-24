@@ -26,6 +26,11 @@ def main() -> None:
     replay.add_argument("--labels", type=Path)
     replay.add_argument("--annotated", action="store_true")
     replay.add_argument("--autopotter", type=Path, help="Saved HUD calibration for potion preview")
+    replay.add_argument(
+        "--policy-only",
+        action="store_true",
+        help="Replay logged policy inputs only; never loads screenshots, templates, or input",
+    )
     catalog = sub.add_parser("catalog", help="Import public enemy sprites for offline detection")
     catalog.add_argument(
         "--ids",
@@ -44,6 +49,18 @@ def main() -> None:
         print(json.dumps(result, indent=2))
         return
     if args.command == "replay":
+        if args.policy_only:
+            from .replay import write_policy_diff
+
+            try:
+                result = write_policy_diff(args.frames, args.output, config)
+            except ValueError as error:
+                print(json.dumps({"error": str(error), "input_sent": False}))
+                raise SystemExit(1) from error
+            print(json.dumps(result, indent=2))
+            if result["differences"]:
+                raise SystemExit(1)
+            return
         from .replay import run_replay
 
         print(

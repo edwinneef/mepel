@@ -132,7 +132,7 @@ def test_live_processing_continues_while_submitted_key_is_held(app, monkeypatch)
     })())
     monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image)
     monkeypatch.setattr("maplebot.runtime.asdict", lambda value: {})
-    monkeypatch.setattr(app.agent, "step", lambda observation, now: type("D", (), {
+    monkeypatch.setattr(app.agent, "step_input", lambda policy_input: type("D", (), {
         "state": "LIVE", "reason": "test", "target": None,
         "action": __import__("maplebot.decision", fromlist=["Action"]).Action("right", 0.25),
     })())
@@ -278,6 +278,17 @@ def test_dry_run_auto_records_and_stop_flushes_clip(app):
     app.recorder.close()
     assert (path / "00000000.png").exists()
     assert "Operator stopped" in (path / "events.jsonl").read_text("utf-8")
+
+
+def test_capture_stage_timing_excludes_encoder_png_work(app, monkeypatch):
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: type("O", (), {
+        "player": None, "monsters": [], "failures": [], "camera_shift": (0, 0),
+        "camera_confidence": 1.0,
+    })())
+    monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
+    _, status = app._process(app.image, 10.0, 0.0)
+    assert set(status["stage_timing"]) == {"perception_ms", "policy_ms", "annotation_ms"}
+    assert "png_encode_ms" not in status["stage_timing"]
 
 
 def test_teaching_name_tag_records_other_copies_as_decoys(app):

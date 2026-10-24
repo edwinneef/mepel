@@ -14,7 +14,8 @@ import cv2
 from .autopotter import PotionMonitor
 from .capture import Calibration, Capture, Image
 from .config import Config
-from .decision import Action, Agent, Decision
+from .decision import Action, Agent, Decision, PolicyInput
+from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
 from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win32Input
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
@@ -70,8 +71,11 @@ class Application:
         self.recorder = SessionRecorder(
             self.data / "recordings", config.recording, config.capture.fps
         )
+        self.encoder = FrameEncoder(self._encoded)
         self.player_uncertain = False
         self.sequence = 0
+        self.policy_outcome: dict[str, Any] = {"status": "not_sent"}
+        self.session_capture_started: float | None = None
         self.lock = threading.Lock()
         self.commands: queue.Queue[tuple[str, dict, Future]] = queue.Queue()
         self.closed = threading.Event()
@@ -110,6 +114,7 @@ class Application:
         self.closed.set()
         self.worker.join(timeout=3)
         self.controller.close()
+        self.encoder.close()
         self.recorder.close()
 
     def request(self, name: str, payload: dict) -> Any:
@@ -420,10 +425,28 @@ class Application:
                 path.with_suffix(".annotated.png").write_bytes(self.latest)
         return str(path)
 
-    def _process(self, image: Image, now: float) -> tuple[Image, dict]:
+    def _encoded(self, packet: FramePacket, raw: bytes, annotated: bytes, elapsed: float) -> None:
+        status = {
+            **packet.status,
+            "encoder": {**self.encoder.snapshot(), "png_encode_ms": round(elapsed, 3)},
+        }
+        self.recorder.observe(packet.stem, raw, status, packet.now)
+        status["recording"] = self.recorder.active
+        status["recorder"] = self.recorder.snapshot()
+        with self.lock:
+            self.latest, self.raw, self.status = annotated, raw, status
+        self.frame_ready.set()
+
+    def _process(
+        self, image: Image, now: float, policy_now: float | None = None
+    ) -> tuple[Image, dict]:
+        policy_now = now if policy_now is None else policy_now
+        perception_began = time.perf_counter()
         observation = self.detector.detect(image, now)
+        perception_ms = (time.perf_counter() - perception_began) * 1000
         for outcome in self.controller.poll_outcomes():
             self.last_action = outcome.result
+            self.policy_outcome = {"status": "completed", **asdict(outcome)}
             if outcome.ticket == self.pending_probe_ticket:
                 self.pending_probe_ticket = None
                 if outcome.result.endswith("completed"):
@@ -477,6 +500,7 @@ class Application:
         ):
             self._stop(self.controller.reason)
         if self.mode in {"live", "dry_run"}:
+            policy_began = time.perf_counter()
             uncertain = (
                 observation.player is None
                 or observation.player.confidence < self.config.perception.confidence
@@ -484,9 +508,12 @@ class Application:
             if uncertain and not self.player_uncertain and self.recorder.active:
                 self.recorder.trigger("Player detection uncertain", time.perf_counter())
             self.player_uncertain = uncertain
-            decision = self.agent.step(observation, time.perf_counter())
+            policy_input = PolicyInput(observation, policy_now, self.policy_outcome)
+            policy_before = self.agent.snapshot()
+            decision = self.agent.step_input(policy_input)
             if decision.state == "IDLE":
                 self._stop(decision.reason)
+                self.policy_outcome = {"status": "not_sent"}
             elif self.mode == "live":
                 submitted = self.controller.submit(decision.action)
                 self.last_action = (
@@ -494,15 +521,26 @@ class Application:
                     if isinstance(submitted, int)
                     else submitted
                 )
+                self.policy_outcome = (
+                    {"status": "pending", "ticket": submitted}
+                    if isinstance(submitted, int)
+                    else {"status": "not_sent", "result": submitted}
+                )
             else:
                 self.last_action = f"dry run: intended {decision.action.kind}"
+                self.policy_outcome = {"status": "not_sent"}
             if self.status.get("reason") != decision.reason or decision.action.kind != "release":
                 self.note(f"{decision.state}: {decision.reason} · {self.last_action}")
+            policy_ms = (time.perf_counter() - policy_began) * 1000
         else:
             reason = self.stop_reason
             if self.mode in {"pending_arm", "probe_wait"}:
                 reason = f"Focus the game window; input in {max(0, self.pending_at - now):.1f}s"
             decision = Decision(self.agent.state, Action(), reason)
+            policy_input = PolicyInput(observation, policy_now, self.policy_outcome)
+            policy_before = self.agent.snapshot()
+            policy_ms = 0.0
+        annotation_began = time.perf_counter()
         annotated = annotate(image, observation, decision.target, decision.state, decision.reason)
         potter = self.potter.observe(
             image,
@@ -521,6 +559,7 @@ class Application:
         self.potter.annotate(annotated, potter)
         if potter["suggestion"]:
             self.note(potter["reason"])
+        annotation_ms = (time.perf_counter() - annotation_began) * 1000
         return annotated, {
             "state": str(decision.state),
             "reason": decision.reason,
@@ -539,6 +578,15 @@ class Application:
             "failures": observation.failures,
             "camera_shift": observation.camera_shift,
             "camera_confidence": observation.camera_confidence,
+            "policy_input": policy_input.to_dict(),
+            "policy_before": policy_before,
+            "decision": asdict(decision),
+            "action_outcome": policy_input.last_outcome,
+            "stage_timing": {
+                "perception_ms": round(perception_ms, 3),
+                "policy_ms": round(policy_ms, 3),
+                "annotation_ms": round(annotation_ms, 3),
+            },
         }
 
     def _run(self) -> None:
@@ -562,8 +610,10 @@ class Application:
                         continue
                     self.image, self.window, self.region = image, window, region
                     capture_ok = True
-                    annotated, result = self._process(image, capture_began)
-                    raw, decorated = png(image), png(annotated)
+                    if self.session_capture_started is None:
+                        self.session_capture_started = capture_began
+                    policy_now = capture_began - self.session_capture_started
+                    annotated, result = self._process(image, capture_began, policy_now)
                     end = time.perf_counter()
                     status = {
                         **result,
@@ -579,13 +629,25 @@ class Application:
                         "fps": round(1 / max(0.0001, end - previous), 1),
                         "latency_ms": round(1000 * (end - began), 2),
                         "recording": self.recorder.active,
-                        "recorder": self.recorder.snapshot(),
+                    }
+                    status["stage_timing"] = {
+                        "capture_ms": round(1000 * (capture_began - began), 3),
+                        **result["stage_timing"],
                     }
                     previous = end
-                    with self.lock:
-                        self.latest, self.raw, self.status = decorated, raw, status
-                    self.frame_ready.set()
-                    self.recorder.observe(f"{self.sequence:08d}", raw, status, end)
+                    publish_began = time.perf_counter()
+                    packet = FramePacket(
+                        self.sequence,
+                        f"{self.sequence:08d}",
+                        image.copy(),
+                        annotated.copy(),
+                        status.copy(),
+                        policy_now,
+                    )
+                    self.encoder.publish(packet)
+                    status["stage_timing"]["publish_ms"] = round(
+                        (time.perf_counter() - publish_began) * 1000, 3
+                    )
                     self.sequence += 1
                 except Exception as error:
                     self._stop(str(error))

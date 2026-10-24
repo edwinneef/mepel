@@ -10,9 +10,82 @@ import numpy as np
 
 from .autopotter import PotionMonitor
 from .config import Config
-from .decision import Agent
+from .decision import Agent, Decision, PolicyInput
 from .geometry import Rect
 from .perception import TemplateDetector, annotate
+
+POLICY_DIFF_FIELDS = ("state", "action.kind", "action.seconds", "reason", "target")
+
+
+def _decision_fields(decision: Decision) -> dict:
+    payload = asdict(decision)
+    return {
+        "state": str(decision.state),
+        "action.kind": payload["action"]["kind"],
+        "action.seconds": payload["action"]["seconds"],
+        "reason": payload["reason"],
+        "target": payload["target"],
+    }
+
+
+def run_policy_replay(directory: Path, config: Config) -> list[dict]:
+    """Replay recorder order from complete policy records without pixels or input."""
+
+    log_path = directory / "decisions.jsonl"
+    if not log_path.exists():
+        raise ValueError("Policy replay requires decisions.jsonl")
+    lines = log_path.read_text("utf-8").splitlines()
+    if not lines:
+        raise ValueError("Policy replay requires at least one record")
+    agent = Agent(config.agent, config.perception.confidence)
+    differences: list[dict] = []
+    previous_sequence = -1
+    previous_now = float("-inf")
+    for index, line in enumerate(lines, start=1):
+        try:
+            record = json.loads(line)
+            sequence = int(record["sequence"])
+            policy_input = PolicyInput.from_dict(record["policy_input"])
+            snapshot = record["policy_before"]
+            expected = record["decision"]
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError(f"Invalid policy record {index}: {error}") from error
+        if sequence <= previous_sequence:
+            raise ValueError(f"Invalid policy record {index}: sequence must strictly increase")
+        if policy_input.now <= previous_now:
+            raise ValueError(f"Invalid policy record {index}: capture time must strictly increase")
+        previous_sequence, previous_now = sequence, policy_input.now
+        agent.restore(snapshot)
+        actual = _decision_fields(agent.step_input(policy_input))
+        expected_fields = {
+            "state": str(expected["state"]),
+            "action.kind": expected["action"]["kind"],
+            "action.seconds": expected["action"]["seconds"],
+            "reason": expected["reason"],
+            "target": expected.get("target"),
+        }
+        fields = [field for field in POLICY_DIFF_FIELDS if expected_fields[field] != actual[field]]
+        if fields:
+            differences.append(
+                {
+                    "sequence": sequence,
+                    "frame": record.get("frame"),
+                    "fields": fields,
+                    "expected": {field: expected_fields[field] for field in fields},
+                    "actual": {field: actual[field] for field in fields},
+                }
+            )
+    return differences
+
+
+def write_policy_diff(directory: Path, output: Path, config: Config) -> dict:
+    differences = run_policy_replay(directory, config)
+    output.mkdir(parents=True, exist_ok=True)
+    path = output / "policy-diff.jsonl"
+    with path.open("w", encoding="utf-8") as handle:
+        for difference in differences:
+            handle.write(json.dumps(difference, sort_keys=True, separators=(",", ":")) + "\n")
+    return {"differences": len(differences), "output": str(path.resolve()), "input_sent": False}
 
 
 def run_replay(

@@ -1,10 +1,12 @@
 """Deterministic decisions, with no capture or keyboard dependencies."""
 
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
+from typing import Any
 
 from .config import AgentConfig
+from .geometry import Rect
 from .perception import Detection, Observation
 
 
@@ -28,6 +30,57 @@ class Decision:
     action: Action
     reason: str
     target: Detection | None = None
+
+
+@dataclass(frozen=True)
+class PolicyInput:
+    """Everything the pure policy may use for one captured frame."""
+
+    observation: Observation
+    now: float
+    last_outcome: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "PolicyInput":
+        try:
+            raw_observation = value["observation"]
+            raw_player = raw_observation["player"]
+            player = Detection(
+                raw_player["kind"],
+                Rect(**raw_player["box"]),
+                raw_player["confidence"],
+                raw_player.get("template", ""),
+                raw_player.get("tracked", False),
+            ) if raw_player else None
+            monsters = [
+                Detection(
+                    item["kind"],
+                    Rect(**item["box"]),
+                    item["confidence"],
+                    item.get("template", ""),
+                    item.get("tracked", False),
+                )
+                for item in raw_observation["monsters"]
+            ]
+            now = float(value["now"])
+            if not math.isfinite(now):
+                raise ValueError("PolicyInput.now must be finite")
+            return cls(
+                Observation(
+                    player,
+                    monsters,
+                    list(raw_observation.get("failures", [])),
+                    tuple(raw_observation.get("camera_shift", (0, 0))),
+                    float(raw_observation.get("camera_confidence", 0.0)),
+                ),
+                now,
+                dict(value["last_outcome"]),
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"Invalid PolicyInput: {error}") from error
 
 
 class Agent:
@@ -57,6 +110,51 @@ class Agent:
         return Decision(self.state, action or Action(), reason, self.target)
 
     def step(self, observation: Observation, now: float) -> Decision:
+        return self.step_input(PolicyInput(observation, now, {"status": "not_sent"}))
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "state": str(self.state),
+            "target": asdict(self.target) if self.target else None,
+            "facing": self.facing,
+            "verify_until": self.verify_until,
+            "attempts": self.attempts,
+            "acquisitions": self.acquisitions,
+            "missing_frames": self.missing_frames,
+            "last_distance": self.last_distance,
+            "stalled_steps": self.stalled_steps,
+        }
+
+    def restore(self, snapshot: dict[str, Any]) -> None:
+        if snapshot.get("version") != 1:
+            raise ValueError("Unsupported policy snapshot version")
+        try:
+            target = snapshot["target"]
+            self.state = State(snapshot["state"])
+            self.target = (
+                Detection(
+                    target["kind"],
+                    Rect(**target["box"]),
+                    target["confidence"],
+                    target.get("template", ""),
+                    target.get("tracked", False),
+                )
+                if target
+                else None
+            )
+            self.facing = snapshot["facing"]
+            self.verify_until = float(snapshot["verify_until"])
+            self.attempts = int(snapshot["attempts"])
+            self.acquisitions = int(snapshot["acquisitions"])
+            self.missing_frames = int(snapshot["missing_frames"])
+            self.last_distance = snapshot["last_distance"]
+            self.stalled_steps = int(snapshot["stalled_steps"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"Invalid policy snapshot: {error}") from error
+
+    def step_input(self, policy_input: PolicyInput) -> Decision:
+        observation, now = policy_input.observation, policy_input.now
         if self.state == State.IDLE:
             return self._result("Stopped; start dry run or arm combat")
         player = observation.player
