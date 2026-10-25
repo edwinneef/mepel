@@ -7,8 +7,9 @@ from maplebot.__main__ import main
 
 
 @pytest.mark.parametrize("capture_only", [False, True])
+@pytest.mark.parametrize("shutdown", [False, True])
 def test_dashboard_restart_closes_old_session_before_relaunching_same_mode(
-    monkeypatch, tmp_path, capture_only
+    monkeypatch, tmp_path, capture_only, shutdown
 ):
     events = []
     config = tmp_path / "restart settings.toml"
@@ -35,8 +36,8 @@ def test_dashboard_restart_closes_old_session_before_relaunching_same_mode(
         def server_close(self):
             events.append("socket closed")
 
-    def serve(app, port, *, on_restart):
-        on_restart()
+    def serve(app, port, *, on_restart, on_shutdown):
+        (on_shutdown if shutdown else on_restart)()
         return Server()
 
     def popen(argv):
@@ -59,6 +60,4 @@ def test_dashboard_restart_closes_old_session_before_relaunching_same_mode(
         "keys and workers closed",
         "server stopped",
         "socket closed",
-        "relaunch",
-        "exit 0",
-    ]
+    ] + ([] if shutdown else ["relaunch", "exit 0"])

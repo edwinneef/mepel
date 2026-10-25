@@ -3,6 +3,8 @@ import re
 import threading
 from http.client import HTTPConnection
 
+import pytest
+
 from maplebot.debugger import serve
 
 
@@ -110,6 +112,44 @@ def test_http_acknowledgement_requires_the_displayed_incident_id():
             assert code == 200
             assert json.loads(body)["acknowledged"] is (incident_id == "current")
         assert calls == [(None, True), ("old", True), ("current", True)]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_shutdown_releases_keys_then_signals_process_exit():
+    app = RestartApp()
+    stopped = threading.Event()
+    server = serve(app, 0, on_shutdown=stopped.set)
+    try:
+        _, page = request(server, "GET", "/")
+        token = re.search(r"const token='([^']+)'", page)[1]
+        _, status = request(server, "GET", "/api/status")
+        assert json.loads(status)["shutdown_available"] is True
+        code, body = request(server, "POST", "/api/shutdown_bot", token)
+        assert code == 200
+        assert json.loads(body)["stopping"] is True
+        assert stopped.wait(1)
+        assert app.held == set()
+        assert app.events == ["released"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize("available,token", [(True, "invalid"), (False, None)])
+def test_shutdown_rejects_invalid_tokens_and_missing_supervision(available, token):
+    app = RestartApp()
+    stopped = threading.Event()
+    server = serve(app, 0, on_shutdown=stopped.set if available else None)
+    try:
+        if token is None:
+            _, page = request(server, "GET", "/")
+            token = re.search(r"const token='([^']+)'", page)[1]
+        code, _ = request(server, "POST", "/api/shutdown_bot", token)
+        assert code == (403 if available else 400)
+        assert not stopped.is_set()
+        assert app.events == []
     finally:
         server.shutdown()
         server.server_close()

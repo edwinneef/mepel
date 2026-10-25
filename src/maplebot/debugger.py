@@ -10,7 +10,11 @@ from .runtime import Application
 
 
 def serve(
-    app: Application, port: int, *, on_restart: Callable[[], None] | None = None
+    app: Application,
+    port: int,
+    *,
+    on_restart: Callable[[], None] | None = None,
+    on_shutdown: Callable[[], None] | None = None,
 ) -> ThreadingHTTPServer:
     token = secrets.token_urlsafe(32)
     instance_id = secrets.token_hex(12)
@@ -48,6 +52,7 @@ def serve(
                     **app.snapshot(),
                     "instance_id": instance_id,
                     "restart_available": on_restart is not None,
+                    "shutdown_available": on_shutdown is not None,
                 }
                 self.reply(200, json.dumps(status).encode(), "application/json")
             elif parsed.path == "/frame.png":
@@ -76,16 +81,24 @@ def serve(
                     raise ValueError("Invalid request length")
                 payload = json.loads(self.rfile.read(length))
                 command = self.path.removeprefix("/api/")
-                if command == "restart_bot":
-                    if on_restart is None:
-                        raise RuntimeError("Bot restart is unavailable in this session")
-                    app.safe_stop("OPERATOR_STOP", "Bot restart requested")
+                if command in {"restart_bot", "shutdown_bot"}:
+                    callback = on_restart if command == "restart_bot" else on_shutdown
+                    if callback is None:
+                        raise RuntimeError("Process control is unavailable in this session")
+                    restarting = command == "restart_bot"
+                    app.safe_stop(
+                        "OPERATOR_STOP",
+                        "Bot restart requested" if restarting else "Server shutdown requested",
+                    )
                     self.reply(
                         200,
-                        json.dumps({"restarting": True, "instance_id": instance_id}).encode(),
+                        json.dumps({
+                            "restarting" if restarting else "stopping": True,
+                            "instance_id": instance_id,
+                        }).encode(),
                         "application/json",
                     )
-                    on_restart()
+                    callback()
                     return
                 elif command == "acknowledge":
                     result = app.acknowledge_stop(payload.get("incident_id"), require_id=True)

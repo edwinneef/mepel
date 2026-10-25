@@ -132,7 +132,10 @@ def main() -> None:
 
     app = Application(config, capture_only=args.capture_only)
     restart_requested = threading.Event()
-    server = serve(app, config.debugger.port, on_restart=restart_requested.set)
+    server = serve(
+        app, config.debugger.port,
+        on_restart=restart_requested.set, on_shutdown=app.closed.set,
+    )
     app.start()
     input_status = (
         "capture-only: keyboard output locked" if args.capture_only else "gameplay input disabled"
