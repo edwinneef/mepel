@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 1
 current_phase_name: Deterministic Input and Safe Stop
 status: executing
-stopped_at: Stale acknowledgement fixed and installed; security gate passed; remaining code/UI review and phase verification pending
-last_updated: "2026-10-25T01:05:08.399Z"
+stopped_at: "Phase 1 verification gaps_found: active-alarm arming guard missing; stale acknowledgements fixed; security gate passed"
+last_updated: "2026-10-25T01:12:36.920Z"
 last_activity: 2026-10-25
 last_activity_desc: Roadmap created (5 phases, 31/31 v1 requirements mapped)
-state_head: b5685b56511111cb17a1ed99c7480d88957846d8
+state_head: 62c73a0a94ffc1a2a1a1b9a6ad2833a2f9b966d3
 progress:
   total_phases: 5
   completed_phases: 0
@@ -27,9 +27,9 @@ See: .planning/PROJECT.md (updated 2026-10-24)
 
 ## Current Position
 
-Phase: 1 (Deterministic Input and Safe Stop) — SECURITY GATE PASSED; PHASE VERIFICATION PENDING
-Plan: 3 of 4 in current phase
-Status: Plan 01-04 close-out marked-and-skipped; security gate passed; phase verification pending
+Phase: 1 (Deterministic Input and Safe Stop) — VERIFICATION GAPS FOUND
+Plans: 3 completed summaries; Plan 01-04 close-out explicitly marked-and-skipped
+Status: Phase verification gaps_found (42/43 checks); CR-01 active-alarm arming guard missing; security gate passed
 Last activity: 2026-10-25 - All nine control probes and both audible acknowledgement controls accepted; portal HUD grace installed; 237 tests, Ruff and pip check passed
 
 Progress: [░░░░░░░░░░] 0%
@@ -71,6 +71,8 @@ None yet.
 
 ### Blockers/Concerns
 
+- [Phase 1 verification]: CR-01 / D-12: Arm enters pending_arm while an alarm is unacknowledged. Isolated fake-boundary reproduction proves the missing guard; no game input was sent. See 01-VERIFICATION.md. Owner route: $gsd-plan-phase 01 --gaps.
+
 - [Phase 1 security, resolved]: T-01-10 fixed in b5685b5; stale/missing/unknown incident IDs cannot silence a new alarm. All 14 authored threats closed at L1; 259 tests passed. See 01-SECURITY.md.
 - [Plan 01-04 anomaly]: Operator selected mark-and-skip for the missing original close-out; 01-04-SUMMARY.md is an explicit skipped marker, not a reconstructed completion claim.
 
@@ -92,6 +94,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-25T01:05:08.372Z
-Stopped at: Stale acknowledgement fixed and installed; security gate passed; remaining code/UI review and phase verification pending
-Resume file: .planning/phases/01-deterministic-input-and-safe-stop/01-SECURITY.md
+Last session: 2026-10-25T01:12:36.893Z
+Stopped at: Phase 1 verification gaps_found: active-alarm arming guard missing; stale acknowledgements fixed; security gate passed
+Resume file: .planning/phases/01-deterministic-input-and-safe-stop/01-VERIFICATION.md

@@ -58,7 +58,6 @@ No accepted risks. Mark-and-skip applies only to the missing close-out.
 | Audit date | Threats total | Closed at L1 | Open at high threshold | Scope |
 |---|---|---|---|---|
 | 2026-10-25 | 14 | 13 | 1 | Authored register; amended persistence/recognition decisions; fake-boundary stale acknowledgement reproduction |
-
 | 2026-10-25 after b5685b5 | 14 | 14 | 0 | Authorized stale-acknowledgement fix; red/green unit + HTTP tests; browser payload check |
 
 ## Sign-Off

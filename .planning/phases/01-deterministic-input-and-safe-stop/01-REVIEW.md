@@ -29,10 +29,10 @@ files_reviewed_list:
   - tests/test_runtime.py
   - tools/input_smoke.py
 findings:
-  critical: 0
+  critical: 1
   warning: 0
   info: 1
-  total: 1
+  total: 2
 status: issues_found
 ---
 
@@ -42,9 +42,19 @@ status: issues_found
 
 Inline standard-depth review under the Codex no-automatic-subagent fallback; no independent reviewer is claimed. Scope includes the phase evaluation-scope resolver's source changes and the operator-authorized persistence, recognition and standalone-potion follow-ups. The skipped 01-04 close-out was not used as implementation proof.
 
-No further critical or warning finding was established after b5685b5. Tests: 259 passed; Ruff and pip check passed. The own-window SendInput smoke passed and explicitly reports game_verified=false. Actual game control/audio observations are recorded separately in 01-04-CHECKPOINT.md.
+Final goal verification added CR-01 below. Tests: 259 passed; Ruff and pip check passed. The own-window SendInput smoke passed and explicitly reports game_verified=false. Actual game control/audio observations are recorded separately in 01-04-CHECKPOINT.md.
 
 ## Narrative Findings (AI reviewer)
+
+### CR-01: Arm combat accepts an unacknowledged alarm
+
+**Severity:** Critical (phase acceptance blocker)
+
+**Location:** `src/maplebot/runtime.py`, `_command` arm branch around line 830.
+
+The branch prepares a stop and validates capture and required probes, but never refuses an active unacknowledged alarm. With matching capture and confirmed controls, `_command("arm", {})` returns pending_arm while AlarmManager remains active. This violates Plan 01-03's explicit D-12 truth that arming remains blocked until acknowledgement. The persistence/recognition amendments did not waive alarm acknowledgement.
+
+Reproduced with fake keyboard/audio in `artifacts/arm-alarm-gate-audit-1792890582357768300/evidence.json`. The countdown was not advanced and keyboard_events is empty. Add an active-alarm gate before preparing the arm countdown and a regression proving rejection until acknowledgement. This was not changed as part of the separately authorized stale-acknowledgement fix.
 
 ### IR-01: Restart tooltip describes superseded setup
 

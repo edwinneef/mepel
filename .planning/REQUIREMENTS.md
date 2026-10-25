@@ -9,18 +9,18 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Foundation
 
-- [x] **FND-01**: Every decision, timer and move check uses the frame's capture timestamp. A recorded session replays to identical decisions, and policy-only replay reports any difference.
-- [x] **FND-02**: Keyboard actions no longer block capture: frames keep arriving while a key is held.
-- [x] **FND-03**: Operator can bind and probe Up, Down, HP potion, MP potion, pet food and skill keys. Extended keys (arrows, Insert, Delete, Home, End, PgUp, PgDn) are sent with the extended flag.
-- [x] **FND-04**: Bot can hold Up/Down for climbing as a lease it renews on each frame that confirms the climb. The keyboard controller releases it within a fixed time if renewals stop. The global per-action cap stays.
-- [x] **FND-05**: Down+Jump and direction+Jump are sent as ordered key combinations that timing jitter cannot reorder.
-- [x] **FND-06**: Operator can see per-stage frame timing in the debugger, and PNG encoding no longer runs on the capture worker.
+- [ ] **FND-01**: Every decision, timer and move check uses the frame's capture timestamp. A recorded session replays to identical decisions, and policy-only replay reports any difference.
+- [ ] **FND-02**: Keyboard actions no longer block capture: frames keep arriving while a key is held.
+- [ ] **FND-03**: Operator can bind and probe Up, Down, HP potion, MP potion, pet food and skill keys. Extended keys (arrows, Insert, Delete, Home, End, PgUp, PgDn) are sent with the extended flag.
+- [ ] **FND-04**: Bot can hold Up/Down for climbing as a lease it renews on each frame that confirms the climb. The keyboard controller releases it within a fixed time if renewals stop. The global per-action cap stays.
+- [ ] **FND-05**: Down+Jump and direction+Jump are sent as ordered key combinations that timing jitter cannot reorder.
+- [ ] **FND-06**: Operator can see per-stage frame timing in the debugger, and PNG encoding no longer runs on the capture worker.
 
 ### Safety
 
-- [x] **SAFE-01**: Every stop releases all keys, saves the incident clip and shows a structured reason in the debugger.
-- [x] **SAFE-02**: Alarm-level stops play a sound on the PC that repeats until the operator acknowledges it (debugger button or F8). Pauses such as "no targets" stay silent.
-- [x] **SAFE-03**: If the capture worker crashes, the bot still releases keys and sounds the alarm.
+- [ ] **SAFE-01**: Every stop releases all keys, saves the incident clip and shows a structured reason in the debugger.
+- [ ] **SAFE-02**: Alarm-level stops play a sound on the PC that repeats until the operator acknowledges it (debugger button or F8). Pauses such as "no targets" stay silent.
+- [ ] **SAFE-03**: If the capture worker crashes, the bot still releases keys and sounds the alarm.
 - [ ] **SAFE-04**: The bot stops with the alarm on: death (HP 0 %), spot anchors lost (map change or unexpected screen), player unknown for more than 5 s, HP/MP unreadable for more than 5 s while armed, and focus or calibration lost.
 
 ### Sustain
@@ -93,15 +93,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FND-01 | Phase 1 | Complete |
-| FND-02 | Phase 1 | Complete |
-| FND-03 | Phase 1 | Complete |
-| FND-04 | Phase 1 | Complete |
-| FND-05 | Phase 1 | Complete |
-| FND-06 | Phase 1 | Complete |
-| SAFE-01 | Phase 1 | Complete |
-| SAFE-02 | Phase 1 | Complete |
-| SAFE-03 | Phase 1 | Complete |
+| FND-01 | Phase 1 | Gaps Found |
+| FND-02 | Phase 1 | Gaps Found |
+| FND-03 | Phase 1 | Gaps Found |
+| FND-04 | Phase 1 | Gaps Found |
+| FND-05 | Phase 1 | Gaps Found |
+| FND-06 | Phase 1 | Gaps Found |
+| SAFE-01 | Phase 1 | Gaps Found |
+| SAFE-02 | Phase 1 | Gaps Found |
+| SAFE-03 | Phase 1 | Gaps Found |
 | SAFE-04 | Phase 2 | Pending |
 | SUST-01 | Phase 3 | Pending |
 | SUST-02 | Phase 3 | Pending |
