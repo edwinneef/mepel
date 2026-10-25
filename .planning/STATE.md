@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 1
 current_phase_name: Deterministic Input and Safe Stop
 status: executing
-stopped_at: Native Phase 1 acceptance passed; portal HUD grace installed; remaining phase verification/review gates pending
-last_updated: "2026-10-25T00:30:09.144Z"
+stopped_at: 01-04 close-out marked-and-skipped; security gate T-01-10 open; awaiting open-threat disposition
+last_updated: "2026-10-25T00:58:00.809Z"
 last_activity: 2026-10-25
 last_activity_desc: Roadmap created (5 phases, 31/31 v1 requirements mapped)
-state_head: 7b3504791fc797b7740b3ececd524cbfa13d3db1
+state_head: 119a85affd1aa47778f5db2a1d1c61ab306d947f
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -27,9 +27,9 @@ See: .planning/PROJECT.md (updated 2026-10-24)
 
 ## Current Position
 
-Phase: 1 (Deterministic Input and Safe Stop) — NATIVE ACCEPTANCE PASSED; PHASE GATES PENDING
+Phase: 1 (Deterministic Input and Safe Stop) — SECURITY GATE OPEN; PHASE UNVERIFIED
 Plan: 3 of 4 in current phase
-Status: Plan 01-04 native acceptance passed; remaining phase verification/review gates pending
+Status: Plan 01-04 close-out marked-and-skipped; security gate open (T-01-10); phase unverified
 Last activity: 2026-10-25 - All nine control probes and both audible acknowledgement controls accepted; portal HUD grace installed; 237 tests, Ruff and pip check passed
 
 Progress: [░░░░░░░░░░] 0%
@@ -71,6 +71,9 @@ None yet.
 
 ### Blockers/Concerns
 
+- [Phase 1 security]: T-01-10 remains open: a stale alarm acknowledgement can silence a newer incident. Fake-boundary reproduction is recorded in 01-SECURITY.md. No risk accepted; no phase advancement.
+- [Plan 01-04 anomaly]: Operator selected mark-and-skip for the missing original close-out; 01-04-SUMMARY.md is an explicit skipped marker, not a reconstructed completion claim.
+
 - [Phase 1, resolved]: One serial input-executor thread keeps capture non-blocking; the existing watchdog owns safety gates and bounded vertical-lease expiry. See 01-RESEARCH.md and 01-01-PLAN.md.
 - [Phase 2]: Before planning, check on recordings or a capture-only walk whether the camera scrolls on the target spot. The answer decides the layout data model.
 - [Phase 3]: SUST-04 reads potion counts from the quickslot, while research deferred count reading and preferred an icon check. Confirm the digits are legible at 1x before planning.
@@ -89,6 +92,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-25T00:30:09.111Z
-Stopped at: Native Phase 1 acceptance passed; portal HUD grace installed; remaining phase verification/review gates pending
-Resume file: .planning/phases/01-deterministic-input-and-safe-stop/01-04-CHECKPOINT.md
+Last session: 2026-10-25T00:58:00.778Z
+Stopped at: 01-04 close-out marked-and-skipped; security gate T-01-10 open; awaiting open-threat disposition
+Resume file: .planning/phases/01-deterministic-input-and-safe-stop/01-SECURITY.md
