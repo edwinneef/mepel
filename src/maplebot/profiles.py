@@ -283,6 +283,22 @@ class AreaStore:
                 raise ValueError("Area changed elsewhere; reload it and calibrate again")
             return self.save({**profile, "minimap_calibration": calibration})
 
+    def save_geometry(self, area_id: str, revision: int, geometry: dict) -> dict:
+        """Replace platforms, ropes, links and boundary with walked geometry; keep a backup."""
+        with self.lock:
+            profile = self.load(area_id)["profile"]
+            if profile["revision"] != revision:
+                raise ValueError("Area changed elsewhere; teach the map again")
+            boundary = rectangle(geometry["boundary"])
+            zones = [zone for zone in profile["zones"] if contains(boundary, zone["rect"])
+                     and contains(boundary, {"x": zone["rect"]["x"] + zone["rect"]["width"],
+                                             "y": zone["rect"]["y"] + zone["rect"]["height"]})]
+            saved = self.save({**profile, "boundary": boundary, "zones": zones,
+                               **{key: geometry[key] for key in ("platforms", "ropes", "links")}})
+            if len(zones) < len(profile["zones"]):
+                saved["warnings"].append("Zones outside the walked area were removed")
+            return saved
+
     @staticmethod
     def _atomic(path: Path, body: bytes) -> None:
         temporary = None

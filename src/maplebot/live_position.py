@@ -20,12 +20,14 @@ from .localization import (
     ViewTransform,
     register_view,
 )
+from .map_teacher import MapTeacher
 from .minimap_reader import AreaMinimap, MinimapFix
 from .perception import Detection, Observation
 from .profiles import AreaStore
 
 STALE_SECONDS = 0.5
 MAX_PAIRS = 400
+AUTO_CALIBRATION_PAIRS = 20
 
 
 def platforms(profile: dict) -> tuple[Platform, ...]:
@@ -56,6 +58,10 @@ class LivePosition:
         self.samples: list[tuple[tuple[float, float], tuple[float, float]]] | None = None
         self.pending: Future | None = None
         self.rejected = 0
+        self.teacher: MapTeacher | None = None
+        self.teach_calibrating = False
+        self.proposal: dict | None = None
+        self.preview: tuple[float, dict] | None = None
         self._load(area_id)
 
     def _load(self, area_id: str) -> None:
@@ -86,6 +92,7 @@ class LivePosition:
         player = observation.player
         shift = observation.camera_shift if observation.camera_confidence >= 0.35 else None
         self._collect(image, fix, player)
+        self._teach(fix, player, shift, now)
         if self.tracker is None:
             location = Location("unknown", None, None, "Walk calibration needed")
         else:
@@ -104,9 +111,67 @@ class LivePosition:
             "marker": list(fix.dot) if fix.dot else None,
             "calibrated": self.tracker is not None,
             "calibration": self._calibration_status(),
+            "teaching": self._teaching_status(now),
             "captured_at": time.time(),
             "input_sent": False,
         }
+
+    def _teach(self, fix: MinimapFix, player: Detection | None,
+               shift: tuple[float, float] | None, now: float) -> None:
+        if (self.teach_calibrating and self.samples is not None
+                and len(self.samples) >= AUTO_CALIBRATION_PAIRS):
+            try:
+                self.finish_calibration()
+            except ValueError:
+                return  # keep walking until the marker has moved far enough
+            self.teach_calibrating = False
+            assert self.tracker is not None
+            self.teacher = MapTeacher(self.tracker.transform)
+        if self.teacher is not None:
+            self.teacher.add(fix, player, shift, now)
+
+    def _teaching_status(self, now: float) -> dict:
+        phase = ("calibrating" if self.teach_calibrating else "recording" if self.teacher
+                 else "review" if self.proposal else None)
+        if self.teacher is not None and (self.preview is None or now - self.preview[0] >= 1):
+            self.preview = (now, self.teacher.geometry())
+        geometry = self.proposal or (self.preview[1] if self.preview and self.teacher else None)
+        return {"phase": phase, "geometry": geometry,
+                "samples": len(self.teacher.samples) if self.teacher else 0}
+
+    def begin_teaching(self) -> dict:
+        """Record the operator's play; calibrate first when the area has no calibration."""
+        self.proposal, self.preview = None, None
+        if self.tracker is None:
+            self.begin_calibration()
+            self.teach_calibrating, self.teacher = True, None
+        else:
+            self.teach_calibrating, self.teacher = False, MapTeacher(self.tracker.transform)
+        return self._teaching_status(time.perf_counter())
+
+    def finish_teaching(self) -> dict:
+        if self.teacher is None:
+            raise ValueError("Start teaching and walk the map first")
+        proposal = self.teacher.geometry()
+        if not proposal["platforms"]:
+            raise ValueError("No platform seen yet: walk along each floor and ledge")
+        self.proposal, self.teacher, self.preview = proposal, None, None
+        return proposal
+
+    def save_teaching(self) -> dict:
+        if self.proposal is None:
+            raise ValueError("Finish teaching before saving the map")
+        saved = self.store.save_geometry(self.profile["id"], self.profile["revision"],
+                                         self.proposal)
+        self.proposal = None
+        self._load(self.profile["id"])
+        return saved
+
+    def cancel_teaching(self) -> dict:
+        if self.teach_calibrating:
+            self.cancel_calibration()
+        self.teacher, self.proposal, self.preview, self.teach_calibrating = None, None, None, False
+        return self._teaching_status(time.perf_counter())
 
     def _collect(self, image: np.ndarray, fix: MinimapFix, player: Detection | None) -> None:
         if self.samples is None:

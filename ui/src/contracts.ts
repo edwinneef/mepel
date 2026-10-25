@@ -30,12 +30,16 @@ export interface WalkCalibration {
   active: boolean; pairs: number; rejected: number;
   saved: { residual_px: Record<'x' | 'y', Residual>; pairs: number; captured_at: number } | null;
 }
+export interface TaughtGeometry {
+  platforms: AreaSegment[]; ropes: AreaSegment[]; links: AreaLink[]; boundary: Rect | null;
+}
 // Read-only position on a taught area. A platform is a spatial match, never proof of contact.
 export interface LivePosition {
   area_id?: string; area_name?: string; kind: string; surface_id?: string | null;
   feet?: [number, number] | null; reason: string; map?: string; canvas?: Rect | null;
   marker?: [number, number] | null; calibrated?: boolean; stale?: boolean;
   calibration?: WalkCalibration; input_sent: false;
+  teaching?: { phase: 'calibrating' | 'recording' | 'review' | null; geometry: TaughtGeometry | null; samples: number };
 }
 export interface WindowInfo { hwnd: number; title: string; client: Rect; focused: boolean; dpi: number }
 export interface Snapshot {

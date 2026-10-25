@@ -60,7 +60,8 @@ OPTIONAL_PROBES = frozenset({"up", "down", "hp_potion", "mp_potion"})
 PROBE_ACTIONS = REQUIRED_PROBES | OPTIONAL_PROBES
 POSITION_COMMANDS = frozenset({
     "position_start", "position_stop", "walk_calibration_begin", "walk_calibration_finish",
-    "walk_calibration_cancel",
+    "walk_calibration_cancel", "teach_new_area", "teach_begin", "teach_finish", "teach_save",
+    "teach_cancel",
 })
 
 # Give ordinary dragging a bounded grace period, independent of capture FPS.
@@ -1218,11 +1219,30 @@ class Application:
             return {"tracking": False}
         if self.area_editing:
             raise ValueError("Finish area editing before tracking the live position")
+        if name == "teach_new_area":
+            if self.mode != "capture":
+                raise ValueError("Stop combat and potions before teaching a map")
+            latest = self.preview.frozen(self._preview_source().id)
+            if latest is None:
+                raise ValueError("Wait for a fresh preview before teaching a map")
+            view = self.areas.capture_view(latest[0])
+            if view["minimap"] is None:
+                raise ValueError("Open the full minimap in the game, then try again")
+            label = payload.get("name")
+            saved = self.areas.save({
+                "schema_version": 2, "id": uuid.uuid4().hex, "revision": 0,
+                "name": label if isinstance(label, str) and label.strip() else "New map",
+                "boundary": {"x": 0, "y": 0, "width": view["width"], "height": view["height"]},
+                "views": [view], "zones": [], "platforms": [], "ropes": [], "links": [],
+            })["profile"]
+            name, payload = "position_start", {"area_id": saved["id"], "teach": True}
         if name == "position_start":
             position = LivePosition(self.areas, payload.get("area_id"))
             if self.position is not None:
                 self.position.close()
             self.position = position
+            if payload.get("teach"):
+                position.begin_teaching()
             return {"tracking": True, "area_id": position.profile["id"],
                     "calibrated": position.tracker is not None}
         if self.position is None:
@@ -1235,6 +1255,21 @@ class Application:
             return result
         if name == "walk_calibration_cancel":
             return self.position.cancel_calibration()
+        if name == "teach_begin":
+            if self.mode != "capture":
+                raise ValueError("Stop combat and potions before teaching a map")
+            self.note("Teaching the map; play it yourself, no input is sent")
+            return self.position.begin_teaching()
+        if name == "teach_finish":
+            return self.position.finish_teaching()
+        if name == "teach_cancel":
+            return self.position.cancel_teaching()
+        if name == "teach_save":
+            result = self.position.save_teaching()
+            profile = result["profile"]
+            self.note(f"Map saved from walking: {len(profile['platforms'])} platforms, "
+                      f"{len(profile['ropes'])} ropes, {len(profile['links'])} links")
+            return result
         result = self.position.finish_calibration()
         residual = result["calibration"]["residual_px"]
         self.note(

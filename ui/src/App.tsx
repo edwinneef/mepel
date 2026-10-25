@@ -96,7 +96,8 @@ export function App({ client }: { client: EngineClient }) {
       </section>
       <aside hidden={!tool} className="tool-dock" aria-label={tool ? `${tool} tool` : 'Workspace tool'}>
         <header className="dock-heading"><div><span className="eyebrow">Workspace tool</span><h2>{tool}</h2></div><button aria-label="Close tool panel" title="Return to full-width overview" onClick={() => setTool(null)}>×</button></header>
-        <div className="dock-body"><div hidden={tool !== 'Navigation'}>{props && <PositionPanel snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} areas={area.areas} />}<AreaEditor workspace={area} active={tool === 'Navigation'} connected={state.connected} disabled={disabled} /></div>
+        <div className="dock-body"><div hidden={tool !== 'Navigation'}>{props && <PositionPanel snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} areas={area.areas} refreshAreas={area.refresh} />}
+            <details className="advanced-editor"><summary>Advanced: draw by hand</summary><AreaEditor workspace={area} active={tool === 'Navigation'} connected={state.connected} disabled={disabled} /></details></div>
           {tool !== 'Navigation' && (!props ? <p>Waiting for the engine connection…</p> : tool === 'Tracking' ? <TrackingTool {...props} /> : tool === 'Combat' ? <CombatTool {...props} /> : tool === 'Potions' ? <PotionsTool key={s!.session_id} {...props} /> : tool === 'Settings' ? <SettingsTool key={s!.session_id} {...props} /> : tool === 'Diagnostics' ? <DiagnosticsTool {...props} /> : null)}</div>
       </aside>
     </main>
