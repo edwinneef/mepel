@@ -42,7 +42,7 @@ Select the Game tab and keep it unobscured. The documented attack defaults are *
 
 Window coordinates and screenshots use physical pixels with per-thread Per Monitor V2 DPI awareness. Moving a window updates the crop's screen origin. Changing its client size, DPI or title invalidates calibration and stops input. Changing the Game tab layout, Game-view scale, resolution or scene inside an unchanged Editor window requires manual recalibration; Win32 window geometry cannot identify those changes.
 
-Calibration permissions reset on every application restart. Reattaching a matching window restores only its crop. During a freeze/selection, input is stopped; **Return to live view** before probing or arming.
+Successful control probes are saved in `data/confirmed-probes.json`. Reattaching the same game title, crop, dimensions and DPI restores matching confirmations. Changing a key invalidates only that control; changing a potion HUD reference invalidates that potion. Starting another probe revokes its previous confirmation until the new test succeeds. Capture confirmation still resets on restart, and combat/live potions always start stopped. During a freeze/selection, input is stopped; **Return to live view** before probing or arming.
 
 ## Teach and inspect detection
 

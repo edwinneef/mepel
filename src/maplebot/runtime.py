@@ -1,3 +1,4 @@
+import hashlib
 import json
 import queue
 import threading
@@ -21,6 +22,7 @@ from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
 from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win32Input
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
+from .probe_store import ProbeStore
 from .recorder import SessionRecorder
 from .windows import Window, Windows
 
@@ -117,6 +119,7 @@ class Application:
         self.pending_at = 0.0
         self.calibrating = False
         self.probed: set[str] = set()
+        self.probe_store = ProbeStore(self.data / "confirmed-probes.json")
         self.probe_generation = 0
         self.next_probe_id = 1
         self.active_probe: ProbeState | None = None
@@ -254,6 +257,39 @@ class Application:
                 "history": list(self.history),
             }
 
+    def _probe_profile(self) -> tuple[dict, dict]:
+        if not self.calibration:
+            return {}, {}
+        context = {
+            key: value for key, value in asdict(self.calibration).items()
+            if key not in {"capture_verified", "controls_verified"}
+        }
+        context["configured_title"] = self.config.capture.window_title
+        signatures = {action: {"key": getattr(self.config.input, action)}
+                      for action in PROBE_ACTIONS}
+        for resource in ("hp", "mp"):
+            action = f"{resource}_potion"
+            bar = self.potter.bars.get(resource)
+            if bar is None:
+                signatures.pop(action)
+            else:
+                signatures[action]["hud"] = {
+                    "box": asdict(bar.box),
+                    "interior": asdict(bar.interior),
+                    "reference": hashlib.sha256(bar.image.tobytes()).hexdigest(),
+                }
+        return context, signatures
+
+    def _save_probes(self) -> None:
+        context, signatures = self._probe_profile()
+        if context:
+            self.probe_store.save(context, signatures, self.probed)
+
+    def _restore_probes(self) -> None:
+        context, signatures = self._probe_profile()
+        self.probed = self.probe_store.restore(context, signatures) if context else set()
+        self.probe_results.clear()
+
     def _probe_snapshot(self) -> dict[str, dict[str, object]]:
         states: dict[str, dict[str, object]] = {}
         for action in sorted(PROBE_ACTIONS):
@@ -263,7 +299,8 @@ class Application:
                 "status": "confirmed" if action in self.probed else "not_requested",
             }
         for action, result in self.probe_results.items():
-            states[action] = {**states[action], **result}
+            if result["status"] != "confirmed" or action in self.probed:
+                states[action] = {**states[action], **result}
         if self.active_probe:
             states[self.active_probe.action] = {
                 **states[self.active_probe.action],
@@ -338,6 +375,8 @@ class Application:
                     f"{self.config.probe.potion_full_percent:g}% first"
                 )
             baseline_percent = reading.percent
+        self.probed.discard(action)
+        self._save_probes()
         self._clear_stop_banner()
         self.safe_stop(
             "CALIBRATION",
@@ -381,6 +420,7 @@ class Application:
         if active.phase != "awaiting_confirmation":
             return {"confirmed": False, "reason": "Probe is not awaiting manual confirmation"}
         self.probed.add(active.action)
+        self._save_probes()
         self._finish_probe(active, "confirmed", "Operator confirmed the observed probe effect")
         self.safe_stop("PROBE_COMPLETE", "Control probe confirmed")
         return {"confirmed": True, "action": active.action}
@@ -448,6 +488,7 @@ class Application:
         assert active.baseline_percent is not None
         if reading.percent - active.baseline_percent >= self.config.probe.potion_min_gain_percent:
             self.probed.add(active.action)
+            self._save_probes()
             self._finish_probe(active, "confirmed", "Fresh matching potion-bar gain confirmed")
             self.safe_stop("PROBE_COMPLETE", "Potion probe confirmed")
 
@@ -545,7 +586,6 @@ class Application:
             self.mode, self.stop_reason = "capture", message
             self.last_action = "release all"
             if (invalidate_probes if invalidate_probes is not None else reason.invalidate_probes):
-                self.probed.clear()
                 if self.calibration:
                     self.calibration.controls_verified = False
             record = StopRecord(
@@ -649,6 +689,7 @@ class Application:
             ):
                 raise ValueError("Frozen screenshot no longer matches the current capture")
             self.potter.calibrate(str(payload["resource"]), image, self._roi(payload, image))
+            self._restore_probes()
             return self.potter.snapshot()
         if name == "autopotter_settings":
             self._stop("OPERATOR_STOP", "Potion settings changed; input stopped")
@@ -785,6 +826,7 @@ class Application:
             self.image = None
             self.calibrating = False
             self.probed.clear()
+            self._restore_probes()
             self.frozen.clear()
             self.note(f"Attached to {window.title}; calibration/input unverified")
             return {"ok": True}
@@ -836,6 +878,7 @@ class Application:
             if not self.calibration.valid_for(self.windows.get(self.hwnd)):
                 raise ValueError("Window changed; recalibrate")
             self.calibration.capture_verified = True
+            self._restore_probes()
             self.calibration.save(self.data / "calibration.json")
             path = self._save()
             self.note("Capture confirmed by operator; evidence screenshot saved")

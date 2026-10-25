@@ -638,3 +638,72 @@ def test_live_potion_backend_failure_stops_without_retry(potion_app, monkeypatch
     assert not app.potter.enabled
     assert not app.controller.enabled
     assert not app.controller.held
+
+
+def test_confirmed_probes_restore_on_reattach_but_input_stays_unverified_and_disabled(app):
+    from maplebot.runtime import ProbeState
+
+    app.active_probe = ProbeState(1, app.controller.generation, "left", "awaiting_confirmation", "")
+    assert app.confirm_probe({"id": 1, "generation": app.controller.generation})["confirmed"]
+    app.calibration.save(app.data / "calibration.json")
+    app._command("attach", {"hwnd": 1})
+    assert app.probed == {"left"}
+    assert app.snapshot()["probes"]["left"]["confirmed"]
+    assert not app.calibration.capture_verified
+    assert app.mode == "capture"
+    assert not app.controller.enabled
+    assert not app.potter.enabled
+    assert app.controller.backend.events == []
+
+
+def test_restarting_a_saved_probe_revokes_it_until_new_success(app):
+    app.probed = {"left", "right"}
+    app._save_probes()
+    app.request_probe({"action": "left"})
+    assert app.probed == {"right"}
+    app._command("stop", {})
+    app._restore_probes()
+    assert app.probed == {"right"}
+
+
+def test_transient_stops_preserve_confirmed_controls(app):
+    app.probed = {"left", "right"}
+    app._save_probes()
+    app.safe_stop("FOCUS_LOSS", "Window lost focus")
+    assert app.probed == {"left", "right"}
+    assert not app.controller.enabled
+    assert not app.potter.enabled
+
+
+def test_hud_calibration_changes_only_invalidate_matching_potion(potion_app):
+    app = potion_app
+    app.probed.update({"left", "jump"})
+    app._save_probes()
+    hp = app.potter.bars["hp"]
+    app.potter.bars["hp"] = replace(hp, box=Rect(11, 30, 104, 16))
+    app._restore_probes()
+    assert app.probed == {"left", "jump", "mp_potion"}
+    app.config = replace(app.config, input=replace(app.config.input, jump="alt"))
+    app._restore_probes()
+    assert app.probed == {"left", "mp_potion"}
+
+
+def test_fresh_application_restores_probes_without_arming(app, monkeypatch):
+    app.probed = {"left", "jump"}
+    app._save_probes()
+    app.calibration.save(app.data / "calibration.json")
+    restarted = Application(app.config, input_backend=Backend())
+    monkeypatch.setattr(restarted.alarm.backend, "play_loop", lambda path: None)
+    monkeypatch.setattr(restarted.alarm.backend, "stop", lambda: None)
+    monkeypatch.setattr(restarted.alarm.backend, "beep", lambda: None)
+    try:
+        assert restarted.probed == set()
+        restarted._command("attach", {"hwnd": 1})
+        assert restarted.probed == {"left", "jump"}
+        assert not restarted.calibration.capture_verified
+        assert not restarted.controller.enabled
+        assert not restarted.potter.enabled
+        assert restarted.mode == "capture"
+        assert restarted.controller.backend.events == []
+    finally:
+        restarted.close()
