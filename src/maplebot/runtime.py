@@ -828,6 +828,9 @@ class Application:
                 self.recorder.start("dry-run")
             return {"mode": self.mode}
         if name == "arm":
+            with self.stop_lock:
+                if self.alarm.snapshot()["active"]:
+                    raise ValueError("Acknowledge the active alarm before arming combat")
             self.safe_stop(
                 "CALIBRATION",
                 "Preparing bounded input; focus the Game view within 3 seconds",
@@ -843,10 +846,13 @@ class Application:
             missing = sorted(REQUIRED_PROBES - self.probed)
             if missing:
                 raise ValueError("Confirm required probes first: " + ", ".join(missing))
-            with self.controller.lock:
+            with self.stop_lock:
+                if self.alarm.snapshot()["active"]:
+                    raise ValueError("Acknowledge the active alarm before arming combat")
                 self.stop_requested.clear()
-            self.mode = "pending_arm"
-            self.pending_at = time.perf_counter() + 3
+                self._clear_stop_banner()
+                self.mode = "pending_arm"
+                self.pending_at = time.perf_counter() + 3
             return {"mode": self.mode, "instruction": "Click the game window now; F8 cancels"}
         if name == "frozen_png":
             return png(self.frozen[payload["id"]][0])

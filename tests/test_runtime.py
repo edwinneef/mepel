@@ -886,3 +886,57 @@ def test_dashboard_acknowledgement_cannot_silence_a_different_incident(app, requ
     assert app.controller.backend.events == []
     assert app.request("acknowledge", {"incident_id": current.id})["acknowledged"]
     assert not app.alarm.snapshot()["active"]
+
+
+def _arm_state(app):
+    return (
+        app.stop_record, app.alarm.snapshot(), app.mode, app.pending_at,
+        app.stop_requested.is_set(), app.active_probe, frozenset(app.probed),
+        app.controller.enabled, app.controller.stopped.is_set(),
+    )
+
+
+def test_arm_refuses_active_alarm_without_mutating_runtime_state(app):
+    app.probed.update(REQUIRED_PROBES)
+    app.safe_stop("FOCUS_LOSS", "Alarm incident")
+    before = _arm_state(app)
+    with pytest.raises(ValueError, match="Acknowledge the active alarm"):
+        app._command("arm", {})
+    assert _arm_state(app) == before
+    assert app.controller.backend.events == []
+
+
+def test_arm_rechecks_alarm_before_committing_countdown(app, monkeypatch):
+    app.probed.update(REQUIRED_PROBES)
+    real_get = app.windows.get
+    incident = []
+
+    def get(hwnd):
+        if not incident:
+            incident.append(app.safe_stop("FOCUS_LOSS", "Alarm during preparation"))
+        return real_get(hwnd)
+
+    monkeypatch.setattr(app.windows, "get", get)
+    with pytest.raises(ValueError, match="Acknowledge the active alarm"):
+        app._command("arm", {})
+    assert app.mode != "pending_arm"
+    assert app.alarm.snapshot()["active"]
+    assert app.stop_record.id == incident[0].id and not app.stop_record.acknowledged
+    assert app.controller.backend.events == []
+
+
+def test_acknowledged_alarm_clears_banner_before_fresh_arm_countdown(app):
+    app.probed.update(REQUIRED_PROBES)
+    incident = app.safe_stop("FOCUS_LOSS", "Alarm incident")
+    with pytest.raises(ValueError):
+        app._command("arm", {})
+    assert app.request("acknowledge", {"incident_id": incident.id})["acknowledged"]
+    assert app.mode != "pending_arm" and not app.controller.enabled
+    assert app.controller.backend.events == []
+    started = time.perf_counter()
+    result = app._command("arm", {})
+    assert result["mode"] == "pending_arm"
+    assert 2 < app.pending_at - started <= 3.5
+    assert app.stop_record is None and "stop" not in app.status
+    assert REQUIRED_PROBES <= app.probed
+    assert not app.controller.enabled and app.controller.backend.events == []
