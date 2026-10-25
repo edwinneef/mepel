@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. A held Up or Down is released within the fixed lease time once renewals stop, and the global per-action hold cap is unchanged.
   5. Every stop, including a crash of the capture worker, releases all keys, saves the incident clip and shows a structured reason in the debugger. Alarm-level stops repeat a sound until the operator acknowledges it with the debugger button or F8, and pauses such as "no targets" stay silent.
 
-**Plans:** 3/4 plans executed
+**Plans:** 3 completed plans, 1 skipped close-out, 1 gap plan ready
 
 Plans:
 **Wave 1**
@@ -46,6 +46,9 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 01-04-PLAN.md — Debugger timing, bounded probes, safe local install and operator acceptance
+
+**Wave 5** *(gap closure; depends on completed 01-03; preserves skipped 01-04 close-out)*
+- [ ] 01-05-PLAN.md — Refuse Arm during an active alarm; prove immutable rejection and explicit acknowledged countdown recovery
 
 **Research flag**: Standard patterns (codebase fully mapped; Win32 extended keys and leases are documented). Decide during planning whether input moves to its own thread or stays synchronous with renewable leases.
 
