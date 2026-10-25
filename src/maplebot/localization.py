@@ -12,6 +12,28 @@ from .perception import Detection
 
 
 @dataclass(frozen=True)
+class ViewTransform:
+    """Manual native-view to area transform; this is not localization evidence."""
+
+    x: float = 0
+    y: float = 0
+    scale: float = 1
+
+    def __post_init__(self) -> None:
+        if (not all(type(v) in (int, float) and math.isfinite(v)
+                    for v in (self.x, self.y, self.scale))
+                or not 0.05 <= self.scale <= 20
+                or max(abs(self.x), abs(self.y)) > 1_000_000):
+            raise ValueError("Invalid manual view transform")
+
+    def to_area(self, x: float, y: float) -> tuple[float, float]:
+        return x / self.scale + self.x, y / self.scale + self.y
+
+    def to_view(self, x: float, y: float) -> tuple[float, float]:
+        return (x - self.x) * self.scale, (y - self.y) * self.scale
+
+
+@dataclass(frozen=True)
 class Platform:
     id: str
     left: int
