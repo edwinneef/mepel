@@ -1,3 +1,4 @@
+import sys
 import threading
 
 import pytest
@@ -38,19 +39,18 @@ def test_dashboard_restart_closes_old_session_before_relaunching_same_mode(
         on_restart()
         return Server()
 
-    def execv(executable, argv):
+    def popen(argv):
         events.append("relaunch")
-        assert [argument.strip('"') for argument in argv] == [
-            executable,
-            "-m",
-            "maplebot",
-            *arguments[1:],
-        ]
+        assert argv == [sys.executable, "-m", "maplebot", *arguments[1:]]
+
+    def exit_process(code):
+        events.append(f"exit {code}")
 
     monkeypatch.setattr("sys.argv", arguments)
     monkeypatch.setattr("maplebot.runtime.Application", App)
     monkeypatch.setattr("maplebot.debugger.serve", serve)
-    monkeypatch.setattr("os.execv", execv)
+    monkeypatch.setattr("subprocess.Popen", popen)
+    monkeypatch.setattr("os._exit", exit_process)
 
     main()
 
@@ -60,4 +60,5 @@ def test_dashboard_restart_closes_old_session_before_relaunching_same_mode(
         "server stopped",
         "socket closed",
         "relaunch",
+        "exit 0",
     ]

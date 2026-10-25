@@ -151,10 +151,11 @@ def main() -> None:
         server.shutdown()
         server.server_close()
     if restart_requested.is_set():
-        arguments = [sys.executable, "-m", "maplebot", *sys.argv[1:]]
-        if os.name == "nt":
-            arguments = [subprocess.list2cmdline([argument]) for argument in arguments]
-        os.execv(sys.executable, arguments)
+        # os.execv on Windows leaves the old process running and holding the port, so start
+        # the replacement ourselves (the socket is already closed) and end this process.
+        subprocess.Popen([sys.executable, "-m", "maplebot", *sys.argv[1:]])
+        sys.stdout.flush()
+        os._exit(0)
 
 
 if __name__ == "__main__":
