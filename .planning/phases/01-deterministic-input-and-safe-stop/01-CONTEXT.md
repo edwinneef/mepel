@@ -118,3 +118,8 @@ Requirements: FND-01..06, SAFE-01..03. Stop *triggers* tied to the taught spot (
 ## Operator overrides recorded on 2026-10-25
 
 The operator explicitly requested persistent successful probes and standalone live Autopotter after confirming the seven movement/combat/potion controls worked. These later requests supersede the memory-only/reset-all parts of D-02, D-12 and D-13 and the earlier preview-only scope. Matching title/layout/DPI/crop/binding restores control confirmations; each potion also matches its HUD reference. Starting a retest revokes its prior confirmation. Capture verification still resets and input always starts stopped. Standalone live potions require the matching potion confirmations and do not arm combat. Full Phase 3 sustain requirements remain unimplemented. See 01-04-CHECKPOINT.md for current evidence, remaining acceptance and commit-backed implementation details.
+
+
+### Capture recognition override (operator request, 2026-10-25)
+
+A matching saved game window reconnects automatically. The operator also requested no confirmation click when the player or HP/MP is recognized. Fresh, unobscured, matching-size/title/DPI calibrated frames may therefore verify capture from a confident non-tracked player or calibrated HP/MP reading. Cached tracking, stale frames, mismatched geometry/title and frozen selection cannot qualify. Recognition never enables input or clears an active-run safety failure; combat and live potions still require explicit start. Manual confirmation remains an Advanced setup fallback.

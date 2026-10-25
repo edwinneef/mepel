@@ -803,3 +803,63 @@ def test_auto_reconnect_never_guesses_an_unmatched_or_ambiguous_window(app, monk
     assert app.hwnd is None
     assert app.calibration is None
     assert app.controller.backend.events == []
+
+
+@pytest.mark.parametrize("evidence", ["player", "hp", "mp"])
+def test_recognition_verifies_capture_without_enabling_input(potion_app, monkeypatch, evidence):
+    from test_autopotter import hud
+
+    from maplebot.perception import Detection, Observation
+
+    app = potion_app
+    app.probed = {"left", "hp_potion", "mp_potion"}
+    app._save_probes()
+    app.calibration.capture_verified = False
+    player = Detection("player", Rect(10, 20, 20, 30), 1.0) if evidence == "player" else None
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: Observation(player, []))
+    image = np.zeros_like(app.image) if player else hud(75, 75)
+    if evidence == "hp":
+        app.potter.bars.pop("mp")
+    elif evidence == "mp":
+        app.potter.bars.pop("hp")
+    app._process(image, time.perf_counter())
+    assert app.calibration.capture_verified
+    assert "left" in app.probed
+    assert app.mode == "capture"
+    assert not app.controller.enabled
+    assert not app.potter.enabled
+    assert app.controller.backend.events == []
+
+
+@pytest.mark.parametrize(
+    "problem", ["missing", "weak", "tracked", "stale", "covered", "title", "size", "frozen"]
+)
+def test_recognition_cannot_verify_uncertain_or_wrong_game_view(potion_app, monkeypatch, problem):
+    from maplebot.perception import Detection, Observation
+
+    app = potion_app
+    app.calibration.capture_verified = False
+    player = Detection("player", Rect(10, 20, 20, 30), 1.0)
+    image = np.zeros_like(app.image)
+    now = time.perf_counter()
+    if problem == "missing":
+        player = None
+    elif problem == "weak":
+        player = replace(player, confidence=0.6)
+    elif problem == "tracked":
+        player = replace(player, tracked=True)
+    elif problem == "stale":
+        now -= 1
+    elif problem == "covered":
+        app.windows.visible = False
+    elif problem == "title":
+        app.windows.window = replace(app.window, title="Other game")
+    elif problem == "size":
+        image = image[:, :-1]
+    else:
+        app.calibrating = True
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: Observation(player, []))
+    app._process(image, now)
+    assert not app.calibration.capture_verified
+    assert not app.controller.enabled
+    assert app.controller.backend.events == []

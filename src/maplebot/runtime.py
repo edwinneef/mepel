@@ -307,10 +307,11 @@ class Application:
         if context:
             self.probe_store.save(context, signatures, self.probed)
 
-    def _restore_probes(self) -> None:
+    def _restore_probes(self, *, clear_results: bool = True) -> None:
         context, signatures = self._probe_profile()
         self.probed = self.probe_store.restore(context, signatures) if context else set()
-        self.probe_results.clear()
+        if clear_results:
+            self.probe_results.clear()
 
     def _probe_snapshot(self) -> dict[str, dict[str, object]]:
         states: dict[str, dict[str, object]] = {}
@@ -842,7 +843,7 @@ class Application:
             connected = self.connect_saved_window()
             return {
                 "connected": connected,
-                "reason": "Saved game connected; inspect and confirm the live view" if connected
+                "reason": "Saved game connected; waiting for player or HUD recognition" if connected
                 else "No unique matching saved game window; open the game or use Advanced setup",
             }
         if name == "attach":
@@ -984,6 +985,39 @@ class Application:
         perception_began = time.perf_counter()
         observation = self.detector.detect(image, now)
         perception_ms = (time.perf_counter() - perception_began) * 1000
+        if (
+            self.calibration
+            and not self.calibration.capture_verified
+            and not self.calibrating
+            and self.mode in {"capture", "dry_run"}
+            and self.hwnd
+            and time.perf_counter() - now <= 0.5
+        ):
+            window = self.windows.get(self.hwnd)
+            crop = self.calibration.crop
+            if (
+                self.config.capture.window_title.casefold() in window.title.casefold()
+                and self.calibration.valid_for(window)
+                and image.shape[:2] == (crop.height, crop.width)
+                and self.windows.unobscured(
+                    window.hwnd, crop.translated(window.client.x, window.client.y)
+                )
+            ):
+                player = observation.player
+                player_recognized = bool(
+                    player and not player.tracked
+                    and player.confidence >= self.config.perception.confidence
+                )
+                hud_recognized = any(
+                    reading.percent is not None and reading.confidence >= 0.9
+                    for reading in (
+                        self._resource_reading(resource, image) for resource in ("hp", "mp")
+                    )
+                )
+                if player_recognized or hud_recognized:
+                    self.calibration.capture_verified = True
+                    self._restore_probes(clear_results=False)
+                    self.note("Game view verified by confident player or HUD recognition")
         for outcome in self.controller.poll_outcomes():
             self.last_action = outcome.result
             self.policy_outcome = {"status": "completed", **asdict(outcome)}
