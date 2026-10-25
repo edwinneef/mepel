@@ -183,7 +183,27 @@ class Application:
         )
 
     def start(self) -> None:
+        self.connect_saved_window()
         self.start_capture_worker()
+
+    def connect_saved_window(self) -> bool:
+        path = self.data / "calibration.json"
+        if not path.exists():
+            return False
+        try:
+            saved = Calibration.load(path)
+            matches = [
+                window for window in self.windows.list()
+                if saved.valid_for(window)
+                and self.config.capture.window_title.casefold() in window.title.casefold()
+            ]
+            if len(matches) != 1:
+                return False
+            self._command("attach", {"hwnd": matches[0].hwnd})
+            return True
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
+            self.note(f"Saved game connection unavailable: {error}")
+            return False
 
     def close(self) -> None:
         self.safe_stop("OPERATOR_STOP", "Application closing")
@@ -210,6 +230,7 @@ class Application:
         if name in {
             "stop",
             "attach",
+            "connect_saved_window",
             "manual",
             "reset_crop",
             "freeze",
@@ -817,6 +838,13 @@ class Application:
             return png(self.frozen[payload["id"]][0])
         if name == "windows":
             return [asdict(window) for window in self.windows.list()]
+        if name == "connect_saved_window":
+            connected = self.connect_saved_window()
+            return {
+                "connected": connected,
+                "reason": "Saved game connected; inspect and confirm the live view" if connected
+                else "No unique matching saved game window; open the game or use Advanced setup",
+            }
         if name == "attach":
             window = self.windows.get(int(payload["hwnd"]))
             self.hwnd, self.manual, self.calibration = window.hwnd, None, None

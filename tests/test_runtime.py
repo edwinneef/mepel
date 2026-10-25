@@ -762,3 +762,44 @@ def test_hud_loading_cancels_queued_potion_without_alarm(potion_app):
     assert not app.controller.enabled
     assert app.controller.backend.events == []
     assert not app.alarm.snapshot()["active"]
+
+
+@pytest.mark.parametrize("capture_only", [False, True])
+def test_start_reconnects_saved_window_without_enabling_input(app, monkeypatch, capture_only):
+    app.calibration.save(app.data / "calibration.json")
+    app.probed = {"left", "jump"}
+    app._save_probes()
+    app.capture_only = capture_only
+    monkeypatch.setattr(app.windows, "list", lambda: [app.windows.window], raising=False)
+    monkeypatch.setattr(app, "start_capture_worker", lambda: False)
+    app.start()
+    assert app.hwnd == 1
+    assert app.probed == {"left", "jump"}
+    assert not app.calibration.capture_verified
+    assert app.mode == "capture"
+    assert not app.controller.enabled
+    assert not app.potter.enabled
+    assert app.controller.backend.events == []
+
+
+@pytest.mark.parametrize("problem", ["missing", "duplicate", "resized", "wrong_title", "corrupt"])
+def test_auto_reconnect_never_guesses_an_unmatched_or_ambiguous_window(app, monkeypatch, problem):
+    app.calibration.save(app.data / "calibration.json")
+    windows = [app.windows.window]
+    if problem == "missing":
+        windows = []
+    elif problem == "duplicate":
+        windows.append(replace(app.window, hwnd=2))
+    elif problem == "resized":
+        windows = [replace(app.window, client=Rect(0, 0, 1280, 720))]
+    elif problem == "wrong_title":
+        windows = [replace(app.window, title="Another game")]
+    else:
+        (app.data / "calibration.json").write_text("broken")
+    monkeypatch.setattr(app.windows, "list", lambda: windows, raising=False)
+    app.hwnd = None
+    app.calibration = None
+    assert not app.connect_saved_window()
+    assert app.hwnd is None
+    assert app.calibration is None
+    assert app.controller.backend.events == []
