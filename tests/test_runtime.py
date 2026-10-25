@@ -445,3 +445,196 @@ def test_teaching_name_tag_records_other_copies_as_decoys(app):
     assert meta["decoys"] == [[192, 741]]
     assert meta["frame"] == [1024, 768]
     assert app.detector.nametags[0].decoys == ((192, 741),)
+
+@pytest.fixture
+def potion_app(app):
+    from test_autopotter import hud
+
+    app.image = hud()
+    app.region = Rect(0, 0, 300, 100)
+    app.windows.window = app.window = replace(app.window, client=app.region)
+    app.calibration = Calibration("MapleStory", 300, 100, 96, app.region, True, False)
+    for resource, x in [("hp", 10), ("mp", 150)]:
+        app.potter.calibrate(resource, hud(), Rect(x, 30, 104, 16))
+    app.probed.update({"hp_potion", "mp_potion"})
+    return app
+
+
+def start_live_potions(app):
+    from test_autopotter import hud
+
+    app._command("autopotter_live", {})
+    assert app.mode == "potion_wait"
+    assert not app.controller.enabled
+    assert app.controller.backend.events == []
+    app.pending_at = 0
+    app._process(hud(), time.perf_counter())
+    assert app.mode == "potion_live"
+    assert app.potter.live
+
+
+def finish_live_potion(app, image):
+    deadline = time.perf_counter() + 2
+    while app.live_potion_ticket is not None:
+        assert time.perf_counter() < deadline
+        time.sleep(0.002)
+        app._process(image, time.perf_counter())
+
+
+def test_live_potions_prioritize_hp_apply_cooldown_then_send_mp(potion_app):
+    from test_autopotter import hud
+
+    app = potion_app
+    start_live_potions(app)
+    low = hud(20, 20)
+    app._process(low, time.perf_counter())
+    assert app.live_potion_ticket is None
+    app._process(low, time.perf_counter())
+    assert app.live_potion_ticket is not None
+    finish_live_potion(app, low)
+    assert app.controller.backend.events == [("insert", True), ("insert", False)]
+    assert app.potter.snapshot()["input_sent"]
+    assert not app.controller.enabled
+    app._process(low, time.perf_counter())
+    assert app.live_potion_ticket is None
+    app.potter.last_suggestion = time.perf_counter() - app.potter.settings["cooldown"] - 1
+    finish_image = hud(100, 20)
+    app._process(finish_image, time.perf_counter())
+    finish_live_potion(app, finish_image)
+    assert app.controller.backend.events[-2:] == [("delete", True), ("delete", False)]
+    assert app.mode == "potion_live"
+    assert str(app.agent.state) == "IDLE"
+
+
+@pytest.mark.parametrize(
+    "blocker", ["capture_only", "unverified", "unprobed", "disabled", "unreadable"]
+)
+def test_live_potions_reject_missing_prerequisites(potion_app, blocker):
+    app = potion_app
+    if blocker == "capture_only":
+        app.capture_only = True
+    elif blocker == "unverified":
+        app.calibration.capture_verified = False
+    elif blocker == "unprobed":
+        app.probed.clear()
+    elif blocker == "disabled":
+        app.potter.configure(hp_threshold=0, mp_threshold=0, cooldown=1.5)
+    else:
+        app.image[:] = 0
+    with pytest.raises(ValueError):
+        app._command("autopotter_live", {})
+    assert app.controller.backend.events == []
+    assert not app.potter.live
+
+
+@pytest.mark.parametrize(
+    "blocker", ["focus", "visibility", "verification", "stale", "hud", "death", "f8"]
+)
+def test_live_potions_stop_without_sending_on_unsafe_frames(potion_app, monkeypatch, blocker):
+    from test_autopotter import hud
+
+    app = potion_app
+    start_live_potions(app)
+    image = hud(20, 20)
+    now = time.perf_counter()
+    if blocker == "focus":
+        app.windows.window = replace(app.window, focused=False)
+    elif blocker == "visibility":
+        app.windows.visible = False
+    elif blocker == "verification":
+        app.calibration.capture_verified = False
+    elif blocker == "stale":
+        now -= 1
+    elif blocker == "hud":
+        image[:] = 0
+    elif blocker == "death":
+        image = hud(0, 20)
+    else:
+        monkeypatch.setattr(app.windows, "pressed", lambda key: True)
+    app._process(image, now)
+    assert app.mode == "capture"
+    assert not app.potter.enabled
+    assert app.live_potion_ticket is None
+    assert app.controller.backend.events == []
+
+
+def test_live_potions_switch_to_preview_and_disabled_threshold_never_sends(potion_app):
+    from test_autopotter import hud
+
+    app = potion_app
+    app.potter.configure(hp_threshold=0, mp_threshold=25, cooldown=1.5)
+    app.probed = {"mp_potion"}
+    start_live_potions(app)
+    app._process(hud(20, 100), time.perf_counter())
+    app._process(hud(20, 100), time.perf_counter())
+    assert app.controller.backend.events == []
+    app._command("autopotter_start", {})
+    app._process(hud(20, 20), time.perf_counter())
+    _, status = app._process(hud(20, 20), time.perf_counter())
+    assert status["autopotter"]["suggestion"] == "mp"
+    assert status["autopotter"]["preview_only"]
+    assert app.controller.backend.events == []
+
+
+def test_stop_cancels_a_queued_live_potion_and_settings_stop_live_mode(potion_app):
+    from test_autopotter import hud
+
+    app = potion_app
+    start_live_potions(app)
+    app.controller.planner.config = replace(
+        app.controller.planner.config, reaction_min_seconds=0.4, reaction_max_seconds=0.4
+    )
+    app._process(hud(20, 20), time.perf_counter())
+    app._process(hud(20, 20), time.perf_counter())
+    assert app.live_potion_ticket is not None
+    app._command("autopotter_stop", {})
+    time.sleep(0.05)
+    assert app.controller.backend.events == []
+    assert app.live_potion_ticket is None
+    assert not app.potter.enabled
+    start_live_potions(app)
+    app._command("autopotter_settings", {"hp_threshold": 40, "mp_threshold": 20, "cooldown": 2})
+    assert app.mode == "capture"
+    assert not app.potter.enabled
+
+
+def test_live_potion_countdown_sends_nothing_and_checks_focus_at_deadline(potion_app):
+    from test_autopotter import hud
+
+    app = potion_app
+    app.windows.window = replace(app.window, focused=False)
+    app._command("autopotter_live", {})
+    app._process(hud(20, 20), time.perf_counter())
+    assert app.mode == "potion_wait"
+    assert app.controller.backend.events == []
+    app.pending_at = 0
+    app._process(hud(20, 20), time.perf_counter())
+    assert app.mode == "capture"
+    assert not app.potter.enabled
+    assert app.controller.backend.events == []
+
+
+def test_live_potion_backend_failure_stops_without_retry(potion_app, monkeypatch):
+    from test_autopotter import hud
+
+    app = potion_app
+    start_live_potions(app)
+    attempts = []
+
+    def fail(key, down):
+        attempts.append((key, down))
+        if down:
+            raise OSError("Input denied")
+
+    monkeypatch.setattr(app.controller.backend, "send", fail)
+    app._process(hud(20, 20), time.perf_counter())
+    app._process(hud(20, 20), time.perf_counter())
+    deadline = time.perf_counter() + 2
+    while app.mode != "capture":
+        assert time.perf_counter() < deadline
+        time.sleep(0.002)
+    app._process(hud(20, 20), time.perf_counter())
+    assert [event for event in attempts if event[1]] == [("insert", True)]
+    assert not app.potter.enabled
+    assert not app.controller.enabled
+    assert not app.controller.held

@@ -80,6 +80,8 @@ class PotionMonitor:
         self.settings = {"hp_threshold": 50.0, "mp_threshold": 30.0, "cooldown": 1.5}
         self.bars: dict[str, BarReference] = {}
         self.enabled = False
+        self.live = False
+        self.input_sent = False
         self.low_frames = {"hp": 0, "mp": 0}
         self.last_suggestion = -math.inf
         self.last_time = -math.inf
@@ -172,22 +174,25 @@ class PotionMonitor:
             shutil.copy2(self.path, self.path.with_suffix(f".{time.time_ns()}.bak"))
         temporary.replace(self.path)
 
-    def start(self) -> None:
+    def start(self, *, live: bool = False) -> None:
         if not self.bars:
             raise ValueError("Calibrate at least one full HP or MP bar first")
         self.stop()
         self.enabled = True
+        self.live = live
 
     def stop(self) -> None:
         self.enabled = False
+        self.live = False
+        self.input_sent = False
         self.low_frames = {"hp": 0, "mp": 0}
         self.last_suggestion = self.last_time = -math.inf
 
     def snapshot(self) -> dict:
         return {
             "enabled": self.enabled,
-            "preview_only": True,
-            "input_sent": False,
+            "preview_only": not self.live,
+            "input_sent": self.input_sent,
             "settings": self.settings.copy(),
             "calibrated": list(self.bars),
         }
@@ -204,7 +209,7 @@ class PotionMonitor:
                 not safe
                 or not fresh
                 or any(
-                    reading.percent is None
+                    reading.percent is None or reading.confidence < 0.9
                     for resource, reading in readings.items()
                     if self.settings[f"{resource}_threshold"] > 0
                 )
@@ -237,6 +242,11 @@ class PotionMonitor:
                             break
                     if not suggestion and any(self.low_frames.values()):
                         reason = "Low resource: waiting for a second stable reading"
+        if self.live:
+            reason = reason.replace("Above thresholds; preview only", "Above thresholds")
+            reason = reason.replace("Preview cooldown", "Potion cooldown")
+            if suggestion:
+                reason = f"Requesting {suggestion.upper()} potion; effect unconfirmed"
         return {
             **self.snapshot(),
             "readings": {resource: asdict(reading) for resource, reading in readings.items()},

@@ -111,15 +111,16 @@ controller.release_all()
 
 `InputBackend` is a protocol with `send(key: str, down: bool) -> None`. Supply an adapter through `Application(config, input_backend=my_backend)` or directly to `KeyboardController`. An adapter must deliver an ordinary key-down/up or raise on failure. Timing, logical key mapping, safety checks and decision logic remain outside the adapter. `Win32Input` remains the default software backend. Planned timings, delivered backend events and interruption status are available through `controller.timing_snapshot()` and the debugger/recording `input_timing` field. Backend acceptance does not prove a gameplay effect.
 
-## HP/MP autopotter preview
+## HP/MP autopotter
 
-The browser's **Autopotter · preview** panel reads the visible red HP and blue MP bars, shows percentages/confidence, and reports when it would use a potion. This implementation is **dry-run only in every launch mode**: it never sends potion keys or assumes a potion worked. The capture-only lock remains in force.
+The browser's **Autopotter** panel reads the visible red HP and blue MP bars and shows percentages/confidence. **Start potion preview** reports decisions without sending keys. **Start live potions** sends the configured HP/MP keys in an input-capable session. Replay and capture-only sessions remain input-free.
 
-Defaults are **50% HP**, **30% MP**, and a shared **1.5-second cooldown**. Two consecutive confident low readings are required, HP has priority, and a threshold of zero disables that resource. A missing/covered/moved HUD, changed capture size, uncertain colors, stale observations, or an empty HP bar suppresses suggestions. STOP/F8 and calibration stop the preview. It starts stopped after a restart.
+Defaults are **50% HP**, **30% MP**, and a shared **1.5-second cooldown**. Two consecutive confident readings at or below the threshold are required, HP has priority, and a threshold of zero disables that resource. A missing/covered/moved HUD, changed capture size, uncertain colors, stale observations, or an empty HP bar suppresses suggestions and stops live mode. STOP/F8, loss of game focus, calibration, and saved threshold changes stop live input. It starts stopped after a restart.
 
 1. Attach and verify the game crop. Play manually until the bar to calibrate is full.
 2. Freeze, select the **entire bar including all four pale borders**, excluding the HP/MP text and numbers, and click **Calibrate HP bar** or **Calibrate MP bar**. Repeat for the other bar.
 3. Return to live view, set/save thresholds, and click **Start potion preview**. Read the percentages and reason in the panel; saving thresholds stops the preview so you can review the change before starting again.
+4. For live use, verify **HP potion** and **MP potion** under **Verify controls** for each resource with a nonzero threshold. Click **Start live potions**, then focus the actual game within three seconds. Live potions operate independently of combat; combat remains stopped. Each dose is one bounded key press, followed by the shared cooldown. Completion of a key press does not itself confirm a potion effect. **Stop potions** releases input and stops monitoring.
 
 New references for the existing 1023×766 saved crop are installed in `data/autopotter.json`, derived only from your three saved screenshots. Recalibrate for a different HUD/crop; earlier calibration/settings receive timestamped backups. No player/enemy templates or game files are changed.
 

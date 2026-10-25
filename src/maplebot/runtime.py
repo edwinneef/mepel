@@ -120,6 +120,7 @@ class Application:
         self.probe_generation = 0
         self.next_probe_id = 1
         self.active_probe: ProbeState | None = None
+        self.live_potion_ticket: int | None = None
         self.probe_results: dict[str, dict[str, object]] = {}
         self.stop_reason = (
             "Capture-only session: keyboard output locked; recognition and dry run available"
@@ -211,12 +212,14 @@ class Application:
             "crop",
             "template",
             "autopotter_calibrate",
-            "autopotter_stop",
             "reload_templates",
         }:
             # Release now, without waiting for a capture/detector operation to finish.
             self.stop_requested.set()
             self.safe_stop("CALIBRATION", "Debugger stop/calibration")
+        if name in {"autopotter_settings", "autopotter_stop", "autopotter_start"}:
+            self.stop_requested.set()
+            self.safe_stop("OPERATOR_STOP", "Autopotter mode/settings change; input stopped")
         future: Future = Future()
         self.commands.put((name, payload, future))
         try:
@@ -490,6 +493,7 @@ class Application:
         reason = STOP_REASONS.get(code)
         if reason is None:
             raise ValueError(f"Unknown stop code: {code}")
+        self.live_potion_ticket = None
         self._cancel_active_probe(message)
         # This must happen before any recorder, encoder, status, or audio work.
         self.controller.stop(message, code=code, notify=False)
@@ -647,10 +651,39 @@ class Application:
             self.potter.calibrate(str(payload["resource"]), image, self._roi(payload, image))
             return self.potter.snapshot()
         if name == "autopotter_settings":
+            self._stop("OPERATOR_STOP", "Potion settings changed; input stopped")
             self.potter.configure(
                 **{key: float(payload[key]) for key in ("hp_threshold", "mp_threshold", "cooldown")}
             )
             return self.potter.snapshot()
+        if name == "autopotter_live":
+            if self.capture_only:
+                raise ValueError("Capture-only session: gameplay controls are unavailable")
+            if self.alarm.snapshot()["active"]:
+                raise ValueError("Acknowledge the active alarm before starting live potions")
+            if self.calibrating or self.image is None:
+                raise ValueError("Return to a live screenshot before starting live potions")
+            if not self.calibration or not self.calibration.capture_verified:
+                raise ValueError("Verify capture before starting live potions")
+            if self.active_probe is not None:
+                raise ValueError("Finish the active control probe before starting live potions")
+            resources = [r for r in ("hp", "mp") if self.potter.settings[f"{r}_threshold"] > 0]
+            if not resources:
+                raise ValueError("Set at least one potion threshold above zero")
+            for resource in resources:
+                reading = self._resource_reading(resource, self.image)
+                if reading.percent is None or reading.confidence < 0.9:
+                    raise ValueError(f"Calibrate a readable {resource.upper()} bar first")
+                if f"{resource}_potion" not in self.probed:
+                    raise ValueError(f"Verify the {resource.upper()} potion control first")
+            if self.windows.pressed(KEYS[self.config.input.emergency_key]):
+                raise ValueError("Release the emergency stop key before starting live potions")
+            self._clear_stop_banner()
+            self._stop("OPERATOR_STOP", "Preparing live potions; focus the game within 3 seconds")
+            self.stop_requested.clear()
+            self.mode = "potion_wait"
+            self.pending_at = time.perf_counter() + 3
+            return {"mode": self.mode}
         if name == "autopotter_start":
             if self.calibrating or self.image is None:
                 raise ValueError("Return to a live screenshot before starting potion preview")
@@ -658,12 +691,12 @@ class Application:
                 raise ValueError("Verify capture before starting potion preview")
             if self.windows.pressed(KEYS[self.config.input.emergency_key]):
                 raise ValueError("Release the emergency stop key before starting preview")
-            self._stop("CALIBRATION", "Potion preview: gameplay input disabled")
+            self._stop("OPERATOR_STOP", "Potion preview: gameplay input disabled")
             self.stop_requested.clear()
             self.potter.start()
             return self.potter.snapshot()
         if name == "autopotter_stop":
-            self.potter.stop()
+            self._stop("OPERATOR_STOP", "Autopotter stopped")
             return self.potter.snapshot()
         if name in {"attach", "manual", "reset_crop", "freeze", "crop", "template"}:
             self._stop("CALIBRATION", "Calibration: gameplay input disabled")
@@ -882,6 +915,29 @@ class Application:
             self.last_action = outcome.result
             self.policy_outcome = {"status": "completed", **asdict(outcome)}
             self._handle_probe_outcome(outcome)
+            if outcome.ticket == self.live_potion_ticket:
+                self.live_potion_ticket = None
+                if outcome.result.endswith("completed"):
+                    self.potter.input_sent = True
+                    self.note(f"Live potion key completed: {outcome.action}; effect unconfirmed")
+                else:
+                    self._stop("INPUT_BACKEND_FAILURE", "Live potion key did not complete")
+        if self.mode in {"potion_wait", "potion_live"}:
+            if self.capture_only:
+                self._stop("CAPTURE_ONLY_GUARD", "Capture-only session: keyboard output locked")
+            elif self.windows.pressed(KEYS[self.config.input.emergency_key]):
+                self._stop("EMERGENCY_STOP", "Emergency hotkey canceled live potions")
+            elif self.mode == "potion_live" or now >= self.pending_at:
+                blocker = self._input_block_reason()
+                if blocker or self.calibrating or self.stop_requested.is_set():
+                    self._stop("FOCUS_LOSS", blocker or "Live potions stopped for calibration")
+                elif time.perf_counter() - now > 0.5:
+                    self._stop("PLAYER_UNCERTAIN", "Stale HUD frame; live potions stopped")
+                elif self.mode == "potion_wait":
+                    self._clear_stop_banner()
+                    self.potter.start(live=True)
+                    self.mode = "potion_live"
+                    self.stop_reason = "Live potions enabled; combat remains stopped"
         if self.capture_only and self.mode in {"live", "pending_arm", "probe_wait"}:
             self._stop("CAPTURE_ONLY_GUARD", "Capture-only session: keyboard output locked")
         if self.stop_requested.is_set() and self.mode != "capture":
@@ -982,7 +1038,7 @@ class Application:
             policy_ms = (time.perf_counter() - policy_began) * 1000
         else:
             reason = self.stop_reason
-            if self.mode in {"pending_arm", "probe_wait"}:
+            if self.mode in {"pending_arm", "probe_wait", "potion_wait"}:
                 reason = f"Focus the game window; input in {max(0, self.pending_at - now):.1f}s"
             decision = Decision(self.agent.state, Action(), reason)
             policy_input = PolicyInput(observation, policy_now, self.policy_outcome)
@@ -1004,6 +1060,36 @@ class Application:
                 and self.windows.unobscured(self.window.hwnd, self.region)
             ),
         )
+        if self.mode == "potion_live":
+            if potter["readings"].get("hp", {}).get("percent") == 0 or any(
+                self.potter.settings[f"{r}_threshold"] > 0
+                and (
+                    potter["readings"].get(r, {}).get("percent") is None
+                    or potter["readings"][r]["confidence"] < 0.9
+                )
+                for r in ("hp", "mp")
+            ):
+                self._stop("PLAYER_UNCERTAIN", "HUD unreadable or HP empty; live potions stopped")
+            elif potter["suggestion"] and self.live_potion_ticket is None:
+                with self.controller.lock:
+                    if not self.stop_requested.is_set() and self.mode == "potion_live":
+                        try:
+                            self.controller.enable()
+                            submitted = self.controller.submit(
+                                Action(
+                                    f"{potter['suggestion']}_potion",
+                                    min(0.06, self.config.input.max_action_seconds),
+                                ),
+                                disable_after=True,
+                            )
+                            if not isinstance(submitted, int):
+                                raise RuntimeError(str(submitted))
+                            self.live_potion_ticket = submitted
+                        except (RuntimeError, OSError) as error:
+                            self._stop("INPUT_BACKEND_FAILURE", f"Live potion stopped: {error}")
+            potter.update(self.potter.snapshot())
+            if self.mode != "potion_live":
+                potter.update(reason=self.stop_reason, suggestion=None)
         self.potter.annotate(annotated, potter)
         self._advance_potion_probe(image, now)
         if potter["suggestion"]:
