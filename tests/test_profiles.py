@@ -186,3 +186,21 @@ def test_minimap_outside_its_view_is_rejected(area):
     }
     with pytest.raises(ValueError, match="inside its reference view"):
         validate_profile(profile)
+
+
+def test_new_view_aligns_to_an_overlapping_view_and_reports_its_evidence(tmp_path):
+    scene = np.random.default_rng(3).integers(0, 256, (768, 2400, 3), dtype=np.uint8)
+    store = AreaStore(tmp_path / "areas")
+    first = store.capture_view(scene[:, :1366].copy())
+    first.update(origin={"x": 100, "y": 50}, scale=2)
+    moved = scene[:, 300:1666].copy()
+    result = store.align_view(moved, [first])
+    assert result["aligned"] and result["view_id"] == first["id"] and result["scale"] == 2
+    assert result["origin"] == pytest.approx({"x": 250, "y": 50})
+    assert result["agree"] >= 3 and result["agree"] <= result["patches"]
+    other = np.random.default_rng(4).integers(0, 256, (768, 1366, 3), dtype=np.uint8)
+    apart = store.align_view(other, [first])
+    assert not apart["aligned"] and apart["origin"] is None
+    assert store.align_view(moved, [])["reason"] == "No earlier view to align with"
+    with pytest.raises(ValueError, match="Malformed alignment view"):
+        store.align_view(moved, [{"image": first["image"]}])

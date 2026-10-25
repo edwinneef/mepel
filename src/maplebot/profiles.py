@@ -16,7 +16,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .localization import MinimapTransform, ViewTransform
+from .localization import MinimapTransform, ViewTransform, match_view
 from .minimap_reader import describe
 
 SCHEMA_VERSION = 2
@@ -315,6 +315,39 @@ class AreaStore:
         return {"id": uuid.uuid4().hex, "name": "Captured view", "width": image.shape[1],
                 "height": image.shape[0], "origin": {"x": 0, "y": 0}, "scale": 1,
                 "image": digest, "minimap": describe(image)}
+
+    def align_view(self, image, candidates: object) -> dict:
+        """Place a new capture by matching it against existing views, newest first.
+
+        The first view with an agreeing match gives the origin; the scale is copied.
+        Without overlap the view stays at origin 0, 0 for manual alignment.
+        """
+        if not isinstance(candidates, list) or len(candidates) > 24:
+            raise ValueError("Alignment needs a list of at most 24 reference views")
+        tried = 0
+        for item in reversed(candidates[-6:]):
+            try:
+                view_id = identifier(item["id"])
+                origin = point(item["origin"])
+                source = ViewTransform(origin["x"], origin["y"], item["scale"])
+            except (KeyError, TypeError) as error:
+                raise ValueError("Malformed alignment view") from error
+            body = self.frame(item["image"])
+            reference = (cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_COLOR)
+                         if body else None)
+            if reference is None or reference.shape != image.shape:
+                continue
+            tried += 1
+            match = match_view(reference, image)
+            if match.offset is not None:
+                x, y = source.to_area(*match.offset)
+                return {"aligned": True, "view_id": view_id, "origin": {"x": x, "y": y},
+                        "scale": item["scale"], "agree": match.agree, "patches": match.patches,
+                        "reason": f"{match.agree} of {match.patches} textured patches agree"}
+        reason = ("No overlap with a captured view; set the origin manually" if tried
+                  else "No earlier view to align with")
+        return {"aligned": False, "view_id": None, "origin": None, "scale": None,
+                "agree": 0, "patches": 0, "reason": reason}
 
     def frame(self, image_id: str) -> bytes | None:
         if not isinstance(image_id, str) or not re.fullmatch(r"[a-f0-9]{64}", image_id):

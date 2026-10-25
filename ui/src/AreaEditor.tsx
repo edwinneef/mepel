@@ -75,6 +75,7 @@ export function AreaEditor({ workspace: w, active, connected, disabled }: Editor
   const [boundary, setBoundary] = useState({ x: '0', y: '0', width: '1', height: '1' });
   const [link, setLink] = useState<{ from: string; to: string; kind: AreaLink['kind'] }>({ from: '', to: '', kind: 'walk' });
   const draft = w.draft, view = w.view;
+  const autoAlign = view ? w.alignments[view.id] : undefined;
   const busy = disabled || w.working;
   const locked = busy || !w.editing;
   useEffect(() => { if (active && connected) void w.refresh(); }, [active, connected]);
@@ -120,6 +121,9 @@ export function AreaEditor({ workspace: w, active, connected, disabled }: Editor
       <div className="button-grid"><button disabled={locked} onClick={() => void w.capture()}>Capture reference view</button>
         <button disabled={locked || !view} onClick={() => { w.mutate(profile => ({ ...profile, views: profile.views.filter(item => item.id !== w.activeViewId) })); w.setActiveViewId(draft.views.find(item => item.id !== w.activeViewId)?.id ?? ''); }}>Remove view</button></div>
       {view && <label>View name<input disabled={locked} value={view.name} onChange={event => w.mutate(profile => ({ ...profile, views: profile.views.map(item => item.id === view.id ? { ...item, name: event.target.value } : item) }))} /></label>}
+      {autoAlign && <p className="reading">{autoAlign.aligned && autoAlign.origin
+        ? `Auto-aligned to ${draft.views.find(item => item.id === autoAlign.view_id)?.name ?? 'an earlier view'}: origin ${autoAlign.origin.x.toFixed(1)}, ${autoAlign.origin.y.toFixed(1)} · ${autoAlign.reason}. Adjust below if landmarks disagree.`
+        : `Not aligned: ${autoAlign.reason}`}</p>}
       {view && <details><summary>Align this view manually</summary><p>Origin is the area coordinate at this image's top-left. Match shared landmarks before drawing. Scale maps area units to image pixels.</p>
         <div className="field-grid"><label>View origin X<input disabled={locked} type="number" value={alignment.x} onChange={event => setAlignment({ ...alignment, x: event.target.value })} /></label>
           <label>View origin Y<input disabled={locked} type="number" value={alignment.y} onChange={event => setAlignment({ ...alignment, y: event.target.value })} /></label></div>

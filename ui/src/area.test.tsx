@@ -172,3 +172,23 @@ it('draws scaled geometry, keeps a closed-tool draft, adds a link and saves with
   expect(profile.links[0]).toMatchObject({ from: profile.platforms[0].id, to: profile.platforms[1].id, kind: 'walk' });
   expect(commands.some(command => command.name === 'arm' || command.name === 'probe' || command.name === 'dry_run')).toBe(false);
 });
+
+it('sends existing views with a capture and shows where the new view was aligned', async () => {
+  const client = new EngineClient('token', vi.fn());
+  const second: AreaView = { ...reference, id: 'view2', name: 'View 2', image: 'b'.repeat(64), origin: { x: 300, y: 0 } };
+  const command = vi.spyOn(client, 'command').mockImplementation(async (name, payload) => {
+    if (name === 'area_begin') return { editing: true };
+    if (name === 'area_capture') return (payload as { align: unknown[] }).align.length
+      ? { view: second, alignment: { aligned: true, view_id: 'view1', origin: { x: 300, y: 0 }, scale: 1, agree: 7, patches: 9, reason: '7 of 9 textured patches agree' } }
+      : { view: reference, alignment: { aligned: false, view_id: null, origin: null, scale: null, agree: 0, patches: 0, reason: 'No earlier view to align with' } };
+    return {};
+  });
+  const { result } = renderHook(() => useAreaEditor(client, 'session'));
+  await act(async () => { await result.current.create(); });
+  await act(async () => { await result.current.capture(); });
+  await act(async () => { await result.current.capture(); });
+  expect(command).toHaveBeenLastCalledWith('area_capture', { align: [{ id: 'view1', image: reference.image, origin: { x: 0, y: 0 }, scale: 1 }] });
+  expect(result.current.draft?.views.map(view => view.origin.x)).toEqual([0, 300]);
+  render(<AreaEditor workspace={result.current} active={false} connected disabled={false} />);
+  expect(screen.getByText(/Auto-aligned to View 1: origin 300.0, 0.0 · 7 of 9 textured patches agree/)).toBeTruthy();
+});

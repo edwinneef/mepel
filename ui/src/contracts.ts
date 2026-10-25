@@ -72,6 +72,10 @@ export interface AreaView {
   origin: AreaPoint; scale: number; image: string;
   minimap?: { canvas: Rect; dot: AreaPoint | null } | null;
 }
+export interface ViewAlignment {
+  aligned: boolean; view_id: string | null; origin: AreaPoint | null; scale: number | null;
+  agree: number; patches: number; reason: string;
+}
 export interface AreaSegment { id: string; start: AreaPoint; end: AreaPoint }
 export interface AreaZone { id: string; kind: 'avoid' | 'portal'; rect: Rect }
 export interface AreaLink {

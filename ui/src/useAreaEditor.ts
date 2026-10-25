@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { EngineClient } from './client';
-import type { AreaPoint, AreaProfile, AreaView } from './contracts';
+import type { AreaPoint, AreaProfile, AreaView, ViewAlignment } from './contracts';
 import { drawArea, newArea, removeAreaItem } from './area';
 import type { DrawTool } from './area';
 
@@ -22,6 +22,7 @@ export function useAreaEditor(client: EngineClient, sessionId?: string, serverEd
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tool, setTool] = useState<DrawTool>('select');
   const [pendingOpen, setPendingOpen] = useState<OpenRequest | null>(null);
+  const [alignments, setAlignments] = useState<Record<string, ViewAlignment>>({});
   const lastSession = useRef(sessionId);
   const grantedEpoch = useRef<number | null>(null);
   const serverBacked = useRef(false);
@@ -109,13 +110,19 @@ export function useAreaEditor(client: EngineClient, sessionId?: string, serverEd
   const capture = () => perform(async () => {
     requireEditing();
     if (!draftRef.current) throw new Error('Create or load an area first.');
-    const result = await client.command<{ view: AreaView }>('area_capture');
+    const align = draftRef.current.views.map(({ id, image, origin, scale }) => ({ id, image, origin, scale }));
+    const result = await client.command<{ view: AreaView; alignment?: ViewAlignment }>('area_capture', { align });
     requireEditing();
     const previous = draftRef.current;
+    const alignment = result.alignment;
+    if (alignment) setAlignments(current => ({ ...current, [result.view.id]: alignment }));
     replaceDraft({ ...previous, views: [...previous.views, result.view], boundary: previous.views.length ? previous.boundary
       : { x: 0, y: 0, width: result.view.width, height: result.view.height } }, true);
     setActiveViewId(result.view.id); setSelectedId(null);
-    client.message('Reference captured. Draw on this fixed image; align additional views manually.');
+    const source = previous.views.find(item => item.id === alignment?.view_id);
+    client.message(alignment?.aligned && alignment.origin
+      ? `Reference captured and aligned to ${source?.name ?? 'an earlier view'} at ${alignment.origin.x.toFixed(1)}, ${alignment.origin.y.toFixed(1)}. Check landmarks before drawing.`
+      : previous.views.length ? `Reference captured, not aligned: ${alignment?.reason ?? 'no alignment result'}. Set its origin manually.` : 'Reference captured. Draw on this fixed image.');
   });
   const save = () => perform(async () => {
     requireEditing();
@@ -146,7 +153,7 @@ export function useAreaEditor(client: EngineClient, sessionId?: string, serverEd
   };
 
   return {
-    draft, editing, dirty, working, areas, warnings, error, activeViewId, selectedId, tool, pendingOpen,
+    draft, editing, dirty, working, areas, warnings, error, activeViewId, selectedId, tool, pendingOpen, alignments,
     view: draft?.views.find(item => item.id === activeViewId) ?? null,
     refresh, create: () => open({ kind: 'new' }), load: (id: string) => open({ kind: 'load', id }),
     confirmDiscard: () => pendingOpen ? open(pendingOpen, true) : Promise.resolve(), cancelDiscard: () => setPendingOpen(null),

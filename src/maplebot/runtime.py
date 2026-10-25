@@ -287,7 +287,11 @@ class Application:
                 latest = self.preview.frozen(self._preview_source().id)
                 if latest is None:
                     raise ValueError("Wait for a fresh preview before capturing an area view")
-                return {"view": self.areas.capture_view(latest[0])}
+                view = self.areas.capture_view(latest[0])
+                alignment = self.areas.align_view(latest[0], payload.get("align", []))
+                if alignment["aligned"]:
+                    view.update(origin=alignment["origin"], scale=alignment["scale"])
+                return {"view": view, "alignment": alignment}
         if name == "windows":
             return [asdict(window) for window in self.windows.list()]
         if name == "frozen_png":

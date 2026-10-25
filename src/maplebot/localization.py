@@ -191,37 +191,52 @@ class SurfaceTracker:
         return Location("unknown", None, feet, reason)
 
 
+@dataclass(frozen=True)
+class ViewMatch:
+    offset: tuple[float, float] | None
+    agree: int
+    patches: int
+
+
 def register_view(reference: np.ndarray, image: np.ndarray) -> tuple[float, float] | None:
     """Camera offset from a screenshot to its reference view: reference = screen + offset.
 
-    For calibration only. Textured patches must find unique strong matches and at
-    least three must agree; parallax scenery and moving characters disagree and drop
-    out. A lost or ambiguous registration returns None.
+    For calibration and view alignment only. Textured patches must find unique strong
+    matches and at least three must agree; parallax scenery and moving characters
+    disagree and drop out. A lost or ambiguous registration returns None.
     """
+    return match_view(reference, image).offset
+
+
+def match_view(reference: np.ndarray, image: np.ndarray) -> ViewMatch:
+    """register_view with its evidence: agreeing patches out of textured patches tried."""
     if image.shape != reference.shape:
-        return None
+        return ViewMatch(None, 0, 0)
     target = cv2.cvtColor(reference, cv2.COLOR_BGR2GRAY)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     height, width = gray.shape
     offsets = []
+    patches = 0
     # Skip the minimap and HUD margins; they stay fixed while the camera scrolls.
     for y in range(height // 5, height * 3 // 4 - 100, 100):
         for x in range(width // 6, width * 5 // 6 - 120, 120):
             patch = gray[y:y + 100, x:x + 120]
             if patch.std() < 25:
                 continue
+            patches += 1
             scores = cv2.matchTemplate(target, patch, cv2.TM_CCOEFF_NORMED)
             _, best, _, (mx, my) = cv2.minMaxLoc(scores)
             scores[max(0, my - 50):my + 51, max(0, mx - 60):mx + 61] = -1
             if math.isfinite(best) and best >= 0.85 and best - float(scores.max()) >= 0.05:
                 offsets.append((mx - x, my - y))
     if not offsets:
-        return None
+        return ViewMatch(None, 0, patches)
     ox, oy = max(set(offsets), key=offsets.count)
     agree = [(dx, dy) for dx, dy in offsets if abs(dx - ox) <= 2 and abs(dy - oy) <= 2]
     if len(agree) < 3:
-        return None
-    return median(dx for dx, _ in agree), median(dy for _, dy in agree)
+        return ViewMatch(None, len(agree), patches)
+    offset = (median(dx for dx, _ in agree), median(dy for _, dy in agree))
+    return ViewMatch(offset, len(agree), patches)
 
 
 @dataclass(frozen=True)
