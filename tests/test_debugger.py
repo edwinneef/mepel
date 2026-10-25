@@ -3,6 +3,7 @@ import re
 import threading
 import time
 from http.client import HTTPConnection
+from importlib.resources import files
 
 import pytest
 
@@ -49,7 +50,7 @@ def test_restart_releases_keys_and_returns_the_instance_before_restarting():
 
     server = serve(app, 0, on_restart=on_restart)
     try:
-        _, page = request(server, "GET", "/")
+        _, page = request(server, "GET", "/legacy")
         token = re.search(r"const token='([^']+)'", page)[1]
         _, status = request(server, "GET", "/api/status")
         code, body = request(server, "POST", "/api/restart_bot", token)
@@ -87,7 +88,7 @@ def test_versioned_commands_reject_stale_and_duplicate_requests_before_dispatch(
     app.request = lambda name, payload, *, context: calls.append(name) or {"ok": True}
     server = serve(app, 0)
     try:
-        _, page = request(server, "GET", "/")
+        _, page = request(server, "GET", "/legacy")
         token = re.search(r"const token='([^']+)'", page)[1]
         payload = {
             "schema_version": 1, "session_id": "current", "command_epoch": 1,
@@ -105,11 +106,35 @@ def test_versioned_commands_reject_stale_and_duplicate_requests_before_dispatch(
         server.server_close()
 
 
+def test_workbench_and_legacy_share_token_but_only_packaged_assets_are_served():
+    bundle = files("maplebot").joinpath("static/workbench/index.html")
+    if not bundle.is_file():
+        pytest.skip("Build the React workbench before checking bundle serving")
+    server = serve(RestartApp(), 0)
+    try:
+        code, page = request(server, "GET", "/")
+        assert code == 200
+        assert '__TOKEN__' not in page
+        assert 'name="debug-token"' in page
+        code, legacy = request(server, "GET", "/legacy")
+        token = re.search(r"const token='([^']+)'", legacy)[1]
+        assert token in page
+        assets = re.findall(r'(?:src|href)="(/assets/[^\"]+)"', page)
+        assert assets
+        for asset in assets:
+            assert request(server, "GET", asset)[0] == 200
+        for path in ("/assets/../index.html", "/assets/%2e%2e/config.toml", "/assets/missing.js"):
+            assert request(server, "GET", path)[0] == 404
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_restart_is_unavailable_when_the_server_has_no_process_supervisor():
     app = RestartApp()
     server = serve(app, 0)
     try:
-        _, page = request(server, "GET", "/")
+        _, page = request(server, "GET", "/legacy")
         token = re.search(r"const token='([^']+)'", page)[1]
         _, status = request(server, "GET", "/api/status")
         assert json.loads(status)["restart_available"] is False
@@ -133,7 +158,7 @@ def test_http_acknowledgement_requires_the_displayed_incident_id():
     app.acknowledge_stop = acknowledge
     server = serve(app, 0)
     try:
-        _, page = request(server, "GET", "/")
+        _, page = request(server, "GET", "/legacy")
         token = re.search(r"const token='([^']+)'", page)[1]
         for incident_id in (None, "old", "current"):
             payload = {} if incident_id is None else {"incident_id": incident_id}
@@ -151,7 +176,7 @@ def test_shutdown_releases_keys_then_signals_process_exit():
     stopped = threading.Event()
     server = serve(app, 0, on_shutdown=stopped.set)
     try:
-        _, page = request(server, "GET", "/")
+        _, page = request(server, "GET", "/legacy")
         token = re.search(r"const token='([^']+)'", page)[1]
         _, status = request(server, "GET", "/api/status")
         assert json.loads(status)["shutdown_available"] is True
@@ -173,7 +198,7 @@ def test_shutdown_rejects_invalid_tokens_and_missing_supervision(available, toke
     server = serve(app, 0, on_shutdown=stopped.set if available else None)
     try:
         if token is None:
-            _, page = request(server, "GET", "/")
+            _, page = request(server, "GET", "/legacy")
             token = re.search(r"const token='([^']+)'", page)[1]
         code, _ = request(server, "POST", "/api/shutdown_bot", token)
         assert code == (403 if available else 400)

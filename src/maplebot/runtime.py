@@ -17,7 +17,7 @@ from .alarm import AlarmManager
 from .autopotter import BarReading, PotionMonitor
 from .capture import Calibration, Capture, Image
 from .config import Config
-from .contracts import CommandContext, readiness
+from .contracts import FRESH_FRAME_COMMANDS, CommandContext, readiness
 from .decision import Action, Agent, Decision, PolicyInput
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
@@ -110,6 +110,7 @@ class Application:
         self.config = config
         self.session_id = uuid.uuid4().hex
         self.command_epoch = 0
+        self.view_generation = 0
         self.published_frame: dict[str, Any] | None = None
         self.capture_only = capture_only
         self.data = Path(config.capture.data_dir).resolve()
@@ -227,6 +228,12 @@ class Application:
         if context is not None:
             with self.stop_lock:
                 context.validate(self.command_epoch)
+        if name == "windows":
+            return [asdict(window) for window in self.windows.list()]
+        if name == "frozen_png":
+            # The image belongs to an immutable frozen selection. Keeping this reference
+            # alive is enough even if the worker expires the dictionary entry afterward.
+            return png(self.frozen[payload["id"]][0])
         if name in {"stop", "pause"}:
             self.stop_requested.set()
             self.safe_stop("OPERATOR_STOP", "Paused; input released" if name == "pause"
@@ -329,6 +336,12 @@ class Application:
             if not self.published_frame or frame_id != self.published_frame["id"]:
                 return None
             return self.raw if raw else self.latest
+
+    def _invalidate_view(self) -> None:
+        with self.lock:
+            self.view_generation += 1
+            self.published_frame = None
+            self.latest, self.raw = None, None
 
     def _probe_profile(self) -> tuple[dict, dict]:
         if not self.calibration:
@@ -747,6 +760,7 @@ class Application:
             if self.worker and self.worker.is_alive():
                 return {"restarted": False, "reason": "Capture worker is still running"}
             self._drain_pending_commands()
+            self._invalidate_view()
             started = self.start_capture_worker()
         return {"restarted": started, "mode": "capture", "input_enabled": self.controller.enabled}
 
@@ -761,8 +775,12 @@ class Application:
     def _command(self, name: str, payload: dict) -> Any:
         context = payload.get("_context")
         if context is not None:
-            context.validate(self.command_epoch)
+            context.validate(
+                self.command_epoch, max_age=0.5 if name in FRESH_FRAME_COMMANDS else 10
+            )
             payload = {key: value for key, value in payload.items() if key != "_context"}
+        if name in {"attach", "manual", "reset_crop", "crop"}:
+            self._invalidate_view()
         if self.capture_only and name in {"arm", "probe", "confirm_controls"}:
             raise ValueError("Capture-only session: gameplay controls are unavailable")
         if name == "probe":
@@ -814,9 +832,12 @@ class Application:
                 raise ValueError("Release the emergency stop key before starting live potions")
             self._clear_stop_banner()
             self._stop("OPERATOR_STOP", "Preparing live potions; focus the game within 3 seconds")
-            self.stop_requested.clear()
-            self.mode = "potion_wait"
-            self.pending_at = time.perf_counter() + 3
+            with self.stop_lock:
+                if context is not None:
+                    context.validate(self.command_epoch - 1)
+                self.stop_requested.clear()
+                self.mode = "potion_wait"
+                self.pending_at = time.perf_counter() + 3
             return {"mode": self.mode}
         if name == "autopotter_start":
             if self.calibrating or self.image is None:
@@ -876,10 +897,13 @@ class Application:
             return {"variants": len(self.detector.templates), "catalog": self.detector.catalog_info}
         if name == "dry_run":
             self._stop("DRY_RUN_STOP", "Dry run: no keyboard input")
-            self.stop_requested.clear()
-            self.agent.start()
-            self.mode = "dry_run"
-            self._clear_stop_banner()
+            with self.stop_lock:
+                if context is not None:
+                    context.validate(self.command_epoch - 1)
+                self.stop_requested.clear()
+                self.agent.start()
+                self.mode = "dry_run"
+                self._clear_stop_banner()
             if self.config.recording.auto:
                 self.recorder.start("dry-run")
             return {"mode": self.mode}
@@ -905,6 +929,8 @@ class Application:
             with self.stop_lock:
                 if self.alarm.snapshot()["active"]:
                     raise ValueError("Acknowledge the active alarm before arming combat")
+                if context is not None:
+                    context.validate(self.command_epoch - 1)
                 self.stop_requested.clear()
                 self._clear_stop_banner()
                 self.mode = "pending_arm"
@@ -1042,6 +1068,10 @@ class Application:
         return str(path)
 
     def _encoded(self, packet: FramePacket, raw: bytes, annotated: bytes, elapsed: float) -> None:
+        generation = packet.status.get("view_generation", self.view_generation)
+        with self.lock:
+            if generation != self.view_generation:
+                return
         status = {
             **packet.status,
             "encoder": {**self.encoder.snapshot(), "png_encode_ms": round(elapsed, 3)},
@@ -1050,6 +1080,8 @@ class Application:
         status["recording"] = self.recorder.active
         status["recorder"] = self.recorder.snapshot()
         with self.lock:
+            if generation != self.view_generation:
+                return
             self.latest, self.raw, self.status = annotated, raw, status
             self.published_frame = {
                 "id": f"{self.session_id}:{packet.sequence}",
@@ -1344,6 +1376,7 @@ class Application:
                 capture_ok = False
                 try:
                     capture_began = time.perf_counter()
+                    view_generation = self.view_generation
                     captured_at = time.time()
                     if self.hwnd:
                         image, window, region = capture.window(self.hwnd, self.calibration)
@@ -1366,6 +1399,7 @@ class Application:
                         "width": image.shape[1],
                         "height": image.shape[0],
                         "sequence": self.sequence,
+                        "view_generation": view_generation,
                         "focused": bool(window and window.focused),
                         "window": asdict(window) if window else None,
                         "region": asdict(region),
@@ -1400,6 +1434,7 @@ class Application:
                         self.calibration.controls_verified = False
                         self.probed.clear()
                     self.image = None
+                    self._invalidate_view()
                     reason = str(error)
                     if self.status.get("reason") != reason:
                         self.note(reason)

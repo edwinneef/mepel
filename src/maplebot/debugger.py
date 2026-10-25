@@ -1,4 +1,5 @@
 import json
+import re
 import secrets
 import threading
 from collections.abc import Callable
@@ -44,11 +45,22 @@ def serve(
                 self.reply(403, b"Loopback host required", "text/plain")
                 return
             parsed = urlparse(self.path)
-            if parsed.path == "/":
-                html = files("maplebot").joinpath("static/index.html").read_text("utf-8")
+            if parsed.path in {"/", "/legacy"}:
+                static = files("maplebot").joinpath("static")
+                workbench = static.joinpath("workbench/index.html")
+                page = workbench if parsed.path == "/" and workbench.is_file() \
+                    else static.joinpath("index.html")
+                html = page.read_text("utf-8")
                 self.reply(
                     200, html.replace("__TOKEN__", token).encode(), "text/html; charset=utf-8"
                 )
+            elif re.fullmatch(r"/assets/[A-Za-z0-9_.-]+\.(js|css)", parsed.path):
+                asset = files("maplebot").joinpath("static/workbench" + parsed.path)
+                if not asset.is_file():
+                    self.reply(404, b"Asset not found", "text/plain")
+                    return
+                kind = "text/css" if parsed.path.endswith(".css") else "text/javascript"
+                self.reply(200, asset.read_bytes(), kind)
             elif parsed.path in {"/api/status", "/api/v1/status"}:
                 status = {
                     **app.snapshot(),

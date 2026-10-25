@@ -195,6 +195,22 @@ def test_stop_supersedes_a_queued_versioned_start(app):
     assert not app.controller.enabled
 
 
+def test_stop_during_start_preparation_wins_over_the_start(app, monkeypatch):
+    context = CommandContext(app.command_epoch, time.time())
+    original_stop = app._stop
+
+    def stop_again(code, message):
+        result = original_stop(code, message)
+        app.request("stop", {})
+        return result
+
+    monkeypatch.setattr(app, "_stop", stop_again)
+    with pytest.raises(ValueError, match="superseded"):
+        app._command("dry_run", {"_context": context})
+    assert app.mode == "capture"
+    assert not app.controller.enabled
+
+
 def test_published_frames_are_identified_and_superseded_bytes_cannot_be_read(app):
     from maplebot.frame_encoder import FramePacket
 
@@ -210,6 +226,21 @@ def test_published_frames_are_identified_and_superseded_bytes_cannot_be_read(app
     app._encoded(packet, b"raw-2", b"annotated-2", 0)
     assert app.frame(first["frame"]["id"]) is None
     assert app.frame(app.snapshot()["frame"]["id"], raw=True) == b"raw-2"
+
+
+def test_source_change_rejects_old_encoder_results_and_invalidates_readiness(app):
+    from maplebot.frame_encoder import FramePacket
+
+    packet = FramePacket(
+        1, "1", app.image, app.image,
+        {"captured_at": time.time(), "view_generation": app.view_generation}, 0,
+    )
+    app._encoded(packet, b"old", b"old", 0)
+    assert app.snapshot()["frame"]["available"]
+    app._command("reset_crop", {})
+    app._encoded(packet, b"late-old", b"late-old", 0)
+    assert not app.snapshot()["frame"]["available"]
+    assert not app.snapshot()["readiness"]["preview"]["ready"]
 
 
 def test_backend_can_be_supplied_without_constructing_win32_input(monkeypatch, tmp_path):

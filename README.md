@@ -21,6 +21,13 @@ py -3.12 -m venv .venv
 
 The helpers only install this application in its local virtual environment. They do not install, change, or launch the game. Existing screenshots/templates are preserved. Replaced calibration files receive timestamped backups.
 
+The React workspace puts the game preview first and opens one focused tool at a
+time. Settings contains connection and control setup; Diagnostics contains the
+technical details. The previous debugger remains available at
+**http://127.0.0.1:8765/legacy**. See [the workspace review](docs/workbench-review.md)
+for the review steps and UI rebuild commands. Python serves the shipped UI;
+Node is not required when running it.
+
 For temporary MapleStory recognition testing, use the default launcher and play manually. Attach the visible game window, confirm the correct crop, then inspect boxes or save screenshots. Enemy matching needs native 1x pixels. Saved screenshots and recordings can be replayed offline.
 
 Dry runs and armed runs are recorded automatically to `data/recordings/session-*`. Every decision goes to `decisions.jsonl`. Frames are kept in memory for the last 10 seconds and written to disk only when the agent stops, when player detection becomes uncertain (plus 2 seconds afterwards), or when you click **Save last clip**, which also works outside a run. One context frame per second is saved as well. Each incident is logged to `events.jsonl`. **Start / stop full recording** saves every frame. Old sessions are deleted beyond 7 days or 2 GB in total. Adjust this under `[recording]` in `config.toml`. Capture-only cannot be unlocked from the debugger.

@@ -24,8 +24,8 @@ class CommandContext:
     epoch: int
     issued_at: float
 
-    def validate(self, epoch: int) -> None:
-        if self.epoch != epoch or not -0.25 <= time.time() - self.issued_at <= 2:
+    def validate(self, epoch: int, *, max_age: float = 2) -> None:
+        if self.epoch != epoch or not -0.25 <= time.time() - self.issued_at <= max_age:
             raise ValueError("Command expired or superseded; refresh the view and try again")
 
 
