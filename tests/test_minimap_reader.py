@@ -59,3 +59,14 @@ def test_describe_stores_canvas_and_marker():
     assert describe(view()) == {
         "canvas": {"x": 13, "y": 72, "width": 183, "height": 64}, "dot": {"x": 62.5, "y": 22.5},
     }
+
+
+def test_minimap_without_navy_is_found_by_its_white_frame():
+    image = np.full((768, 1366, 3), SKY, np.uint8)
+    image[71:143, 3:140] = 255
+    art = np.random.default_rng(5).integers(40, 141, (70, 135, 3), dtype=np.uint8)
+    image[72:142, 4:139] = art
+    image[72 + 40:72 + 46, 4 + 100:4 + 106][DOT_SHAPE] = (0, 220, 255)
+    assert describe(image) == {"canvas": {"x": 4, "y": 72, "width": 135, "height": 70},
+                               "dot": {"x": 102.5, "y": 42.5}}
+    assert AreaMinimap(image).read(image).dot == (102.5, 42.5)

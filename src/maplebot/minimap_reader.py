@@ -63,17 +63,47 @@ def _dots(canvas: np.ndarray) -> list[tuple[float, float]]:
     return dots
 
 
+def _framed_canvas(region: np.ndarray) -> Rect | None:
+    """The picture inside the minimap window's thin white frame, for maps without navy."""
+    white = np.all(region >= 235, axis=2)
+    height, width = white.shape
+    for top in range(height):
+        row = white[top]
+        x = 0
+        while x < width:
+            if not row[x]:
+                x += 1
+                continue
+            right = x
+            while right + 1 < width and row[right + 1]:
+                right += 1
+            if right - x >= 60:
+                bottom = top + 1
+                while (bottom < height and white[bottom, x] and white[bottom, right]
+                       and not white[bottom, x:right + 1].all()):
+                    bottom += 1
+                if (bottom < height and bottom - top >= 20
+                        and white[bottom, x:right + 1].mean() > 0.9
+                        and white[top + 1:bottom, x + 1:right].mean() < 0.2):
+                    return Rect(x + 1, top + 1, right - x - 1, bottom - top - 1)
+            x = right + 1
+    return None
+
+
 def find_canvas(image: np.ndarray) -> Rect | None:
-    """Locate the minimap picture: the navy background plus the terrain below it."""
+    """Locate the minimap picture: the navy background plus the terrain below it.
+
+    Maps whose minimap art has no navy background use the window's white frame.
+    """
     region = image[:SEARCH[1], :SEARCH[0]]
     navy = cv2.inRange(region, *NAVY)
     navy = cv2.morphologyEx(navy, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
     count, _, stats, _ = cv2.connectedComponentsWithStats(navy)
     if count < 2:
-        return None
+        return _framed_canvas(region)
     x, y, width, height, area = max(stats[1:], key=lambda stat: stat[4])
     if width < 40 or height < 20 or area < 0.3 * width * height:
-        return None
+        return _framed_canvas(region)
     bottom = y + height
     while bottom < region.shape[0]:
         row = region[bottom, x:x + width]
