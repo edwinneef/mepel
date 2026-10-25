@@ -9,7 +9,7 @@ def test_alarm_manager_starts_and_acknowledges_without_speakers():
         def __init__(self):
             self.played = []
 
-        def play_loop(self, path):
+        def play(self, path):
             self.played.append(path)
 
         def stop(self):
@@ -31,7 +31,7 @@ def test_packaged_alarm_resource_is_available_to_the_audio_backend():
         def __init__(self):
             self.path = None
 
-        def play_loop(self, path):
+        def play(self, path):
             self.path = path
 
         def stop(self):
@@ -49,12 +49,12 @@ def test_packaged_alarm_resource_is_available_to_the_audio_backend():
     alarm.acknowledge()
 
 
-def test_failed_wave_playback_repeats_fallback_until_acknowledged():
+def test_failed_wave_playback_beeps_once_and_stays_latched():
     class Backend:
         def __init__(self):
             self.beeps = 0
 
-        def play_loop(self, path):
+        def play(self, path):
             raise RuntimeError("no wave device")
 
         def stop(self):
@@ -66,12 +66,30 @@ def test_failed_wave_playback_repeats_fallback_until_acknowledged():
     backend = Backend()
     alarm = AlarmManager(backend=backend)
     alarm.start("incident-3")
-    deadline = time.monotonic() + 1
-    while backend.beeps < 2:
-        assert time.monotonic() < deadline
-        time.sleep(0.01)
-    assert alarm.active
-    alarm.acknowledge()
-    beeps = backend.beeps
     time.sleep(0.3)
-    assert backend.beeps == beeps
+    assert backend.beeps == 1
+    assert alarm.active
+    assert alarm.acknowledge()
+    assert not alarm.active
+
+
+def test_wave_plays_once_without_looping():
+    class Backend:
+        def __init__(self):
+            self.plays = 0
+
+        def play(self, path):
+            self.plays += 1
+
+        def stop(self):
+            return None
+
+        def beep(self):
+            raise AssertionError("no fallback expected")
+
+    backend = Backend()
+    alarm = AlarmManager(backend=backend)
+    alarm.start("incident-4")
+    alarm.start("incident-4")
+    assert backend.plays == 1
+    alarm.acknowledge()

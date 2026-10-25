@@ -54,7 +54,7 @@ def app(monkeypatch, tmp_path):
     config = Config()
     config = replace(config, capture=replace(config.capture, data_dir=str(tmp_path)))
     app = Application(config)
-    monkeypatch.setattr(app.alarm.backend, "play_loop", lambda path: None)
+    monkeypatch.setattr(app.alarm.backend, "play", lambda path: None)
     monkeypatch.setattr(app.alarm.backend, "stop", lambda: None)
     monkeypatch.setattr(app.alarm.backend, "beep", lambda: None)
     app.hwnd = 1
@@ -695,7 +695,7 @@ def test_fresh_application_restores_probes_without_arming(app, monkeypatch):
     app._save_probes()
     app.calibration.save(app.data / "calibration.json")
     restarted = Application(app.config, input_backend=Backend())
-    monkeypatch.setattr(restarted.alarm.backend, "play_loop", lambda path: None)
+    monkeypatch.setattr(restarted.alarm.backend, "play", lambda path: None)
     monkeypatch.setattr(restarted.alarm.backend, "stop", lambda: None)
     monkeypatch.setattr(restarted.alarm.backend, "beep", lambda: None)
     try:

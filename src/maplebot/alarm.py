@@ -1,4 +1,4 @@
-"""Non-blocking local-PC incident alarm with an injectable audio boundary."""
+"""Non-blocking local-PC incident alarm: one sound per incident, injectable audio boundary."""
 
 import threading
 from importlib import resources
@@ -7,7 +7,7 @@ from typing import Protocol
 
 
 class AlarmBackend(Protocol):
-    def play_loop(self, path: Path) -> None: ...
+    def play(self, path: Path) -> None: ...
 
     def stop(self) -> None: ...
 
@@ -15,12 +15,10 @@ class AlarmBackend(Protocol):
 
 
 class WinsoundBackend:
-    def play_loop(self, path: Path) -> None:
+    def play(self, path: Path) -> None:
         import winsound
 
-        winsound.PlaySound(
-            str(path), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP
-        )
+        winsound.PlaySound(str(path), winsound.SND_FILENAME | winsound.SND_ASYNC)
 
     def stop(self) -> None:
         import winsound
@@ -34,7 +32,7 @@ class WinsoundBackend:
 
 
 class AlarmManager:
-    """Keep one incident alarm active until explicit acknowledgment or close."""
+    """Keep one incident alarm latched until acknowledgment; the sound plays once."""
 
     def __init__(self, backend: AlarmBackend | None = None) -> None:
         self.backend = backend or WinsoundBackend()
@@ -42,31 +40,26 @@ class AlarmManager:
         self.active = False
         self.incident_id: str | None = None
         self.error: str | None = None
-        self._closed = threading.Event()
         self._resource_context = None
-        self._fallback: threading.Thread | None = None
 
     def start(self, incident_id: str) -> bool:
         with self.lock:
             if self.active:
                 return self.incident_id == incident_id
             self.active, self.incident_id, self.error = True, incident_id, None
-            self._closed.clear()
             try:
                 resource = resources.files("maplebot").joinpath("static/alarm.wav")
                 if not resource.is_file():
                     raise FileNotFoundError("Packaged alarm.wav is missing")
                 self._resource_context = resources.as_file(resource)
                 path = self._resource_context.__enter__()
-                self.backend.play_loop(path)
+                self.backend.play(path)
             except Exception as error:
                 self.error = str(error)
-                self._fallback = threading.Thread(
-                    target=self._beep_until_acknowledged,
-                    name="alarm-fallback",
-                    daemon=True,
-                )
-                self._fallback.start()
+                try:
+                    self.backend.beep()
+                except Exception as beep_error:
+                    self.error = f"{error}; {beep_error}"
             return True
 
     def acknowledge(self) -> bool:
@@ -74,7 +67,6 @@ class AlarmManager:
             if not self.active:
                 return False
             self.active = False
-            self._closed.set()
             try:
                 self.backend.stop()
             except Exception as error:
@@ -86,9 +78,6 @@ class AlarmManager:
 
     def close(self) -> None:
         self.acknowledge()
-        fallback = self._fallback
-        if fallback and fallback is not threading.current_thread():
-            fallback.join(timeout=1)
 
     def snapshot(self) -> dict[str, object]:
         with self.lock:
@@ -96,14 +85,5 @@ class AlarmManager:
                 "active": self.active,
                 "incident_id": self.incident_id,
                 "error": self.error,
-                "fallback": self._fallback is not None and self._fallback.is_alive(),
+                "fallback": False,
             }
-
-    def _beep_until_acknowledged(self) -> None:
-        while not self._closed.is_set():
-            try:
-                self.backend.beep()
-            except Exception as error:
-                with self.lock:
-                    self.error = str(error)
-            self._closed.wait(0.25)
