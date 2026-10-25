@@ -16,7 +16,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .localization import ViewTransform
+from .localization import MinimapTransform, ViewTransform
 from .minimap_reader import describe
 
 SCHEMA_VERSION = 2
@@ -66,6 +66,29 @@ def minimap(value: object, width: int, height: int) -> dict | None:
                          "height": canvas["height"]}, dot):
             raise ValueError("Minimap marker must lie inside the minimap")
     return {"canvas": canvas, "dot": dot}
+
+
+def calibration_record(value: object) -> dict | None:
+    """Walk calibration: minimap transform for one reference view, with its residual."""
+    if value is None:
+        return None
+    view_id = identifier(value["view_id"])
+    image = value["view_image"]
+    if not isinstance(image, str) or not re.fullmatch(r"[a-f0-9]{64}", image):
+        raise ValueError("Invalid walk-calibration view")
+    transform = {key: number(value["transform"][key])
+                 for key in ("scale_x", "offset_x", "scale_y", "offset_y")}
+    MinimapTransform(**transform)
+    residual = {axis: {key: number(value["residual_px"][axis][key])
+                       for key in ("p50", "p95", "max")} for axis in ("x", "y")}
+    pairs, captured_at = value["pairs"], value["captured_at"]
+    if type(pairs) is not int or not 10 <= pairs <= 10_000:
+        raise ValueError("Walk calibration needs 10 to 10000 pairs")
+    if (type(captured_at) not in (int, float) or not math.isfinite(captured_at)
+            or not 0 < captured_at < 1e11):
+        raise ValueError("Invalid walk-calibration time")
+    return {"view_id": view_id, "view_image": image, "transform": transform,
+            "residual_px": residual, "pairs": pairs, "captured_at": captured_at}
 
 
 def validate_profile(value: object) -> tuple[dict, list[str]]:
@@ -155,13 +178,21 @@ def validate_profile(value: object) -> tuple[dict, list[str]]:
             edges.add((a, b))
             links.append({"id": element(item), "from": a, "to": b, "kind": item["kind"]})
         profile["links"] = links
+        warnings = ["Geometry only: localization, contact and movement are not verified."]
+        calibration = calibration_record(value.get("minimap_calibration"))
+        if calibration and not any(view["id"] == calibration["view_id"]
+                                   and view["image"] == calibration["view_image"]
+                                   for view in views):
+            calibration = None
+            warnings.append("Walk calibration removed: its reference view changed")
+        if calibration:
+            profile["minimap_calibration"] = calibration
         reached = set(nodes[:1])
         while True:
             extended = reached | {b for a, b in edges if a in reached}
             if extended == reached:
                 break
             reached = extended
-        warnings = ["Geometry only: localization, contact and movement are not verified."]
         if not nodes:
             warnings.append("No platforms or ropes have been taught")
         elif missing := set(nodes) - reached:
@@ -243,6 +274,14 @@ class AreaStore:
                 shutil.copy2(path, backup)
             self._atomic(path, body)
             return {"profile": profile, "warnings": warnings}
+
+    def save_calibration(self, area_id: str, revision: int, calibration: dict) -> dict:
+        """Store a walk calibration on the saved profile, with the usual backup."""
+        with self.lock:
+            profile = self.load(area_id)["profile"]
+            if profile["revision"] != revision:
+                raise ValueError("Area changed elsewhere; reload it and calibrate again")
+            return self.save({**profile, "minimap_calibration": calibration})
 
     @staticmethod
     def _atomic(path: Path, body: bytes) -> None:

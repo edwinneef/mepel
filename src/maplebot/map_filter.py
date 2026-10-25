@@ -55,6 +55,8 @@ class MapFilter:
         self.allowed = None
         self.title = None
         self.error = None
+        self.taught: tuple[str | None, set[str]] | None = None
+        self.held = False
 
     def match(self, text: str) -> tuple[str | None, set[str] | None]:
         text = normalize(text)
@@ -96,7 +98,24 @@ class MapFilter:
             if mob in self.names
         }
 
-    def select(self, image: np.ndarray) -> set[str] | None:
+    def select(self, image: np.ndarray, taught_map: bool = False) -> set[str] | None:
+        """Monster names for the recognized map title, or None for the full catalog.
+
+        With `taught_map`, the taught area's minimap picture confirms the map, so an
+        unreadable title (collapsed minimap) keeps the set recognized on that map.
+        """
+        allowed = self._select(image)
+        self.held = allowed is None and taught_map and self.taught is not None
+        if not taught_map:
+            self.taught = None
+        elif allowed is not None:
+            self.taught = (self.title, allowed)
+        if self.held:
+            assert self.taught is not None
+            return self.taught[1]
+        return allowed
+
+    def _select(self, image: np.ndarray) -> set[str] | None:
         if not self.profiles or self.error:
             return None
         # Expanded minimap titles are white; collapsed title bars contain dark text.

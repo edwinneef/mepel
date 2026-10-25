@@ -22,6 +22,7 @@ from .decision import Action, Agent, Decision, PolicyInput
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
 from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win32Input
+from .live_position import STALE_SECONDS, LivePosition
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
 from .preview_stream import PreviewSource, PreviewStream
 from .probe_store import ProbeStore
@@ -56,6 +57,10 @@ class StopRecord:
 REQUIRED_PROBES = frozenset({"left", "right", "attack", "jump", "skill"})
 OPTIONAL_PROBES = frozenset({"up", "down", "hp_potion", "mp_potion"})
 PROBE_ACTIONS = REQUIRED_PROBES | OPTIONAL_PROBES
+POSITION_COMMANDS = frozenset({
+    "position_start", "position_stop", "walk_calibration_begin", "walk_calibration_finish",
+    "walk_calibration_cancel",
+})
 
 # Give ordinary dragging a bounded grace period, independent of capture FPS.
 _CAPTURE_MOVE_ATTEMPTS = 5
@@ -124,6 +129,7 @@ class Application:
         self.data.mkdir(parents=True, exist_ok=True)
         self.areas = AreaStore(self.data / "areas")
         self.area_editing = False
+        self.position: LivePosition | None = None
         self.windows = Windows()
         self.detector = TemplateDetector(self.data / "templates", config.perception)
         self.agent = Agent(config.agent, config.perception.confidence)
@@ -240,6 +246,8 @@ class Application:
         if worker and worker is not threading.current_thread():
             worker.join(timeout=3)
         self.controller.close()
+        if self.position is not None:
+            self.position.close()
         self.encoder.close()
         self.recorder.close()
         self.alarm.close()
@@ -381,6 +389,7 @@ class Application:
                 "alarm": self.alarm.snapshot(),
                 "history": list(self.history),
             }
+            result["position"] = self._position_snapshot(result.get("position"))
             result["readiness"] = readiness(result)
             return result
 
@@ -1117,6 +1126,8 @@ class Application:
             path = self._save()
             self.note("Capture confirmed by operator; evidence screenshot saved")
             return {"path": path}
+        if name in POSITION_COMMANDS:
+            return self._position_command(name, payload)
         if name == "save":
             return {"path": self._save()}
         if name == "record":
@@ -1149,6 +1160,53 @@ class Application:
             "decoys": decoys,
             "frame": [image.shape[1], image.shape[0]],
         }
+
+    def _position_command(self, name: str, payload: dict) -> dict:
+        """Read-only position tracking. These commands never enable or send input."""
+        if name == "position_stop":
+            if self.position is not None:
+                self.position.close()
+            self.position, self.detector.taught_map = None, False
+            with self.lock:
+                self.status.pop("position", None)
+            return {"tracking": False}
+        if self.area_editing:
+            raise ValueError("Finish area editing before tracking the live position")
+        if name == "position_start":
+            position = LivePosition(self.areas, payload.get("area_id"))
+            if self.position is not None:
+                self.position.close()
+            self.position = position
+            return {"tracking": True, "area_id": position.profile["id"],
+                    "calibrated": position.tracker is not None}
+        if self.position is None:
+            raise ValueError("Track a saved area's position first")
+        if name == "walk_calibration_begin":
+            if self.mode not in {"capture", "dry_run"}:
+                raise ValueError("Stop combat and potions before walk calibration")
+            result = self.position.begin_calibration()
+            self.note("Walk calibration started; walk the floor yourself, no input is sent")
+            return result
+        if name == "walk_calibration_cancel":
+            return self.position.cancel_calibration()
+        result = self.position.finish_calibration()
+        residual = result["calibration"]["residual_px"]
+        self.note(
+            f"Walk calibration saved: {result['calibration']['pairs']} pairs, residual p95 "
+            f"x {residual['x']['p95']:.1f} / y {residual['y']['p95']:.1f} px"
+        )
+        return result
+
+    def _position_snapshot(self, position: dict | None) -> dict | None:
+        """Clear a position older than 500 ms; a stale fix must never look current."""
+        if position is None or self.position is None:
+            return None
+        age = time.time() - position["captured_at"]
+        if age <= STALE_SECONDS:
+            return {**position, "stale": False}
+        return {**position, "kind": "unknown", "surface_id": None, "feet": None,
+                "marker": None, "stale": True,
+                "reason": f"Position stale: no processed frame for {age * 1000:.0f} ms"}
 
     @staticmethod
     def _roi(payload: dict, image: Image) -> Rect:
@@ -1198,9 +1256,18 @@ class Application:
         self, image: Image, now: float, policy_now: float | None = None
     ) -> tuple[Image, dict]:
         policy_now = now if policy_now is None else policy_now
+        fix = self.position.read_map(image) if self.position is not None else None
+        self.detector.taught_map = bool(fix and fix.canvas)
         perception_began = time.perf_counter()
         observation = self.detector.detect(image, now)
         perception_ms = (time.perf_counter() - perception_began) * 1000
+        position = None
+        if self.position is not None and fix is not None:
+            try:
+                position = self.position.update(image, fix, observation, now)
+            except (ValueError, cv2.error) as error:
+                position = {"kind": "unknown", "reason": f"Position unavailable: {error}",
+                            "captured_at": time.time(), "input_sent": False}
         if (
             self.calibration
             and not self.calibration.capture_verified
@@ -1453,6 +1520,7 @@ class Application:
             "capture_only": self.capture_only,
             "autopotter": potter,
             "catalog": self.detector.catalog_info,
+            "position": position,
             "failures": observation.failures,
             "camera_shift": observation.camera_shift,
             "camera_confidence": observation.camera_confidence,

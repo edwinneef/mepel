@@ -151,6 +151,8 @@ class TemplateDetector:
         # Last position, when it was last confirmed, and when evidence last supported it.
         self.track: tuple[Rect, float, float] | None = None
         self.camera = CameraTracker()
+        # Set by the runtime when the taught area's minimap confirms the current map.
+        self.taught_map = False
         self.reload()
 
     def reload(self) -> None:
@@ -577,7 +579,7 @@ class TemplateDetector:
     def detect(self, image: Image, now: float | None = None) -> Observation:
         now = time.monotonic() if now is None else now
         floor = max(0.5, self.config.confidence - 0.15)
-        allowed = self.map_filter.select(image)
+        allowed = self.map_filter.select(image, self.taught_map)
         templates = (
             self.templates
             if allowed is None
@@ -588,7 +590,11 @@ class TemplateDetector:
                 or template.name.split(":")[1] in allowed
             ]
         )
-        self.catalog_info["active_map"] = self.map_filter.title
+        held = self.map_filter.held and self.map_filter.taught is not None
+        self.catalog_info["active_map"] = (
+            self.map_filter.taught[0] if held else self.map_filter.title
+        )
+        self.catalog_info["map_filter_held"] = held
         self.catalog_info["map_filter_error"] = self.map_filter.error
         self.catalog_info["active_variants"] = len(templates)
         player, monsters, failures, tag_confidence = self._observe_window(

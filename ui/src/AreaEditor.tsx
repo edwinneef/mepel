@@ -102,7 +102,7 @@ export function AreaEditor({ workspace: w, active, connected, disabled }: Editor
     return { ...profile, links: [...profile.links, item] };
   });
 
-  return <><p className="tool-intro">Teach one hunting area on fixed reference images. Editing releases gameplay input. Localization and movement remain unavailable.</p>
+  return <><p className="tool-intro">Teach one hunting area on fixed reference images. Editing releases gameplay input. Movement remains unavailable.</p>
     <section className="tool-group"><h3>Saved areas</h3><label>Hunting area<select value={chosenArea} onChange={event => setChosenArea(event.target.value)}>
       <option value="">Choose an area…</option>{w.areas.map(area => <option key={area.id} value={area.id}>{area.name} · revision {area.revision}</option>)}</select></label>
       <div className="button-grid"><button disabled={busy} onClick={() => void w.create()}>New area</button><button disabled={busy || !chosenArea} onClick={() => void w.load(chosenArea)}>Load area</button>

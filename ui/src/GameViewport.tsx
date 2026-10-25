@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import type { PointerEvent } from 'react';
+import type { PointerEvent, ReactNode } from 'react';
 import type { Rect } from './contracts';
 import type { ViewImage } from './useViewport';
 import { nativePoint, rectangle } from './selection';
@@ -11,9 +11,10 @@ interface Props {
   stale?: boolean;
   selection: Rect | null;
   onSelection: (selection: Rect) => void;
+  overlay?: ReactNode;
 }
 
-export function GameViewport({ image, frozen, stale = false, selection, onSelection }: Props) {
+export function GameViewport({ image, frozen, stale = false, selection, onSelection, overlay }: Props) {
   const imageRef = useRef<HTMLImageElement>(null);
   const origin = useRef<Point | null>(null);
   const point = (event: PointerEvent): Point => nativePoint(
@@ -43,6 +44,8 @@ export function GameViewport({ image, frozen, stale = false, selection, onSelect
         {selection && <rect x={selection.x} y={selection.y} width={selection.width} height={selection.height}
           fill="#e7c67b20" stroke="#f4d88f" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
       </svg>}
+      {!frozen && overlay && <svg className="selection-layer" viewBox={`0 0 ${image.width} ${image.height}`}
+        aria-hidden="true" preserveAspectRatio="none">{overlay}</svg>}
     </div> : <div className="empty-view"><span className="empty-mark" aria-hidden="true">M</span>
       <h2>Your game, in view.</h2><p>Open Settings to connect a visible game window.<br />Capture and recognition work without keyboard output.</p>
     </div>}

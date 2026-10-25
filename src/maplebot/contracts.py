@@ -15,6 +15,8 @@ COMMANDS = frozenset({
     "autopotter_calibrate", "autopotter_settings", "autopotter_start", "autopotter_live",
     "autopotter_stop",
     "area_list", "area_load", "area_begin", "area_capture", "area_save", "area_end",
+    "position_start", "position_stop", "walk_calibration_begin", "walk_calibration_finish",
+    "walk_calibration_cancel",
 })
 FRESH_FRAME_COMMANDS = frozenset({"dry_run", "arm", "probe", "autopotter_live"})
 URGENT_COMMANDS = frozenset({"stop", "pause"})

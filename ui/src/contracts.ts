@@ -25,6 +25,18 @@ export interface PotionStatus {
   calibrated: string[];
   readings: Partial<Record<'hp' | 'mp', { percent: number | null; confidence: number; reason: string }>>;
 }
+export interface Residual { p50: number; p95: number; max: number }
+export interface WalkCalibration {
+  active: boolean; pairs: number; rejected: number;
+  saved: { residual_px: Record<'x' | 'y', Residual>; pairs: number; captured_at: number } | null;
+}
+// Read-only position on a taught area. A platform is a spatial match, never proof of contact.
+export interface LivePosition {
+  area_id?: string; area_name?: string; kind: string; surface_id?: string | null;
+  feet?: [number, number] | null; reason: string; map?: string; canvas?: Rect | null;
+  marker?: [number, number] | null; calibrated?: boolean; stale?: boolean;
+  calibration?: WalkCalibration; input_sent: false;
+}
 export interface WindowInfo { hwnd: number; title: string; client: Rect; focused: boolean; dpi: number }
 export interface Snapshot {
   schema_version: 1; session_id: string; instance_id: string; command_epoch: number;
@@ -40,11 +52,11 @@ export interface Snapshot {
   alarm: { active: boolean; incident_id?: string };
   restart_available: boolean; shutdown_available: boolean; recording?: boolean;
   catalog?: { species?: number; frames?: number; names?: string[]; active_map?: string;
-    active_variants?: number; map_filter_error?: string };
+    active_variants?: number; map_filter_error?: string; map_filter_held?: boolean };
   failures?: string[]; history: { time: number; reason: string }[];
   stage_timing?: Record<string, number>; encoder?: Record<string, unknown>;
   recorder?: Record<string, unknown>; action_outcome?: Record<string, unknown>;
-  area_editing?: boolean;
+  area_editing?: boolean; position?: LivePosition | null;
 }
 export interface CommandEnvelope {
   schema_version: 1; session_id: string; command_id: string; command_epoch: number;
@@ -68,5 +80,5 @@ export interface AreaLink {
 export interface AreaProfile {
   schema_version: 1 | 2; id: string; revision: number; name: string; boundary: Rect;
   views: AreaView[]; zones: AreaZone[]; platforms: AreaSegment[]; ropes: AreaSegment[];
-  links: AreaLink[];
+  links: AreaLink[]; minimap_calibration?: unknown;
 }
