@@ -1,7 +1,7 @@
 # Phase 1: Deterministic Input and Safe Stop - Context
 
 **Gathered:** 2026-10-24
-**Status:** Ready for planning
+**Status:** Executed through Plan 01-03; Plan 01-04 awaiting remaining acceptance
 
 <domain>
 ## Phase Boundary
@@ -113,3 +113,8 @@ Requirements: FND-01..06, SAFE-01..03. Stop *triggers* tied to the taught spot (
 
 *Phase: 01-deterministic-input-and-safe-stop*
 *Context gathered: 2026-10-24*
+
+
+## Operator overrides recorded on 2026-10-25
+
+The operator explicitly requested persistent successful probes and standalone live Autopotter after confirming the seven movement/combat/potion controls worked. These later requests supersede the memory-only/reset-all parts of D-02, D-12 and D-13 and the earlier preview-only scope. Matching title/layout/DPI/crop/binding restores control confirmations; each potion also matches its HUD reference. Starting a retest revokes its prior confirmation. Capture verification still resets and input always starts stopped. Standalone live potions require the matching potion confirmations and do not arm combat. Full Phase 3 sustain requirements remain unimplemented. See 01-04-CHECKPOINT.md for current evidence, remaining acceptance and commit-backed implementation details.

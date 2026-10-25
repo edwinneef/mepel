@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 1
 current_phase_name: Deterministic Input and Safe Stop
 status: executing
-stopped_at: Plan 01-04 installed offline; awaiting bounded native probe acceptance
-last_updated: "2026-10-24T20:31:39.366Z"
-last_activity: 2026-10-24
+stopped_at: Session resumed; Phase 1 evidence reconciled; awaiting remaining acceptance before execute-phase gates
+last_updated: "2026-10-25T00:24:24.320Z"
+last_activity: 2026-10-25
 last_activity_desc: Roadmap created (5 phases, 31/31 v1 requirements mapped)
-state_head: 6c4d04699cfc891061a66aa4e7c7ebe6b22c2f6b
+state_head: d9f48032f35399e0808065ed89d9ad65b03123fc
 progress:
   total_phases: 5
   completed_phases: 0
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-10-24)
 
 ## Current Position
 
-Phase: 1 (Deterministic Input and Safe Stop) — READY TO EXECUTE
+Phase: 1 (Deterministic Input and Safe Stop) — REMAINING ACCEPTANCE CHECKPOINT
 Plan: 3 of 4 in current phase
-Status: Ready to execute
-Last activity: 2026-10-24 - Phase 1 researched and planned; 4 plans in 4 waves, checker and coverage gates passed
+Status: Plan 01-04 installed; remaining native acceptance and phase gates pending
+Last activity: 2026-10-25 - Reconciled seven confirmed controls, saved probes and installed follow-ups; 235 tests, Ruff and pip check passed
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -76,7 +76,8 @@ None yet.
 - [Phase 3]: SUST-04 reads potion counts from the quickslot, while research deferred count reading and preferred an icon check. Confirm the digits are legible at 1x before planning.
 - [Phase 4]: Processing runs at 250-400 ms per frame (about 3 fps). Move verification windows must hold at that rate.
 - README's MapleUnity setup section and docs/VERIFICATION.md still describe the old target. No v1 requirement covers updating them.
-- Plan 01-04 local editable install blocked: project .venv has no setuptools.build_meta; no install claim or native acceptance.
+- [Phase 1, install resolved]: Offline editable install is complete; seven controls have operator confirmation. Remaining evidence: Up/Down and exact audible acknowledgement results after the fix; then remaining execute-phase gates. See 01-04-CHECKPOINT.md.
+- [Approved follow-ups]: Persistent probes and standalone live potions supersede original reset-all/preview-only details. Full Phase 3 sustain and native live-potion effect acceptance remain pending.
 
 ## Deferred Items
 
@@ -88,6 +89,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-24T20:31:39.330Z
-Stopped at: Plan 01-04 installed offline; awaiting bounded native probe acceptance
+Last session: 2026-10-25T00:24:24.290Z
+Stopped at: Session resumed; Phase 1 evidence reconciled; awaiting remaining acceptance before execute-phase gates
 Resume file: .planning/phases/01-deterministic-input-and-safe-stop/01-04-CHECKPOINT.md

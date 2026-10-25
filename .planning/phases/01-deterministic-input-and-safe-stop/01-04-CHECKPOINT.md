@@ -2,17 +2,44 @@
 phase: 01-deterministic-input-and-safe-stop
 plan: 01-04
 status: blocking-human
-checkpoint: local-install-and-operator-acceptance
+checkpoint: remaining-native-acceptance
 ---
 
 # Plan 01-04 Checkpoint
 
-| Task | Status |
+## Reconciled on 2026-10-25
+
+Installation is complete. Phase 1 remains at 3/4 completed plans; do not mark 01-04 or the phase complete until the remaining acceptance and phase gates are resolved. The old plan-approval/install-blocked routing is stale: this is an operator acceptance checkpoint, not a request to approve or rerun the plan.
+
+| Evidence | Current result |
 | --- | --- |
-| Guarded debugger probes | Complete and tested |
-| HP/MP probe confirmation | Complete and tested |
-| Offline local editable install | Complete; protected configuration/data unchanged |
-| Target-client probe acceptance | Pending operator observation; do not Arm |
+| Offline install and dependencies | Installed repeatedly from this checkout with no index/dependency fetch; saved configuration and existing data preserved; rollback sources/metadata under artifacts/ |
+| Current validation | 235 pytest tests pass; Ruff passes for src, tests and tools; pip check reports no broken requirements (run during this reconciliation) |
+| Native control observations | Operator confirmed Left, Right, Attack, Jump, Skill, HP potion and MP potion worked; no repeat of these seven checks is requested |
+| Potion full-bar guard | Operator observed no countdown at full HP/MP; runtime showed both at 100%; guard explanation accepted, followed by successful potion report |
+| Probe persistence | Seven operator-confirmed controls migrated with an audit under artifacts/probe-confirmation-migration-*.json; restored on the selected MapleStory window after restart |
+| Latest alarm | FOCUS_LOSS: actual game was not focused at the countdown deadline; recorded clip exists, acknowledgement=true and active=false; this proves runtime acknowledgement, not audible silence at the speaker |
+| Live Autopotter | User-authorized standalone live mode installed; two-frame HP priority/shared cooldown and safe stops tested. Latest native attempt stopped on focus loss before acceptance; live sustain effect remains unverified |
+| Phase completion | Pending; no 01-04-SUMMARY.md or phase verification report has been created |
+
+## Remaining operator evidence
+
+Do not restart the full checklist or request another recording. First determine whether these were already included in the operator's earlier successful checks:
+
+1. Up and Down: each reached the game once as the configured arrow, away from portals/ropes, without an unexpected interaction. These two optional probes were not specifically identified in the conversation and were not migrated as confirmed.
+2. Alarm acknowledgement after the fix: the debugger Acknowledge alarm button and F8 each silence a repeating alarm. Runtime records show an acknowledged incident, but the exact acknowledgement method and audible result were not separately reported after the fix.
+
+If an item has not been observed, resume only that item with its existing bounded procedure. Stop on the first failure. No Arm/combat run, native worker-crash injection, or repeated gameplay recording is requested here. Own-window keyboard smoke and subsequent phase verification/review gates remain the execute workflow's responsibility; offline tests are not live-game evidence.
+
+After the remaining evidence is resolved, resume `$gsd-execute-phase 1` at 01-04's checkpoint and remaining phase gates. Do not rerun completed plans 01-01 through 01-03. Phase 2 follows only after Phase 1 is actually verified.
+
+## Operator-authorized changes superseding the original plan
+
+- Probe confirmations now persist for matching configured/game title, crop, client dimensions, DPI and individual key binding. Potion confirmations additionally match the HUD reference and rectangle. Binding changes invalidate the matching action; calibration mismatches reject affected confirmations. Re-probing revokes that action until a new success. Capture verification still resets; input never auto-enables after restart. This supersedes the original memory-only/reset-all D-02/D-12/D-13 details and T-01-13 implementation wording, without removing runtime input guards.
+- Standalone live Autopotter was explicitly requested after the controls worked. Preview remains input-free; combat stays stopped in live-potion mode. This does not complete Phase 3: combat preemption, independent cooldowns, potion counts/ineffectiveness/critical-HP stops, skill fallback and pet feeding remain deferred.
+- Installed follow-ups: unobscured game preview, reliable alarm banner/acknowledgement, gray HUD tracks/anchors, safe dashboard restart, precise probe blockers, input disabled after each probe, Alt binding, collapsible panels, persisted probes and Copy alarm with stable text selection.
+
+## Historical setup notes (superseded where the reconciliation above differs)
 
 ## Install prerequisite resolved
 
