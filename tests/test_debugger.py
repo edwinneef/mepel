@@ -20,13 +20,16 @@ class RestartApp:
         self.events.append("released")
 
 
-def request(server, method, path, token=None):
+def request(server, method, path, token=None, payload=None):
     connection = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
     headers = {"Host": "127.0.0.1:0"}
     if token is not None:
         headers["X-Debug-Token"] = token
     try:
-        connection.request(method, path, body="{}" if method == "POST" else None, headers=headers)
+        connection.request(
+            method, path, body=json.dumps(payload or {}) if method == "POST" else None,
+            headers=headers,
+        )
         response = connection.getresponse()
         return response.status, response.read().decode()
     finally:
@@ -83,6 +86,30 @@ def test_restart_is_unavailable_when_the_server_has_no_process_supervisor():
         assert code == 400
         assert "unavailable" in json.loads(body)["error"].lower()
         assert app.events == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_acknowledgement_requires_the_displayed_incident_id():
+    app = RestartApp()
+    calls = []
+
+    def acknowledge(incident_id, *, require_id):
+        calls.append((incident_id, require_id))
+        return {"acknowledged": incident_id == "current" and require_id}
+
+    app.acknowledge_stop = acknowledge
+    server = serve(app, 0)
+    try:
+        _, page = request(server, "GET", "/")
+        token = re.search(r"const token='([^']+)'", page)[1]
+        for incident_id in (None, "old", "current"):
+            payload = {} if incident_id is None else {"incident_id": incident_id}
+            code, body = request(server, "POST", "/api/acknowledge", token, payload)
+            assert code == 200
+            assert json.loads(body)["acknowledged"] is (incident_id == "current")
+        assert calls == [(None, True), ("old", True), ("current", True)]
     finally:
         server.shutdown()
         server.server_close()

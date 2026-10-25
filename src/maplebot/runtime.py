@@ -218,7 +218,7 @@ class Application:
 
     def request(self, name: str, payload: dict) -> Any:
         if name == "acknowledge":
-            return self.acknowledge_stop()
+            return self.acknowledge_stop(payload.get("incident_id"), require_id=True)
         if name == "restart_capture":
             return self.restart_capture()
         if name == "probe":
@@ -646,8 +646,21 @@ class Application:
             with self.lock:
                 self.status.pop("stop", None)
 
-    def acknowledge_stop(self) -> dict[str, object]:
+    def acknowledge_stop(
+        self, incident_id: str | None = None, *, require_id: bool = False
+    ) -> dict[str, object]:
         with self.stop_lock:
+            alarm = self.alarm.snapshot()
+            current_id = (
+                alarm["incident_id"] if alarm["active"]
+                else self.stop_record.id if self.stop_record else None
+            )
+            if require_id and (not isinstance(incident_id, str) or incident_id != current_id):
+                return {
+                    "acknowledged": False,
+                    "reason": "Alarm changed or ID missing; acknowledge the displayed alarm",
+                    "incident_id": current_id,
+                }
             acknowledged = self.alarm.acknowledge()
             if self.stop_record is None:
                 return {"acknowledged": acknowledged, "reason": "No active stop incident"}

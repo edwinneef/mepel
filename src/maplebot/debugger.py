@@ -88,7 +88,7 @@ def serve(
                     on_restart()
                     return
                 elif command == "acknowledge":
-                    result = app.acknowledge_stop()
+                    result = app.acknowledge_stop(payload.get("incident_id"), require_id=True)
                 elif command == "restart_capture":
                     result = app.restart_capture()
                 else:

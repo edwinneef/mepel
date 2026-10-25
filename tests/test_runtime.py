@@ -363,7 +363,7 @@ def test_f8_watchdog_acknowledges_alarm_without_a_capture_worker(app, monkeypatc
 def test_acknowledge_silences_alarm_even_without_a_stop_banner(app):
     app.alarm.start("orphaned-audio")
 
-    assert app.request("acknowledge", {})["acknowledged"]
+    assert app.request("acknowledge", {"incident_id": "orphaned-audio"})["acknowledged"]
     assert not app.alarm.snapshot()["active"]
 
 
@@ -399,14 +399,18 @@ def test_stop_reason_registry_classifies_every_declared_safety_path():
 
 def test_dead_worker_can_acknowledge_and_restart_directly(app, monkeypatch):
     active = {"value": False}
-    monkeypatch.setattr(app.alarm, "start", lambda incident_id: active.update(value=True))
+    monkeypatch.setattr(
+        app.alarm, "start", lambda incident_id: active.update(value=True, incident_id=incident_id)
+    )
     monkeypatch.setattr(app.alarm, "acknowledge", lambda: active.update(value=False))
-    monkeypatch.setattr(app.alarm, "snapshot", lambda: {"active": active["value"]})
+    monkeypatch.setattr(app.alarm, "snapshot", lambda: {
+        "active": active["value"], "incident_id": active.get("incident_id"),
+    })
     monkeypatch.setattr(app, "_run", lambda: app.closed.wait(1))
 
     app.probed.add("jump")
     app.safe_stop("CAPTURE_WORKER_EXIT", "Injected fatal worker exit")
-    assert app.request("acknowledge", {})["acknowledged"]
+    assert app.request("acknowledge", {"incident_id": app.stop_record.id})["acknowledged"]
     restarted = app.request("restart_capture", {})
 
     assert restarted["restarted"] is True
@@ -863,3 +867,22 @@ def test_recognition_cannot_verify_uncertain_or_wrong_game_view(potion_app, monk
     assert not app.calibration.capture_verified
     assert not app.controller.enabled
     assert app.controller.backend.events == []
+
+
+@pytest.mark.parametrize("requested", ["old", None, "unknown"])
+def test_dashboard_acknowledgement_cannot_silence_a_different_incident(app, requested):
+    first = app.safe_stop("FOCUS_LOSS", "First incident")
+    app.acknowledge_stop()
+    app._clear_stop_banner()
+    current = app.safe_stop("FOCUS_LOSS", "Current incident")
+    payload = {} if requested is None else {
+        "incident_id": first.id if requested == "old" else requested,
+    }
+    result = app.request("acknowledge", payload)
+    assert not result["acknowledged"]
+    assert app.stop_record.id == current.id
+    assert not app.stop_record.acknowledged
+    assert app.alarm.snapshot()["active"]
+    assert app.controller.backend.events == []
+    assert app.request("acknowledge", {"incident_id": current.id})["acknowledged"]
+    assert not app.alarm.snapshot()["active"]
