@@ -35,6 +35,8 @@ class AgentConfig:
     attack_seconds: float = 0.06
     verify_seconds: float = 0.45
     max_attack_attempts: int = 6
+    skill_low_mp: float = 20.0
+    skill_high_mp: float = 40.0
 
 
 @dataclass(frozen=True)
@@ -186,6 +188,8 @@ class Config:
             raise ValueError("perception.confidence must be between 0.5 and 1")
         if not 0.01 <= config.input.max_action_seconds <= 0.5:
             raise ValueError("max_action_seconds must be between 0.01 and 0.5")
+        if not 0 <= config.agent.skill_low_mp < config.agent.skill_high_mp <= 100:
+            raise ValueError("agent.skill_low_mp must be below agent.skill_high_mp, within 0-100")
         for duration in (config.agent.movement_seconds, config.agent.attack_seconds):
             if not 0 < duration <= config.input.max_action_seconds:
                 raise ValueError("Action duration exceeds maximum")

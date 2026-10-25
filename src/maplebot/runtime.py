@@ -156,6 +156,7 @@ class Application:
         self.closed = threading.Event()
         self.frame_ready = threading.Event()
         self.stop_requested = threading.Event()
+        self.mp_percent: float | None = None
         self.worker: threading.Thread | None = None
         self.latest: bytes | None = None
         self.raw: bytes | None = None
@@ -1138,7 +1139,9 @@ class Application:
             if uncertain and not self.player_uncertain and self.recorder.active:
                 self.recorder.trigger("Player detection uncertain", time.perf_counter())
             self.player_uncertain = uncertain
-            policy_input = PolicyInput(observation, policy_now, self.policy_outcome)
+            policy_input = PolicyInput(
+                observation, policy_now, self.policy_outcome, self.mp_percent
+            )
             policy_before = self.agent.snapshot()
             decision = self.agent.step_input(policy_input)
             if decision.state == "IDLE":
@@ -1167,7 +1170,9 @@ class Application:
             if self.mode in {"pending_arm", "probe_wait", "potion_wait"}:
                 reason = f"Focus the game window; input in {max(0, self.pending_at - now):.1f}s"
             decision = Decision(self.agent.state, Action(), reason)
-            policy_input = PolicyInput(observation, policy_now, self.policy_outcome)
+            policy_input = PolicyInput(
+                observation, policy_now, self.policy_outcome, self.mp_percent
+            )
             policy_before = self.agent.snapshot()
             policy_ms = 0.0
         annotation_began = time.perf_counter()
@@ -1186,6 +1191,8 @@ class Application:
                 and self.windows.unobscured(self.window.hwnd, self.region)
             ),
         )
+        mp = potter["readings"].get("mp", {})
+        self.mp_percent = mp.get("percent") if mp.get("confidence", 0) >= 0.9 else None
         if self.mode == "potion_live":
             unreadable = any(
                 self.potter.settings[f"{r}_threshold"] > 0

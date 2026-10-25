@@ -1,7 +1,7 @@
 import pytest
 
 from maplebot.config import AgentConfig
-from maplebot.decision import Agent, State
+from maplebot.decision import Agent, PolicyInput, State
 from maplebot.geometry import Rect
 from maplebot.perception import Detection, Observation
 
@@ -125,3 +125,33 @@ def test_tracked_player_below_threshold_keeps_agent_running():
     assert agent.step(scene(player=tracked), 0).state != State.IDLE
     weak = Detection("player", Rect(100, 100, 24, 28), 0.5)
     assert agent.step(scene(player=weak), 0.1).state == State.IDLE
+
+
+def attack_with(agent, mp, now):
+    """Drive one in-range target to the attack decision with the given MP reading."""
+    observation = scene([entity(x=130)])
+    agent.start()
+    agent.step_input(PolicyInput(observation, now, {"status": "not_sent"}, mp))
+    agent.step_input(PolicyInput(observation, now + 0.1, {"status": "not_sent"}, mp))
+    return agent.step_input(PolicyInput(observation, now + 0.2, {"status": "not_sent"}, mp))
+
+
+def test_skill_attack_needs_high_mp_and_unreadable_mp_uses_basic():
+    agent = Agent(AgentConfig())
+    assert attack_with(agent, 80.0, 0).action.kind == "skill"
+    assert attack_with(agent, None, 10).action.kind == "attack"
+    assert attack_with(agent, 30.0, 20).action.kind == "attack"
+
+
+def test_skill_attack_has_mp_hysteresis_between_marks():
+    agent = Agent(AgentConfig())
+    assert [agent._attack_kind(mp) for mp in (30.0, 80.0, 30.0, 10.0, 30.0, 40.0)] == [
+        "attack", "skill", "skill", "attack", "attack", "skill",
+    ]
+
+
+def test_mp_reading_survives_policy_input_round_trip():
+    value = PolicyInput(scene(), 1.0, {"status": "not_sent"}, 55.5).to_dict()
+    assert PolicyInput.from_dict(value).mp_percent == 55.5
+    del value["mp_percent"]
+    assert PolicyInput.from_dict(value).mp_percent is None

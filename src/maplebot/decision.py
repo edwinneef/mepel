@@ -39,6 +39,7 @@ class PolicyInput:
     observation: Observation
     now: float
     last_outcome: dict[str, Any]
+    mp_percent: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -78,6 +79,7 @@ class PolicyInput:
                 ),
                 now,
                 dict(value["last_outcome"]),
+                value.get("mp_percent"),
             )
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError(f"Invalid PolicyInput: {error}") from error
@@ -95,11 +97,13 @@ class Agent:
         self.missing_frames = 0
         self.last_distance: float | None = None
         self.stalled_steps = 0
+        self.skill_ready = False
 
     def stop(self, reason: str) -> Decision:
         self.state, self.target, self.facing = State.IDLE, None, None
         self.attempts, self.missing_frames = 0, 0
         self.last_distance, self.stalled_steps = None, 0
+        self.skill_ready = False
         return Decision(self.state, Action(), reason)
 
     def start(self) -> None:
@@ -124,6 +128,7 @@ class Agent:
             "missing_frames": self.missing_frames,
             "last_distance": self.last_distance,
             "stalled_steps": self.stalled_steps,
+            "skill_ready": self.skill_ready,
         }
 
     def restore(self, snapshot: dict[str, Any]) -> None:
@@ -150,6 +155,7 @@ class Agent:
             self.missing_frames = int(snapshot["missing_frames"])
             self.last_distance = snapshot["last_distance"]
             self.stalled_steps = int(snapshot["stalled_steps"])
+            self.skill_ready = bool(snapshot.get("skill_ready", False))
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError(f"Invalid policy snapshot: {error}") from error
 
@@ -232,7 +238,18 @@ class Agent:
         self.state = State.VERIFY
         self.attempts += 1
         self.verify_until = now + self.config.attack_seconds + self.config.verify_seconds
+        kind = self._attack_kind(policy_input.mp_percent)
         return self._result(
-            "Attack requested; inspect subsequent screenshots",
-            Action("attack", self.config.attack_seconds),
+            f"{kind.capitalize()} attack requested; inspect subsequent screenshots",
+            Action(kind, self.config.attack_seconds),
         )
+
+    def _attack_kind(self, mp: float | None) -> str:
+        """Skill above the high MP mark, basic below the low mark; unreadable MP is basic."""
+        if mp is None:
+            self.skill_ready = False
+        elif mp < self.config.skill_low_mp:
+            self.skill_ready = False
+        elif mp >= self.config.skill_high_mp:
+            self.skill_ready = True
+        return "skill" if self.skill_ready else "attack"

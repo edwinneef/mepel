@@ -28,6 +28,9 @@ movement_seconds = 0.12
 attack_seconds = 0.06
 verify_seconds = 0.45
 max_attack_attempts = 6
+# Skill attack while MP is at or above high; basic attack below low or when MP is unreadable.
+skill_low_mp = 20.0
+skill_high_mp = 40.0
 
 [input]
 left = "left"
