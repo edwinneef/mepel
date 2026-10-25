@@ -13,7 +13,7 @@ export const toView = (point: AreaPoint, view: AreaView): AreaPoint => ({
 
 export function newArea(): AreaProfile {
   return {
-    schema_version: 1, id: crypto.randomUUID().replaceAll('-', ''), revision: 0,
+    schema_version: 2, id: crypto.randomUUID().replaceAll('-', ''), revision: 0,
     name: 'New hunting area', boundary: { x: 0, y: 0, width: 1, height: 1 },
     views: [], zones: [], platforms: [], ropes: [], links: [],
   };

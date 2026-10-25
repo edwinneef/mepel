@@ -1,0 +1,61 @@
+import numpy as np
+import pytest
+
+from maplebot.minimap_reader import DOT_SHAPE, AreaMinimap, describe
+
+SKY = (235, 180, 90)
+
+
+def view(dots=((60, 20),), *, at=(13, 72), seed=1, size=(768, 1366)):
+    """A game view with a navy minimap, opaque terrain under it and a white rim."""
+    image = np.full((*size, 3), SKY, np.uint8)
+    x, y = at
+    image[y:y + 40, x:x + 183] = (100, 60, 30)
+    terrain = np.random.default_rng(seed).integers(40, 141, (24, 183, 3), dtype=np.uint8)
+    terrain[..., 2] = np.maximum(terrain[..., 2], 60)
+    image[y + 40:y + 64, x:x + 183] = terrain
+    image[y + 64, x:x + 183] = 255
+    for dx, dy in dots:
+        patch = image[y + dy:y + dy + 6, x + dx:x + dx + 6]
+        patch[DOT_SHAPE] = (0, 220, 255)
+    return image
+
+
+@pytest.fixture
+def reader():
+    return AreaMinimap(view())
+
+
+def test_reference_view_reads_one_player_marker(reader):
+    fix = reader.read(view(((90, 10),)))
+    assert fix.dot == (92.5, 12.5) and fix.candidates == 1
+    assert (fix.canvas.x, fix.canvas.y, fix.canvas.width, fix.canvas.height) == (13, 72, 183, 64)
+
+
+def test_moved_minimap_keeps_marker_in_canvas_coordinates(reader):
+    fix = reader.read(view(((90, 10),), at=(6, 29)))
+    assert fix.dot == (92.5, 12.5) and (fix.canvas.x, fix.canvas.y) == (6, 29)
+
+
+@pytest.mark.parametrize(("image", "reason"), [
+    (np.full((768, 1366, 3), SKY, np.uint8), "Minimap missing"),
+    (view(seed=2), "Minimap missing"),
+    (view(()), "No player marker"),
+    (view(((30, 10), (120, 20))), "Several player markers"),
+    (view(size=(766, 1023)), "Capture size differs"),
+])
+def test_covered_other_map_or_ambiguous_markers_are_unknown(reader, image, reason):
+    fix = reader.read(image)
+    assert fix.dot is None and fix.reason.startswith(reason)
+
+
+def test_reference_without_minimap_is_rejected():
+    with pytest.raises(ValueError, match="No minimap"):
+        AreaMinimap(np.full((768, 1366, 3), SKY, np.uint8))
+    assert describe(np.full((768, 1366, 3), SKY, np.uint8)) is None
+
+
+def test_describe_stores_canvas_and_marker():
+    assert describe(view()) == {
+        "canvas": {"x": 13, "y": 72, "width": 183, "height": 64}, "dot": {"x": 62.5, "y": 22.5},
+    }

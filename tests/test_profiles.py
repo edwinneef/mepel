@@ -140,3 +140,49 @@ def test_multiple_views_preserve_manual_scrolling_transforms(area):
 def test_invalid_manual_transforms_are_rejected(scale):
     with pytest.raises(ValueError):
         ViewTransform(0, 0, scale)
+
+
+def test_capture_stores_minimap_and_save_ignores_client_minimap(tmp_path):
+    from test_minimap_reader import view
+
+    store = AreaStore(tmp_path / "areas")
+    captured = store.capture_view(view())
+    assert captured["minimap"]["dot"] == {"x": 62.5, "y": 22.5}
+    profile = {
+        "schema_version": 2, "id": "c" * 32, "name": "Minimap spot", "revision": 0,
+        "boundary": {"x": 0, "y": 0, "width": 1366, "height": 768},
+        "views": [{**captured, "minimap": None}], "zones": [], "platforms": [], "ropes": [],
+        "links": [],
+    }
+    result = store.save(profile)
+    assert result["profile"]["views"][0]["minimap"] == captured["minimap"]
+    assert not any("No minimap" in warning for warning in result["warnings"])
+
+
+def test_schema_1_area_upgrades_on_load_and_backs_up_on_save(area):
+    store, profile = area
+    saved = store.save(profile)["profile"]
+    path = store.directory / f"{profile['id']}.json"
+    legacy = {**saved, "schema_version": 1,
+              "views": [{k: v for k, v in item.items() if k != "minimap"}
+                        for item in saved["views"]]}
+    path.write_text(json.dumps(legacy))
+    loaded = store.load(profile["id"])
+    assert loaded["profile"]["schema_version"] == 2
+    assert loaded["profile"]["views"][0]["minimap"] is None
+    assert any("Upgraded from schema 1" in w for w in loaded["warnings"])
+    assert any("No minimap" in w for w in loaded["warnings"])
+    assert json.loads(path.read_text())["schema_version"] == 1
+    store.save(loaded["profile"])
+    assert json.loads(path.read_text())["schema_version"] == 2
+    assert json.loads(list(store.directory.glob("*.bak"))[0].read_text()) == legacy
+
+
+def test_minimap_outside_its_view_is_rejected(area):
+    _, profile = area
+    profile["schema_version"] = 2
+    profile["views"][0]["minimap"] = {
+        "canvas": {"x": 100, "y": 0, "width": 50, "height": 20}, "dot": None,
+    }
+    with pytest.raises(ValueError, match="inside its reference view"):
+        validate_profile(profile)

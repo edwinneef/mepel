@@ -14,8 +14,12 @@ import uuid
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from .localization import ViewTransform
+from .minimap_reader import describe
+
+SCHEMA_VERSION = 2
 
 
 def identifier(value: object, *, profile: bool = False) -> str:
@@ -47,9 +51,30 @@ def contains(boundary: dict, p: dict) -> bool:
             and boundary["y"] <= p["y"] <= boundary["y"] + boundary["height"])
 
 
+def minimap(value: object, width: int, height: int) -> dict | None:
+    if value is None:
+        return None
+    canvas = rectangle(value["canvas"])
+    if not contains({"x": 0, "y": 0, "width": width, "height": height}, {
+        "x": canvas["x"] + canvas["width"], "y": canvas["y"] + canvas["height"],
+    }) or min(canvas["x"], canvas["y"]) < 0:
+        raise ValueError("Minimap must lie inside its reference view")
+    dot = value["dot"]
+    if dot is not None:
+        dot = point(dot)
+        if not contains({"x": 0, "y": 0, "width": canvas["width"],
+                         "height": canvas["height"]}, dot):
+            raise ValueError("Minimap marker must lie inside the minimap")
+    return {"canvas": canvas, "dot": dot}
+
+
 def validate_profile(value: object) -> tuple[dict, list[str]]:
+    """Validate schema 1 or 2; the result is always schema 2.
+
+    Schema 1 views have no minimap; AreaStore derives it from the reference image.
+    """
     if (not isinstance(value, dict) or type(value.get("schema_version")) is not int
-            or value.get("schema_version") != 1):
+            or value.get("schema_version") not in (1, SCHEMA_VERSION)):
         raise ValueError("Unsupported area schema; existing files were not changed")
     try:
         name = value["name"]
@@ -59,7 +84,7 @@ def validate_profile(value: object) -> tuple[dict, list[str]]:
         if type(revision) is not int or not 0 <= revision <= 1_000_000:
             raise ValueError("Invalid area revision")
         boundary = rectangle(value["boundary"])
-        profile = {"schema_version": 1, "id": identifier(value["id"], profile=True),
+        profile = {"schema_version": SCHEMA_VERSION, "id": identifier(value["id"], profile=True),
                    "revision": revision, "name": name.strip(), "boundary": boundary}
         ids: set[str] = set()
 
@@ -89,7 +114,8 @@ def validate_profile(value: object) -> tuple[dict, list[str]]:
                 raise ValueError("Invalid reference-view name")
             views.append({"id": element(item), "name": label.strip(), "width": width,
                           "height": height, "origin": origin, "scale": item["scale"],
-                          "image": image})
+                          "image": image,
+                          "minimap": minimap(item.get("minimap"), width, height)})
         if not views:
             raise ValueError("Capture at least one reference view")
         profile["views"] = views
@@ -177,19 +203,31 @@ class AreaStore:
             profile, warnings = validate_profile(value)
             if profile["id"] != area_id:
                 raise ValueError("Area file ID does not match its name")
-            self._validate_views(profile)
+            upgraded = value["schema_version"] != SCHEMA_VERSION
+            warnings += self._validate_views(profile, derive=upgraded)
+            if upgraded:
+                warnings.append("Upgraded from schema 1; saving keeps a backup of the old file")
             return {"profile": profile, "warnings": warnings}
 
-    def _validate_views(self, profile: dict) -> None:
+    def _validate_views(self, profile: dict, *, derive: bool) -> "list[str]":
+        """Check reference images; with derive, read each view's minimap from its pixels."""
+        warnings = []
         for view in profile["views"]:
             body = self.frame(view["image"])
             if body is None or struct.unpack(">II", body[16:24]) != (view["width"], view["height"]):
                 raise ValueError("Reference image is missing, corrupt or has different dimensions")
+            if derive:
+                image = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_COLOR)
+                view["minimap"] = describe(image)
+            if view["minimap"] is None:
+                warnings.append(f"No minimap in view '{view['name']}'; open it and capture again")
+        return warnings
 
     def save(self, value: object) -> dict:
         profile, warnings = validate_profile(value)
         with self.lock:
-            self._validate_views(profile)
+            # The minimap is read from the stored pixels, never taken from the client.
+            warnings += self._validate_views(profile, derive=True)
             path = self._path(profile["id"])
             current = self.load(profile["id"])["profile"] if path.exists() else None
             expected = current["revision"] if current else 0
@@ -237,7 +275,7 @@ class AreaStore:
                 raise ValueError("Existing reference screenshot is corrupt; preserved unchanged")
         return {"id": uuid.uuid4().hex, "name": "Captured view", "width": image.shape[1],
                 "height": image.shape[0], "origin": {"x": 0, "y": 0}, "scale": 1,
-                "image": digest}
+                "image": digest, "minimap": describe(image)}
 
     def frame(self, image_id: str) -> bytes | None:
         if not isinstance(image_id, str) or not re.fullmatch(r"[a-f0-9]{64}", image_id):

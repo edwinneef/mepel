@@ -58,6 +58,7 @@ export interface AreaPoint { x: number; y: number }
 export interface AreaView {
   id: string; name: string; width: number; height: number;
   origin: AreaPoint; scale: number; image: string;
+  minimap?: { canvas: Rect; dot: AreaPoint | null } | null;
 }
 export interface AreaSegment { id: string; start: AreaPoint; end: AreaPoint }
 export interface AreaZone { id: string; kind: 'avoid' | 'portal'; rect: Rect }
@@ -65,7 +66,7 @@ export interface AreaLink {
   id: string; from: string; to: string; kind: 'walk' | 'jump' | 'climb' | 'drop';
 }
 export interface AreaProfile {
-  schema_version: 1; id: string; revision: number; name: string; boundary: Rect;
+  schema_version: 1 | 2; id: string; revision: number; name: string; boundary: Rect;
   views: AreaView[]; zones: AreaZone[]; platforms: AreaSegment[]; ropes: AreaSegment[];
   links: AreaLink[];
 }
