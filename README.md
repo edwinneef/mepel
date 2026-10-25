@@ -29,7 +29,7 @@ When returning to an offline or explicitly permitted automation environment, `./
 
 ## Prepare MapleUnity
 
-The public [MapleUnity README](https://github.com/ilia810/MapleUnity#run-the-local-scene) documents Unity **2023.2.20f1**, **MapleUnity → Play Hunting Ground**, and a **1024 × 768**, **Scale 1x** Game view. Use the existing, locally configured game project. An executable build is unnecessary.
+The public [MapleUnity README](https://github.com/ilia810/MapleUnity#run-the-local-scene) documents Unity **2023.2.20f1**, **MapleUnity → Play Hunting Ground**, and a **Scale 1x** Game view. MapleUnity documents 1024 × 768; this bot is set up for **1366 × 768** at 1x. Use the existing, locally configured game project. An executable build is unnecessary.
 
 Select the Game tab and keep it unobscured. The documented attack defaults are **Z / Left Ctrl**; bindings may have been reassigned. This bot defaults to **Left / Right**, **Z**, **Space** and verifies each through a bounded probe. Change `[input]` in `config.toml` if the observed controls differ; supported names are `left`, `right`, `a`, `d`, `z`, `ctrl`, `space`. Restart after changing config, and repeat verification. F8 is the emergency stop.
 
