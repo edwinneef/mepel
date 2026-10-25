@@ -69,6 +69,16 @@ def serve(
                     "shutdown_available": on_shutdown is not None,
                 }
                 self.reply(200, json.dumps(status).encode(), "application/json")
+            elif parsed.path == "/api/v1/area-frame":
+                query = parse_qs(parsed.query)
+                body = app.areas.frame(query.get("id", [""])[0])
+                self.reply(200 if body else 404, body or b"Reference image unavailable",
+                           "image/png" if body else "text/plain")
+            elif parsed.path == "/api/v1/preview":
+                query = parse_qs(parsed.query)
+                body = app.preview_frame(query.get("id", [""])[0])
+                self.reply(200 if body else 409, body or b"Frame superseded", "image/png"
+                           if body else "text/plain")
             elif parsed.path == "/api/v1/frame":
                 query = parse_qs(parsed.query)
                 body = app.frame(query.get("id", [""])[0], raw="raw" in query)
@@ -96,7 +106,8 @@ def serve(
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 16384:
+                limit = 1_000_000 if self.path in {"/api/v1/command", "/api/area_save"} else 16384
+                if not 0 < length <= limit:
                     raise ValueError("Invalid request length")
                 payload = json.loads(self.rfile.read(length))
                 command = self.path.removeprefix("/api/")
@@ -106,6 +117,8 @@ def serve(
                     command, payload, context = command_gate.accept(payload, app.snapshot())
                 elif not isinstance(payload, dict):
                     raise ValueError("Command payload must be an object")
+                if length > 16384 and command != "area_save":
+                    raise ValueError("Invalid request length")
                 if command in {"restart_bot", "shutdown_bot"}:
                     callback = on_restart if command == "restart_bot" else on_shutdown
                     if callback is None:

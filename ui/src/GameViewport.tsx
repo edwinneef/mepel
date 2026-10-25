@@ -8,11 +8,12 @@ import type { Point } from './selection';
 interface Props {
   image: ViewImage | null;
   frozen: boolean;
+  stale?: boolean;
   selection: Rect | null;
   onSelection: (selection: Rect) => void;
 }
 
-export function GameViewport({ image, frozen, selection, onSelection }: Props) {
+export function GameViewport({ image, frozen, stale = false, selection, onSelection }: Props) {
   const imageRef = useRef<HTMLImageElement>(null);
   const origin = useRef<Point | null>(null);
   const point = (event: PointerEvent): Point => nativePoint(
@@ -33,9 +34,9 @@ export function GameViewport({ image, frozen, selection, onSelection }: Props) {
   };
 
   return <div className={`viewport ${frozen ? 'selectable' : ''}`} aria-label="Game preview">
-    {image ? <div className="image-surface" onPointerDown={begin} onPointerMove={move}
+    {image ? <div className="image-surface" style={{ aspectRatio: `${image.width} / ${image.height}` }} onPointerDown={begin} onPointerMove={move}
       onPointerUp={finish} onPointerCancel={() => { origin.current = null; }}>
-      <img ref={imageRef} src={image.url} alt={frozen ? 'Frozen game frame for selection' : 'Live annotated game view'}
+      <img ref={imageRef} src={image.url} alt={frozen ? 'Frozen game frame for selection' : stale ? 'Last good game frame' : 'Live game preview'}
         draggable={false} width={image.width} height={image.height} />
       {frozen && <svg className="selection-layer" viewBox={`0 0 ${image.width} ${image.height}`}
         aria-hidden="true" preserveAspectRatio="none">

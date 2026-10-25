@@ -40,6 +40,58 @@ def request(server, method, path, token=None, payload=None):
         connection.close()
 
 
+def test_read_only_preview_route_requires_the_matching_frame_id():
+    app = RestartApp()
+    app.preview_frame = lambda frame_id: b"PNG" if frame_id == "preview:1" else None
+    server = serve(app, 0)
+    try:
+        assert request(server, "GET", "/api/v1/preview?id=preview:1") == (200, "PNG")
+        assert request(server, "GET", "/api/v1/preview?id=old")[0] == 409
+        assert app.events == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_area_reference_route_is_read_only_and_rejects_unknown_images(tmp_path):
+    from maplebot.profiles import AreaStore
+
+    app = RestartApp()
+    app.areas = AreaStore(tmp_path / "areas")
+    app.areas.frame = lambda image_id: b"PNG" if image_id == "a" * 64 else None
+    server = serve(app, 0)
+    try:
+        assert request(server, "GET", "/api/v1/area-frame?id=" + "a" * 64) == (200, "PNG")
+        assert request(server, "GET", "/api/v1/area-frame?id=../config")[0] == 404
+        assert app.events == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_only_area_save_accepts_a_profile_larger_than_the_normal_command_limit():
+    app = RestartApp()
+    calls = []
+    app.snapshot = lambda: {"session_id": "session", "command_epoch": 1}
+    app.request = lambda name, payload, **kwargs: calls.append(name) or {"ok": True}
+    server = serve(app, 0)
+    try:
+        _, page = request(server, "GET", "/legacy")
+        token = re.search(r"const token='([^']+)'", page)[1]
+        envelope = {
+            "schema_version": 1, "session_id": "session", "command_epoch": 1,
+            "command_id": "large-area-save", "issued_at": time.time(),
+            "name": "area_save", "payload": {"profile": "x" * 20000},
+        }
+        assert request(server, "POST", "/api/v1/command", token, envelope)[0] == 200
+        envelope.update(name="windows", command_id="large-other-command")
+        assert request(server, "POST", "/api/v1/command", token, envelope)[0] == 400
+        assert calls == ["area_save"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_restart_releases_keys_and_returns_the_instance_before_restarting():
     app = RestartApp()
     restarted = threading.Event()

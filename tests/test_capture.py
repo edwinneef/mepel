@@ -1,8 +1,10 @@
 from dataclasses import replace
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
-from maplebot.capture import Calibration
+from maplebot.capture import Calibration, Capture, CaptureMovedError
 from maplebot.geometry import Rect
 from maplebot.windows import Window
 
@@ -48,3 +50,20 @@ def test_calibration_persists_crop_but_does_not_restore_live_permissions(tmp_pat
 def test_invalid_rectangle_is_rejected():
     with pytest.raises(ValueError):
         Rect(0, 0, 0, 10)
+
+
+@pytest.mark.parametrize("changed,transient", [
+    ({"client": Rect(10, 20, 1024, 768)}, True),
+    ({"client": Rect(0, 0, 1025, 768)}, False),
+    ({"dpi": 144}, False),
+    ({"title": "Different window"}, False),
+])
+def test_capture_retries_position_only_changes_but_rejects_layout_changes(changed, transient):
+    before = Window(1, "MapleStory", Rect(0, 0, 1024, 768), True, 96)
+    positions = iter((before, replace(before, **changed)))
+    capture = Capture.__new__(Capture)
+    capture.windows = SimpleNamespace(get=lambda hwnd: next(positions))
+    capture.grab = lambda region: np.zeros((768, 1024, 3), dtype=np.uint8)
+    with pytest.raises(RuntimeError) as caught:
+        capture.window(1, None)
+    assert isinstance(caught.value, CaptureMovedError) is transient

@@ -49,14 +49,6 @@ export function CombatTool({ snapshot: s, runMode, setRunMode }: ToolProps) {
   </>;
 }
 
-export function NavigationTool() {
-  return <><p className="tool-intro">One taught hunting area, including camera scrolling.</p>
-    <Group title="Area teaching is not available yet"><p>The planned editor will save hunting boundaries, avoid zones, platforms, ropes and movement links.</p>
-      <p>Navigation is not enabled. Combat currently stays on one platform.</p></Group>
-    <Group title="Location evidence"><p>Minimap localization remains an offline experiment. A visible dot alone does not prove a platform, rope attachment or safe route.</p></Group>
-  </>;
-}
-
 export function PotionsTool({ snapshot: s, client, act, selected, disabled }: ToolProps) {
   const [settings, setSettings] = useState(s.autopotter.settings);
   const update = (key: keyof typeof settings, value: string) => setSettings(previous => ({ ...previous, [key]: Number(value) }));

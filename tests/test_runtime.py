@@ -48,6 +48,80 @@ class HoldingBackend(Backend):
         self.down = down
 
 
+def test_area_editing_bypasses_capture_queue_releases_keys_and_never_resumes(app):
+    app.mode = "live"
+    with app.controller.lock:
+        app.controller.held["right"] = time.perf_counter() + 8
+    assert app.request("area_begin", {}) == {"editing": True}
+    assert app.controller.backend.events == [("right", False)]
+    assert app.commands.empty() and not app._input_safe()
+    assert app.snapshot()["area_editing"]
+    assert "editing" in app.snapshot()["readiness"]["preview"]["reason"]
+    for name in ("arm", "probe", "dry_run", "autopotter_live"):
+        with pytest.raises(ValueError, match="Finish area editing"):
+            app.request(name, {})
+    assert app.request("area_end", {}) == {"editing": False}
+    assert app.mode == "capture" and not app.controller.enabled
+    assert app.stop_requested.is_set()
+
+
+def test_area_save_requires_stopped_edit_mode_before_touching_data(app):
+    with pytest.raises(ValueError, match="Begin area editing"):
+        app.request("area_save", {"profile": {}})
+    assert not (app.data / "areas").exists()
+
+
+def test_area_capture_save_and_reload_use_immutable_views_while_stopped(app):
+    class CurrentCapture:
+        def window(self, hwnd, calibration):
+            return app.image.copy(), app.window, app.region
+
+    app.preview._capture_once(CurrentCapture())
+    app.request("area_begin", {})
+    view = app.request("area_capture", {})["view"]
+    profile = {
+        "schema_version": 1, "id": "b" * 32, "revision": 0, "name": "Taught area",
+        "boundary": {"x": 0, "y": 0, "width": view["width"], "height": view["height"]},
+        "views": [view], "zones": [], "platforms": [], "ropes": [], "links": [],
+    }
+    saved = app.request("area_save", {"profile": profile})["profile"]
+    assert app.request("area_load", {"area_id": profile["id"]})["profile"] == saved
+    assert app.request("area_list", {})["areas"][0]["revision"] == 1
+    assert app.areas.frame(view["image"]).startswith(b"\x89PNG")
+    assert app.area_editing and not app.controller.enabled and app.mode == "capture"
+    assert app.controller.backend.events == []
+
+
+def test_area_edit_started_during_arm_preparation_still_blocks_countdown(app, monkeypatch):
+    app.probed.update(REQUIRED_PROBES)
+    original = app.windows.get
+
+    def interleaved_get(hwnd):
+        app.request("area_begin", {})
+        return original(hwnd)
+
+    monkeypatch.setattr(app.windows, "get", interleaved_get)
+    with pytest.raises(ValueError, match="Finish area editing"):
+        app._command("arm", {})
+    assert app.mode == "capture" and not app.controller.enabled
+    assert app.controller.backend.events == []
+
+
+def test_frozen_selection_uses_current_preview_without_refreshing_input_evidence(app):
+    class CurrentCapture:
+        def window(self, hwnd, calibration):
+            return np.full_like(app.image, 37), app.window, app.region
+
+    app.preview._capture_once(CurrentCapture())
+    before = app.snapshot()["frame"]
+    frozen = app._command("freeze", {})
+    pixels, _, region = app.frozen[frozen["id"]]
+    assert np.all(pixels == 37)
+    assert region == app.region
+    assert app.snapshot()["frame"] == before
+    assert app.controller.backend.events == []
+
+
 @pytest.fixture
 def app(monkeypatch, tmp_path):
     monkeypatch.setattr("maplebot.runtime.Windows", FakeWindows)
@@ -241,6 +315,103 @@ def test_source_change_rejects_old_encoder_results_and_invalidates_readiness(app
     app._encoded(packet, b"late-old", b"late-old", 0)
     assert not app.snapshot()["frame"]["available"]
     assert not app.snapshot()["readiness"]["preview"]["ready"]
+
+
+def run_moving_capture(app, monkeypatch, failures, *, bursts=1):
+    from types import SimpleNamespace
+
+    from maplebot.capture import Capture
+
+    image = app.image.copy()
+    seen_alarms, waits = [], []
+    stable_frames = 0
+
+    class MovingCapture:
+        attempts = 0
+
+        def window(self, hwnd, calibration):
+            seen_alarms.append(app.alarm.snapshot()["active"])
+            self.attempts += 1
+            if (self.attempts - 1) % (failures + 1) < failures:
+                before = app.windows.window
+                after = replace(before, client=before.client.translated(20, 10))
+                positions = iter((before, after))
+                capture = Capture.__new__(Capture)
+                capture.windows = SimpleNamespace(get=lambda handle: next(positions))
+                capture.grab = lambda region: image
+                return capture.window(hwnd, calibration)
+            return image, app.windows.window, app.region
+
+        def close(self):
+            pass
+
+    def process(frame, now, policy_now):
+        nonlocal stable_frames
+        stable_frames += 1
+        if stable_frames >= bursts:
+            app.closed.set()
+        return frame, {"stage_timing": {}, "state": "IDLE", "reason": "Stable frame"}
+
+    monkeypatch.setattr("maplebot.runtime.Capture", lambda windows: MovingCapture())
+    monkeypatch.setattr(app.closed, "wait", lambda seconds: waits.append(seconds) or False)
+    monkeypatch.setattr(app, "_process", process)
+    monkeypatch.setattr(app.encoder, "publish", lambda packet: None)
+    app._run()
+    return seen_alarms, waits
+
+
+@pytest.mark.parametrize("mode", ["capture", "dry_run"])
+def test_brief_window_motion_recovers_without_alarm_or_losing_saved_verification(
+    app, monkeypatch, mode
+):
+    app.mode = mode
+    app.probed.update(REQUIRED_PROBES)
+    app.potter.enabled = True
+    seen, waits = run_moving_capture(app, monkeypatch, failures=3)
+    assert not any(seen)
+    assert not app.alarm.snapshot()["active"]
+    assert app.calibration.capture_verified
+    assert app.calibration.controls_verified
+    assert app.probed == REQUIRED_PROBES
+    assert app.potter.enabled and not app.potter.live
+    assert app.mode == mode
+    assert len([seconds for seconds in waits if seconds >= 0.5]) >= 3
+
+
+def test_window_motion_releases_live_input_without_automatically_resuming(app, monkeypatch):
+    app.mode = "live"
+    with app.controller.lock:
+        app.controller.held["right"] = time.perf_counter() + 8
+    run_moving_capture(app, monkeypatch, failures=1)
+    assert app.controller.backend.events == [("right", False)]
+    assert not app.controller.enabled
+    assert app.mode == "capture"
+    assert not app.alarm.snapshot()["active"]
+
+
+def test_persistent_window_motion_alarms_only_after_five_failed_captures(app, monkeypatch):
+    seen, waits = run_moving_capture(app, monkeypatch, failures=5)
+    assert seen[:5] == [False] * 5
+    assert seen[5] is True
+    assert app.alarm.snapshot()["active"]
+    assert "5" in app.stop_record.message
+    assert app.calibration.capture_verified
+    assert len([seconds for seconds in waits if seconds >= 0.5]) >= 4
+
+
+def test_stable_capture_resets_the_window_motion_retry_budget(app, monkeypatch):
+    seen, _ = run_moving_capture(app, monkeypatch, failures=3, bursts=2)
+    assert len(seen) == 8
+    assert not any(seen)
+
+
+def test_transient_window_motion_keeps_source_identity_but_crop_change_invalidates_it(app):
+    original = app.snapshot()["frame"]["source_id"]
+    app._capture_moved(1)
+    assert app.snapshot()["frame"]["source_id"] == original
+    assert not app.snapshot()["frame"]["available"]
+    app._command("reset_crop", {})
+    assert app.snapshot()["frame"]["source_id"] != original
 
 
 def test_backend_can_be_supplied_without_constructing_win32_input(monkeypatch, tmp_path):

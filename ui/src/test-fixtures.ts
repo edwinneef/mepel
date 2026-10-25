@@ -4,7 +4,7 @@ export function snapshot(changes: Partial<Snapshot> = {}): Snapshot {
   return {
     schema_version: 1, session_id: 'test-session', instance_id: 'test-instance', command_epoch: 1,
     mode: 'capture', state: 'IDLE', reason: 'Stopped', capture_only: true, calibrating: false,
-    frame: { id: 'test-session:1', sequence: 1, captured_at: Date.now() / 1000, age_ms: 5, width: 1024, height: 768, available: true },
+    frame: { id: 'test-session:1', source_id: 'test-source', sequence: 1, captured_at: Date.now() / 1000, age_ms: 5, width: 1024, height: 768, available: true },
     readiness: {
       preview: { ready: true, reason: 'Ready for preview' },
       combat: { ready: false, reason: 'Capture-only input lock' },

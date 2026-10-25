@@ -15,7 +15,7 @@ import cv2
 
 from .alarm import AlarmManager
 from .autopotter import BarReading, PotionMonitor
-from .capture import Calibration, Capture, Image
+from .capture import Calibration, Capture, CaptureMovedError, Image
 from .config import Config
 from .contracts import FRESH_FRAME_COMMANDS, CommandContext, readiness
 from .decision import Action, Agent, Decision, PolicyInput
@@ -23,7 +23,9 @@ from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
 from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win32Input
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
+from .preview_stream import PreviewSource, PreviewStream
 from .probe_store import ProbeStore
+from .profiles import AreaStore
 from .recorder import SessionRecorder
 from .windows import Window, Windows
 
@@ -54,6 +56,10 @@ class StopRecord:
 REQUIRED_PROBES = frozenset({"left", "right", "attack", "jump", "skill"})
 OPTIONAL_PROBES = frozenset({"up", "down", "hp_potion", "mp_potion"})
 PROBE_ACTIONS = REQUIRED_PROBES | OPTIONAL_PROBES
+
+# Give ordinary dragging a bounded grace period, independent of capture FPS.
+_CAPTURE_MOVE_ATTEMPTS = 5
+_CAPTURE_MOVE_RETRY_SECONDS = 0.5
 
 
 @dataclass(frozen=True)
@@ -111,10 +117,13 @@ class Application:
         self.session_id = uuid.uuid4().hex
         self.command_epoch = 0
         self.view_generation = 0
+        self.source_generation = 0
         self.published_frame: dict[str, Any] | None = None
         self.capture_only = capture_only
         self.data = Path(config.capture.data_dir).resolve()
         self.data.mkdir(parents=True, exist_ok=True)
+        self.areas = AreaStore(self.data / "areas")
+        self.area_editing = False
         self.windows = Windows()
         self.detector = TemplateDetector(self.data / "templates", config.perception)
         self.agent = Agent(config.agent, config.perception.confidence)
@@ -165,6 +174,7 @@ class Application:
         self.worker: threading.Thread | None = None
         self.latest: bytes | None = None
         self.raw: bytes | None = None
+        self.preview = PreviewStream(self._preview_source, config.capture.fps)
         self.status: dict[str, Any] = {
             "mode": "capture",
             "state": "IDLE",
@@ -190,7 +200,18 @@ class Application:
 
     def start(self) -> None:
         self.connect_saved_window()
+        self.preview.start()
         self.start_capture_worker()
+
+    def _preview_source(self) -> PreviewSource:
+        with self.lock:
+            return PreviewSource(
+                f"{self.session_id}:source:{self.source_generation}", self.hwnd, self.manual,
+                replace(self.calibration) if self.calibration else None,
+            )
+
+    def preview_frame(self, frame_id: str) -> bytes | None:
+        return self.preview.frame(frame_id, self._preview_source().id)
 
     def connect_saved_window(self) -> bool:
         path = self.data / "calibration.json"
@@ -214,6 +235,7 @@ class Application:
     def close(self) -> None:
         self.safe_stop("OPERATOR_STOP", "Application closing")
         self.closed.set()
+        self.preview.close()
         worker = self.worker
         if worker and worker is not threading.current_thread():
             worker.join(timeout=3)
@@ -228,6 +250,32 @@ class Application:
         if context is not None:
             with self.stop_lock:
                 context.validate(self.command_epoch)
+        if self.area_editing and name in FRESH_FRAME_COMMANDS:
+            raise ValueError("Finish area editing before starting input or preview decisions")
+        if name == "area_list":
+            return self.areas.list()
+        if name == "area_load":
+            return self.areas.load(payload.get("area_id"))
+        if name in {"area_begin", "area_capture", "area_save", "area_end"}:
+            with self.stop_lock:
+                if context is not None:
+                    context.validate(self.command_epoch)
+                if name != "area_begin" and not self.area_editing:
+                    raise ValueError("Begin area editing first")
+                self.area_editing = True
+                self.stop_requested.set()
+                self.safe_stop("OPERATOR_STOP", "Area editing; all input stopped")
+                if name == "area_begin":
+                    return {"editing": True}
+                if name == "area_end":
+                    self.area_editing = False
+                    return {"editing": False}
+                if name == "area_save":
+                    return self.areas.save(payload.get("profile"))
+                latest = self.preview.frozen(self._preview_source().id)
+                if latest is None:
+                    raise ValueError("Wait for a fresh preview before capturing an area view")
+                return {"view": self.areas.capture_view(latest[0])}
         if name == "windows":
             return [asdict(window) for window in self.windows.list()]
         if name == "frozen_png":
@@ -305,9 +353,11 @@ class Application:
                 "command_epoch": self.command_epoch,
                 "mode": self.mode,
                 "calibrating": self.calibrating,
+                "area_editing": self.area_editing,
                 "player_threshold": self.config.perception.confidence,
                 "calibration": asdict(self.calibration) if self.calibration else {},
                 "frame": {
+                    "source_id": f"{self.session_id}:source:{self.source_generation}",
                     "id": frame["id"] if frame else None,
                     "sequence": frame["sequence"] if frame else None,
                     "captured_at": frame["captured_at"] if frame else None,
@@ -317,6 +367,9 @@ class Application:
                     "height": frame["height"] if frame else 0,
                     "available": frame is not None,
                 },
+                "preview_frame": self.preview.snapshot(
+                    f"{self.session_id}:source:{self.source_generation}"
+                ),
                 "stop": asdict(self.stop_record) if self.stop_record else None,
                 "capture_only": self.capture_only,
                 "bindings": asdict(self.config.input),
@@ -337,11 +390,46 @@ class Application:
                 return None
             return self.raw if raw else self.latest
 
-    def _invalidate_view(self) -> None:
+    def _invalidate_view(self, *, source_changed: bool = True) -> None:
         with self.lock:
             self.view_generation += 1
+            if source_changed:
+                self.source_generation += 1
             self.published_frame = None
             self.latest, self.raw = None, None
+
+    def _capture_moved(self, attempt: int) -> None:
+        message = f"Window moving; retrying capture ({attempt}/{_CAPTURE_MOVE_ATTEMPTS})"
+        self.controller.stop(message, notify=False)
+        with self.stop_lock:
+            self.command_epoch += 1
+            self._cancel_active_probe(message)
+            self.live_potion_ticket = None
+            self.potion_hud_missing_since = None
+            if self.potter.live:
+                self.potter.stop()
+            if self.mode in {"live", "pending_arm", "potion_wait", "potion_live"} or (
+                self.mode.startswith("probe")
+            ):
+                self.stop_requested.set()
+                self.agent.stop(message)
+                self.mode = "capture"
+            self._invalidate_view(source_changed=False)
+            self.image = None
+            with self.lock:
+                self.status = {
+                    **self.status, "state": str(self.agent.state), "mode": self.mode,
+                    "reason": message, "player": None, "target": None,
+                    "focused": False, "last_action": "release all",
+                }
+        if attempt == 1:
+            self.note(message)
+        if attempt >= _CAPTURE_MOVE_ATTEMPTS:
+            self.safe_stop(
+                "CAPTURE_WORKER_FAILURE",
+                f"Window kept moving during {_CAPTURE_MOVE_ATTEMPTS} capture attempts",
+                invalidate_probes=False,
+            )
 
     def _probe_profile(self) -> tuple[dict, dict]:
         if not self.calibration:
@@ -587,6 +675,8 @@ class Application:
         return self._input_block_reason() is None
 
     def _input_block_reason(self) -> str | None:
+        if self.area_editing:
+            return "Area editing: gameplay input is stopped"
         if self.capture_only:
             return "Capture-only session: gameplay controls are unavailable"
         if not self.hwnd or not self.calibration:
@@ -773,6 +863,8 @@ class Application:
             future.cancel()
 
     def _command(self, name: str, payload: dict) -> Any:
+        if self.area_editing and name in FRESH_FRAME_COMMANDS:
+            raise ValueError("Finish area editing before starting input or preview decisions")
         context = payload.get("_context")
         if context is not None:
             context.validate(
@@ -898,6 +990,8 @@ class Application:
         if name == "dry_run":
             self._stop("DRY_RUN_STOP", "Dry run: no keyboard input")
             with self.stop_lock:
+                if self.area_editing:
+                    raise ValueError("Finish area editing before starting preview decisions")
                 if context is not None:
                     context.validate(self.command_epoch - 1)
                 self.stop_requested.clear()
@@ -909,6 +1003,8 @@ class Application:
             return {"mode": self.mode}
         if name == "arm":
             with self.stop_lock:
+                if self.area_editing:
+                    raise ValueError("Finish area editing before arming combat")
                 if self.alarm.snapshot()["active"]:
                     raise ValueError("Acknowledge the active alarm before arming combat")
             self.safe_stop(
@@ -929,6 +1025,8 @@ class Application:
             with self.stop_lock:
                 if self.alarm.snapshot()["active"]:
                     raise ValueError("Acknowledge the active alarm before arming combat")
+                if self.area_editing:
+                    raise ValueError("Finish area editing before arming combat")
                 if context is not None:
                     context.validate(self.command_epoch - 1)
                 self.stop_requested.clear()
@@ -978,14 +1076,18 @@ class Application:
             self.probed.clear()
             return {"ok": True}
         if name == "freeze":
-            if self.image is None or self.region is None:
+            latest = self.preview.frozen(self._preview_source().id)
+            if self.preview.worker is not None and latest is None:
+                raise ValueError("No current preview screenshot")
+            image, window, region = latest or (self.image, self.window, self.region)
+            if image is None or region is None:
                 raise ValueError("No current screenshot")
             key = uuid.uuid4().hex
             self.calibrating = True
-            self.frozen[key] = (self.image.copy(), self.window, self.region)
+            self.frozen[key] = (image.copy(), window, region)
             while len(self.frozen) > 4:
                 del self.frozen[next(iter(self.frozen))]
-            return {"id": key, "width": self.image.shape[1], "height": self.image.shape[0]}
+            return {"id": key, "width": image.shape[1], "height": image.shape[0]}
         if name == "crop":
             image, window, region = self.frozen[payload["id"]]
             if window is None or self.hwnd != window.hwnd:
@@ -1367,6 +1469,7 @@ class Application:
 
     def _run(self) -> None:
         capture: Capture | None = None
+        move_failures = 0
         previous = time.perf_counter()
         try:
             capture = Capture(self.windows)
@@ -1387,6 +1490,7 @@ class Application:
                         continue
                     self.image, self.window, self.region = image, window, region
                     capture_ok = True
+                    move_failures = 0
                     if self.session_capture_started is None:
                         self.session_capture_started = capture_began
                     policy_now = capture_began - self.session_capture_started
@@ -1427,7 +1531,12 @@ class Application:
                         (time.perf_counter() - publish_began) * 1000, 3
                     )
                     self.sequence += 1
+                except CaptureMovedError:
+                    move_failures = min(move_failures + 1, _CAPTURE_MOVE_ATTEMPTS)
+                    self._capture_moved(move_failures)
+                    self.closed.wait(_CAPTURE_MOVE_RETRY_SECONDS)
                 except Exception as error:
+                    move_failures = 0
                     self._stop("CAPTURE_WORKER_FAILURE", str(error))
                     if self.calibration and not capture_ok:
                         self.calibration.capture_verified = False

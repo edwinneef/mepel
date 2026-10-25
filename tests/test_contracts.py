@@ -22,6 +22,15 @@ def envelope(**changes):
     }
 
 
+def test_fresh_read_only_preview_cannot_authorize_input_from_stale_recognition():
+    status = snapshot()
+    status["frame"]["age_ms"] = 5000
+    status["preview_frame"] = {"id": "preview:99", "available": True, "age_ms": 10}
+    assert not readiness(status)["combat"]["ready"]
+    with pytest.raises(ValueError, match="fresh matching frame"):
+        CommandGate().accept(envelope(), status)
+
+
 @pytest.mark.parametrize("change", [
     {"schema_version": 2}, {"session_id": "old"}, {"command_epoch": 1},
     {"issued_at": 0}, {"issued_at": float("nan")}, {"name": "unknown"},

@@ -14,6 +14,10 @@ from .windows import Window, Windows
 Image = NDArray[np.uint8]
 
 
+class CaptureMovedError(RuntimeError):
+    """A position-only change made this screenshot unusable; the layout still matches."""
+
+
 @dataclass
 class Calibration:
     title: str
@@ -82,6 +86,13 @@ class Capture:
         region = crop.translated(before.client.x, before.client.y)
         frame = self.grab(region)
         after = self.windows.get(hwnd)
-        if before.client != after.client or before.dpi != after.dpi:
-            raise RuntimeError("Window moved during capture; discard frame")
+        if (
+            before.client.width != after.client.width
+            or before.client.height != after.client.height
+            or before.dpi != after.dpi
+            or before.title != after.title
+        ):
+            raise RuntimeError("Window title, size, or DPI changed; recalibrate the Game view")
+        if before.client != after.client:
+            raise CaptureMovedError("Window moved during capture; discard frame")
         return frame, after, region

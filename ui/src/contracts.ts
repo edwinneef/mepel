@@ -4,7 +4,7 @@ export interface Detection {
   kind: string; box: Rect; confidence: number; template: string; tracked: boolean;
 }
 export interface Frame {
-  id: string | null; sequence: number | null; captured_at: number | null;
+  id: string | null; source_id: string; sequence: number | null; captured_at: number | null;
   age_ms: number | null; width: number; height: number; available: boolean;
 }
 export interface Gate { ready: boolean; reason: string }
@@ -29,7 +29,7 @@ export interface WindowInfo { hwnd: number; title: string; client: Rect; focused
 export interface Snapshot {
   schema_version: 1; session_id: string; instance_id: string; command_epoch: number;
   mode: string; state: string; reason: string; capture_only: boolean; calibrating: boolean;
-  frame: Frame; readiness: { preview: Gate; combat: Gate; potions: Gate };
+  frame: Frame; preview_frame?: Frame; readiness: { preview: Gate; combat: Gate; potions: Gate };
   calibration: { capture_verified?: boolean; controls_verified?: boolean; crop?: Rect };
   player: Detection | null; monsters?: Detection[]; target?: Detection | null;
   focused?: boolean; window?: WindowInfo | null; width?: number; height?: number;
@@ -44,6 +44,7 @@ export interface Snapshot {
   failures?: string[]; history: { time: number; reason: string }[];
   stage_timing?: Record<string, number>; encoder?: Record<string, unknown>;
   recorder?: Record<string, unknown>; action_outcome?: Record<string, unknown>;
+  area_editing?: boolean;
 }
 export interface CommandEnvelope {
   schema_version: 1; session_id: string; command_id: string; command_epoch: number;
@@ -52,3 +53,19 @@ export interface CommandEnvelope {
 }
 export interface FrozenFrame { id: string; width: number; height: number }
 export interface Selection extends Rect { id: string }
+
+export interface AreaPoint { x: number; y: number }
+export interface AreaView {
+  id: string; name: string; width: number; height: number;
+  origin: AreaPoint; scale: number; image: string;
+}
+export interface AreaSegment { id: string; start: AreaPoint; end: AreaPoint }
+export interface AreaZone { id: string; kind: 'avoid' | 'portal'; rect: Rect }
+export interface AreaLink {
+  id: string; from: string; to: string; kind: 'walk' | 'jump' | 'climb' | 'drop';
+}
+export interface AreaProfile {
+  schema_version: 1; id: string; revision: number; name: string; boundary: Rect;
+  views: AreaView[]; zones: AreaZone[]; platforms: AreaSegment[]; ropes: AreaSegment[];
+  links: AreaLink[];
+}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FrozenFrame, Rect, Selection, Snapshot } from './contracts';
 import { EngineClient } from './client';
 
-export interface ViewImage { url: string; width: number; height: number; key: string }
+export interface ViewImage { url: string; width: number; height: number; key: string; capturedAt?: number; sourceId?: string }
 
 export function useViewport(client: EngineClient, snapshot: Snapshot | null, connected: boolean) {
   const [image, setImage] = useState<ViewImage | null>(null);
@@ -13,6 +13,7 @@ export function useViewport(client: EngineClient, snapshot: Snapshot | null, con
   const frozenRef = useRef<FrozenFrame | null>(null);
   const freezingRef = useRef(false);
   const sessionRef = useRef<string | null>(null);
+  const sourceRef = useRef<string | null>(null);
   const requested = useRef<string | null>(null);
   const pending = useRef<string | null>(null);
   const liveRequest = useRef<AbortController | null>(null);
@@ -31,22 +32,25 @@ export function useViewport(client: EngineClient, snapshot: Snapshot | null, con
   }, []);
 
   useEffect(() => {
-    if (snapshot && sessionRef.current !== snapshot.session_id) {
+    if (snapshot && (sessionRef.current !== snapshot.session_id || sourceRef.current !== snapshot.frame.source_id)) {
       sessionRef.current = snapshot.session_id;
+      sourceRef.current = snapshot.frame.source_id;
       clear();
     }
-  }, [snapshot?.session_id, clear]);
+  }, [snapshot?.session_id, snapshot?.frame.source_id, clear]);
 
   useEffect(() => {
-    const frame = snapshot?.frame;
+    const frame = snapshot?.preview_frame ?? snapshot?.frame;
     if (!connected || frozenRef.current || freezingRef.current) return;
     if (!frame?.available || !frame.id) {
       version.current += 1; requested.current = null; pending.current = null;
-      setImage(previous => previous === null ? previous : null);
+      liveRequest.current?.abort();
+      // A discarded capture does not change the source. Keep its last good image
+      // and dimensions until a valid replacement arrives; the UI labels it stale.
       return;
     }
     if (requested.current === frame.id) return;
-    if (pending.current === frame.id) return;
+    if (pending.current) return;
     requested.current = frame.id;
     pending.current = frame.id;
     const current = ++version.current;
@@ -55,18 +59,33 @@ export function useViewport(client: EngineClient, snapshot: Snapshot | null, con
     liveRequest.current = controller;
     const frameId = frame.id;
     void (async () => {
+      let replacement: string | null = null;
       try {
-        const response = await fetch(`/api/v1/frame?id=${encodeURIComponent(frameId)}`, {
+        const endpoint = snapshot?.preview_frame ? 'preview' : 'frame';
+        const response = await fetch(`/api/v1/${endpoint}?id=${encodeURIComponent(frameId)}`, {
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(3000)]), cache: 'no-store',
         });
         if (response.status === 409) { if (current === version.current) requested.current = null; return; }
         if (!response.ok) throw new Error('Game frame unavailable');
         const blob = await response.blob();
         if (current !== version.current || frozenRef.current || freezingRef.current) return;
-        setImage({ url: URL.createObjectURL(blob), width: frame.width, height: frame.height, key: frameId });
+        replacement = URL.createObjectURL(blob);
+        const decoded = new Image();
+        const loaded = new Promise<void>((resolve, reject) => {
+          decoded.onload = () => resolve();
+          decoded.onerror = () => reject(new Error('Could not load game frame'));
+        });
+        decoded.src = replacement;
+        // Hidden browser tabs can defer decode() until painting resumes.
+        await (typeof decoded.decode === 'function' ? Promise.race([decoded.decode(), loaded]) : loaded);
+        if (current !== version.current || frozenRef.current || freezingRef.current) return;
+        setImage({ url: replacement, width: frame.width, height: frame.height, key: frameId,
+          capturedAt: frame.captured_at ?? 0, sourceId: frame.source_id });
+        replacement = null;
       } catch (error) {
         if (current === version.current) { requested.current = null; client.fail(error); }
       } finally {
+        if (replacement) URL.revokeObjectURL(replacement);
         if (pending.current === frameId) pending.current = null;
       }
     })();

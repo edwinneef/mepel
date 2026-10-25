@@ -53,7 +53,8 @@ export class EngineClient {
     });
     if (!response.ok) throw new Error(`Cannot read the engine (${response.status})`);
     const snapshot: Snapshot = await response.json();
-    if (snapshot.schema_version !== 1 || !snapshot.session_id || !snapshot.frame || !snapshot.readiness) {
+    if (snapshot.schema_version !== 1 || !snapshot.session_id || !snapshot.frame
+      || typeof snapshot.frame.source_id !== 'string' || !snapshot.readiness) {
       throw new Error('The engine needs the workspace update. Reload after restarting it.');
     }
     if (sequence >= this.appliedSequence) {

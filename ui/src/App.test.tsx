@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { EngineClient } from './client';
@@ -6,10 +6,11 @@ import { AlarmBanner } from './AlarmBanner';
 import { json, snapshot } from './test-fixtures';
 
 beforeEach(() => {
+  vi.stubGlobal('Image', class { src = ''; decode = async () => {}; });
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:frame') });
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it('starts in full-width overview and preview mode; a tool opens and closes without input', async () => {
   const commands: string[] = [];
@@ -28,6 +29,7 @@ it('starts in full-width overview and preview mode; a tool opens and closes with
   expect(screen.getByLabelText('Tracking tool')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Close tool panel' }));
   expect(screen.queryByLabelText('Tracking tool')).toBeNull();
+  await waitFor(() => expect(screen.getByRole('button', { name: /Start$/ }).hasAttribute('disabled')).toBe(false), { timeout: 2000 });
   fireEvent.click(screen.getByRole('button', { name: /Start$/ }));
   await waitFor(() => expect(commands).toContain('dry_run'));
   expect(commands).not.toContain('arm');
@@ -43,15 +45,63 @@ it('starts in full-width overview and preview mode; a tool opens and closes with
 
 it('blocks Start when a once-fresh displayed frame ages while status remains unchanged', async () => {
   const current = snapshot();
+  let refreshing = true;
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => String(url).startsWith('/api/v1/frame')
-    ? new Response(new Blob(['image'])) : json(current));
+    ? new Response(new Blob(['image'])) : json({ ...current, frame: { ...current.frame,
+      captured_at: refreshing ? Date.now() / 1000 : current.frame.captured_at } }));
   vi.stubGlobal('fetch', fetcher);
   render(<App client={new EngineClient('token', fetcher)} />);
   const start = screen.getByRole('button', { name: /Start$/ });
-  await waitFor(() => expect(start.hasAttribute('disabled')).toBe(false));
+  await waitFor(() => expect(start.hasAttribute('disabled')).toBe(false), { timeout: 2000 });
+  refreshing = false;
   await waitFor(() => expect(start.hasAttribute('disabled')).toBe(true), { timeout: 1200 });
-  expect(screen.getByText('Waiting for fresh frame')).toBeTruthy();
+  expect(screen.getByText('Last frame · waiting for capture')).toBeTruthy();
   expect(screen.getByRole('button', { name: /Stop F8/ }).hasAttribute('disabled')).toBe(false);
+});
+
+it('keeps the last frame mounted during same-source capture loss while blocking Start', async () => {
+  let current = snapshot();
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => String(url).startsWith('/api/v1/frame')
+    ? new Response(new Blob(['image'])) : json({ ...current, frame: { ...current.frame, captured_at: Date.now() / 1000 } }));
+  vi.stubGlobal('fetch', fetcher);
+  render(<App client={new EngineClient('token', fetcher)} />);
+  const start = screen.getByRole('button', { name: /Start$/ });
+  await waitFor(() => expect(start.hasAttribute('disabled')).toBe(false), { timeout: 2000 });
+  const image = screen.getByRole('img');
+  current = snapshot({ frame: { ...current.frame, id: null, captured_at: null, width: 0, height: 0, available: false } });
+  await waitFor(() => expect(start.hasAttribute('disabled')).toBe(true));
+  await waitFor(() => expect(screen.getByText('Last frame · waiting for capture')).toBeTruthy());
+  expect(screen.getByRole('img')).toBe(image);
+  expect(image.getAttribute('alt')).toBe('Last good game frame');
+  expect(image.getAttribute('width')).toBe('1024');
+  expect(image.getAttribute('height')).toBe('768');
+  expect(start.hasAttribute('disabled')).toBe(true);
+});
+
+it('keeps preview steady through slow recognition and enables Start only after sustained freshness', async () => {
+  vi.useFakeTimers();
+  let sequence = 0;
+  let steady = false;
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
+    if (String(url).startsWith('/api/v1/preview')) return new Response(new Blob(['preview']));
+    const s = snapshot();
+    sequence++;
+    s.preview_frame = { ...s.frame, id: `preview:${sequence}`, sequence };
+    if (!steady && sequence % 4 !== 1) s.frame.captured_at! -= 2;
+    return json(s);
+  });
+  vi.stubGlobal('fetch', fetcher);
+  render(<App client={new EngineClient('token', fetcher)} />);
+  const start = screen.getByRole('button', { name: /Start$/ });
+  for (let i = 0; i < 16; i++) {
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(start.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText('Live preview')).toBeTruthy();
+  }
+  steady = true;
+  await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+  expect(start.hasAttribute('disabled')).toBe(false);
+  expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
 });
 
 it('acknowledges only the displayed alarm and provides a clipboard fallback', async () => {

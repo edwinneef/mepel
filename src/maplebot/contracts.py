@@ -14,6 +14,7 @@ COMMANDS = frozenset({
     "reject_probe", "acknowledge", "restart_capture", "restart_bot", "shutdown_bot",
     "autopotter_calibrate", "autopotter_settings", "autopotter_start", "autopotter_live",
     "autopotter_stop",
+    "area_list", "area_load", "area_begin", "area_capture", "area_save", "area_end",
 })
 FRESH_FRAME_COMMANDS = frozenset({"dry_run", "arm", "probe", "autopotter_live"})
 URGENT_COMMANDS = frozenset({"stop", "pause"})
@@ -77,7 +78,9 @@ def readiness(status: dict) -> dict[str, dict[str, bool | str]]:
     """Summarize existing gates; this never authorizes input or replaces runtime checks."""
     frame = status["frame"]
     reason = ""
-    if not frame["available"] or frame["age_ms"] is None or frame["age_ms"] > 500:
+    if status.get("area_editing"):
+        reason = "Finish area editing first"
+    elif not frame["available"] or frame["age_ms"] is None or frame["age_ms"] > 500:
         reason = "Waiting for a fresh game frame"
     elif status.get("calibrating"):
         reason = "Return to live view first"

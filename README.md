@@ -49,6 +49,13 @@ Select the Game tab and keep it unobscured. The documented attack defaults are *
 
 Window coordinates and screenshots use physical pixels with per-thread Per Monitor V2 DPI awareness. Moving a window updates the crop's screen origin. Changing its client size, DPI or title invalidates calibration and stops input. Changing the Game tab layout, Game-view scale, resolution or scene inside an unchanged Editor window requires manual recalibration; Win32 window geometry cannot identify those changes.
 
+If the window moves during a screenshot, that frame is discarded. An alarm is
+raised only after five consecutive failed captures, half a second apart. Position-only
+movement keeps the saved calibration and controls. The preview holds the last
+good image with a stale label, so brief capture gaps do not collapse the page.
+Live input releases immediately and requires an explicit restart; observation
+and potion preview recover when stable capture returns.
+
 At startup the debugger automatically reconnects when exactly one visible window matches the saved title, dimensions, DPI and crop. The **Game connection** panel verifies the matching saved view automatically when a fresh, unobscured frame confidently recognizes the player or a calibrated HP/MP bar. Cached player tracking does not qualify. Window selection, manual regions, crop editing and manual confirmation are under **Advanced setup**. If the game was opened later, use **Reconnect**. Ambiguous or changed windows require explicit setup. No input starts automatically.
 
 Successful control probes are saved in `data/confirmed-probes.json`. Reattaching the same game title, crop, dimensions and DPI restores matching confirmations. Changing a key invalidates only that control; changing a potion HUD reference invalidates that potion. Starting another probe revokes its previous confirmation until the new test succeeds. Capture verification resets on restart and is restored by confident recognition (or explicit manual confirmation); combat/live potions always start stopped. During a freeze/selection, input is stopped; **Return to live view** before probing or arming.
