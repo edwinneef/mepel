@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 1
 current_phase_name: Deterministic Input and Safe Stop
 status: executing
-stopped_at: 01-04 close-out marked-and-skipped; security gate T-01-10 open; awaiting open-threat disposition
-last_updated: "2026-10-25T00:58:00.809Z"
+stopped_at: Stale acknowledgement fixed and installed; security gate passed; remaining code/UI review and phase verification pending
+last_updated: "2026-10-25T01:05:08.399Z"
 last_activity: 2026-10-25
 last_activity_desc: Roadmap created (5 phases, 31/31 v1 requirements mapped)
-state_head: 119a85affd1aa47778f5db2a1d1c61ab306d947f
+state_head: b5685b56511111cb17a1ed99c7480d88957846d8
 progress:
   total_phases: 5
   completed_phases: 0
@@ -27,9 +27,9 @@ See: .planning/PROJECT.md (updated 2026-10-24)
 
 ## Current Position
 
-Phase: 1 (Deterministic Input and Safe Stop) — SECURITY GATE OPEN; PHASE UNVERIFIED
+Phase: 1 (Deterministic Input and Safe Stop) — SECURITY GATE PASSED; PHASE VERIFICATION PENDING
 Plan: 3 of 4 in current phase
-Status: Plan 01-04 close-out marked-and-skipped; security gate open (T-01-10); phase unverified
+Status: Plan 01-04 close-out marked-and-skipped; security gate passed; phase verification pending
 Last activity: 2026-10-25 - All nine control probes and both audible acknowledgement controls accepted; portal HUD grace installed; 237 tests, Ruff and pip check passed
 
 Progress: [░░░░░░░░░░] 0%
@@ -71,7 +71,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1 security]: T-01-10 remains open: a stale alarm acknowledgement can silence a newer incident. Fake-boundary reproduction is recorded in 01-SECURITY.md. No risk accepted; no phase advancement.
+- [Phase 1 security, resolved]: T-01-10 fixed in b5685b5; stale/missing/unknown incident IDs cannot silence a new alarm. All 14 authored threats closed at L1; 259 tests passed. See 01-SECURITY.md.
 - [Plan 01-04 anomaly]: Operator selected mark-and-skip for the missing original close-out; 01-04-SUMMARY.md is an explicit skipped marker, not a reconstructed completion claim.
 
 - [Phase 1, resolved]: One serial input-executor thread keeps capture non-blocking; the existing watchdog owns safety gates and bounded vertical-lease expiry. See 01-RESEARCH.md and 01-01-PLAN.md.
@@ -92,6 +92,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-25T00:58:00.778Z
-Stopped at: 01-04 close-out marked-and-skipped; security gate T-01-10 open; awaiting open-threat disposition
+Last session: 2026-10-25T01:05:08.372Z
+Stopped at: Stale acknowledgement fixed and installed; security gate passed; remaining code/UI review and phase verification pending
 Resume file: .planning/phases/01-deterministic-input-and-safe-stop/01-SECURITY.md
