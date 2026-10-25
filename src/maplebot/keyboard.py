@@ -75,6 +75,9 @@ class _QueuedPlan:
     disable_after: bool = False
 
 
+PRIORITY_HP, PRIORITY_MP, PRIORITY_COMBAT = 1, 2, 5
+
+
 @dataclass(frozen=True)
 class VerticalLease:
     lease_id: int
@@ -163,7 +166,10 @@ class KeyboardController:
         self.execution_lock = threading.Lock()
         self.generation = 0
         self.next_ticket = 1
-        self.queue: queue.Queue[_QueuedPlan | None] = queue.Queue(maxsize=32)
+        # (priority, ticket, plan): a lower priority runs first; tickets keep FIFO order.
+        self.queue: queue.PriorityQueue[tuple[int, int, _QueuedPlan | None]] = (
+            queue.PriorityQueue(maxsize=32)
+        )
         self.outcomes: queue.SimpleQueue[ActionOutcome] = queue.SimpleQueue()
         self.active: _QueuedPlan | None = None
         self.errors: dict[int, Exception] = {}
@@ -211,7 +217,7 @@ class KeyboardController:
     def _cancel_queued(self) -> None:
         while True:
             try:
-                item = self.queue.get_nowait()
+                _, _, item = self.queue.get_nowait()
             except queue.Empty:
                 return
             if item is not None:
@@ -238,7 +244,11 @@ class KeyboardController:
             except queue.Empty:
                 return result
 
-    def submit(self, action: Action, *, disable_after: bool = False) -> int | str:
+    def submit(
+        self, action: Action, *, disable_after: bool = False, priority: int = PRIORITY_COMBAT
+    ) -> int | str:
+        """Queue one bounded plan. Lower priorities run first; the active plan is not cut."""
+
         if action.kind == "release":
             self.release_all()
             return "release"
@@ -258,7 +268,7 @@ class KeyboardController:
                     ticket, self.generation, action.kind, schedule, time.perf_counter(),
                     disable_after,
                 )
-                self.queue.put_nowait(item)
+                self.queue.put_nowait((priority, ticket, item))
                 return ticket
             except queue.Full:
                 return "blocked: queue full"
@@ -266,7 +276,7 @@ class KeyboardController:
     def _execute_queued(self) -> None:
         while not self.closed.is_set():
             try:
-                item = self.queue.get(timeout=0.05)
+                _, _, item = self.queue.get(timeout=0.05)
             except queue.Empty:
                 continue
             if item is None:
@@ -543,7 +553,7 @@ class KeyboardController:
     def close(self) -> None:
         self.stop("Controller closed", notify=False)
         self.closed.set()
-        self.queue.put_nowait(None)
+        self.queue.put_nowait((-1, 0, None))
         if threading.current_thread() is not self.executor:
             self.executor.join(timeout=1)
         if threading.current_thread() is not self.watchdog:

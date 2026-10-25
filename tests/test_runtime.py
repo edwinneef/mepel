@@ -1182,3 +1182,76 @@ def test_acknowledged_alarm_clears_banner_before_fresh_arm_countdown(app):
     assert app.stop_record is None and "stop" not in app.status
     assert REQUIRED_PROBES <= app.probed
     assert not app.controller.enabled and app.controller.backend.events == []
+
+
+def live_sustain_app(potion_app, monkeypatch):
+    from test_autopotter import hud
+
+    from maplebot.decision import Action, Decision
+    from maplebot.perception import Detection, Observation
+
+    app = potion_app
+    app.probed.update(REQUIRED_PROBES)
+    player = Detection("player", Rect(100, 40, 30, 40), 1.0, "nametag")
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: Observation(player, []))
+    monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
+    monkeypatch.setattr(app.agent, "step_input", lambda policy_input: Decision(
+        "APPROACH", Action("right", 0.05), "test"))
+    app._command("arm", {})
+    app.pending_at = 0
+    app._process(hud(), time.perf_counter())
+    assert app.mode == "live" and app.sustain == ("hp", "mp") and app.potter.live
+    return app
+
+
+def test_live_combat_queues_hp_potion_ahead_of_combat(potion_app, monkeypatch):
+    from test_autopotter import hud
+
+    app = live_sustain_app(potion_app, monkeypatch)
+    low = hud(20, 100)
+    app._process(low, time.perf_counter())
+    _, status = app._process(low, time.perf_counter())
+    assert status["last_action"].startswith("deferred: hp_potion queued")
+    assert app.policy_outcome["status"] == "not_sent"
+    finish_live_potion(app, low)
+    assert ("insert", True) in app.controller.backend.events
+    assert app.mode == "live" and app.controller.enabled
+    assert "hp" not in app.arbiter.in_flight.values()
+    _, status = app._process(hud(), time.perf_counter())
+    assert status["last_action"].startswith("right queued")
+    app._stop("OPERATOR_STOP", "test stop")
+    assert app.sustain == () and not app.arbiter.in_flight
+
+
+def test_live_combat_without_potion_probe_sends_no_potion(potion_app, monkeypatch):
+    from test_autopotter import hud
+
+    potion_app.probed.discard("hp_potion")
+    potion_app.probed.discard("mp_potion")
+    potion_app.probed.update(REQUIRED_PROBES)
+    app = potion_app
+    from maplebot.decision import Action, Decision
+    from maplebot.perception import Detection, Observation
+
+    player = Detection("player", Rect(100, 40, 30, 40), 1.0, "nametag")
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: Observation(player, []))
+    monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
+    monkeypatch.setattr(app.agent, "step_input", lambda policy_input: Decision(
+        "APPROACH", Action("right", 0.05), "test"))
+    app._command("arm", {})
+    app.pending_at = 0
+    for _ in range(3):
+        app._process(hud(20, 20), time.perf_counter())
+    assert app.mode == "live" and app.sustain == ()
+    assert all(key not in {"insert", "delete"} for key, _ in app.controller.backend.events)
+
+
+def test_live_combat_stops_when_sustain_hud_stays_unreadable(potion_app, monkeypatch):
+    app = live_sustain_app(potion_app, monkeypatch)
+    blank = np.zeros((100, 300, 3), dtype=np.uint8)
+    began = time.perf_counter()
+    app._process(blank, began)
+    assert app.mode == "live"
+    app._process(blank, began + 5.1)
+    assert app.mode == "capture"
+    assert app.stop_reason == "HUD unreadable for 5 seconds; combat stopped"

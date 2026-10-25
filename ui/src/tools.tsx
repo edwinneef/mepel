@@ -45,6 +45,8 @@ export function CombatTool({ snapshot: s, runMode, setRunMode }: ToolProps) {
       {runMode === 'live' && <p className="warning-copy">Start gives you three seconds to focus the game. F8 cancels. Acknowledging an alarm never resumes combat.</p>}
     </Group><Group title="Current combat"><dl><div><dt>State</dt><dd>{s.state}</dd></div><div><dt>Last action</dt><dd>{s.last_action ?? 'none'}</dd></div>
       <div><dt>Target</dt><dd>{s.target?.kind ?? 'No target'}</dd></div></dl><p>{s.reason}</p></Group>
+    <Group title="Potions during combat"><p>{s.sustain?.length ? `Combat may press: ${s.sustain.map(r => r.toUpperCase()).join(', ')}. Potions go before combat keys.` : 'Live combat presses a potion only when its bar is calibrated, its threshold is above zero and its probe is confirmed.'}</p>
+      <p>An unreadable HUD for five seconds or an empty HP bar stops combat.</p></Group>
     <Group title="Attack ranges"><p>Existing attack tuning and low-MP fallback remain active. Visual range editing is not available yet.</p></Group>
   </>;
 }

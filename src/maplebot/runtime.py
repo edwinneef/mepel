@@ -28,6 +28,7 @@ from .preview_stream import PreviewSource, PreviewStream
 from .probe_store import ProbeStore
 from .profiles import AreaStore
 from .recorder import SessionRecorder
+from .scheduler import SUSTAIN, Arbiter
 from .windows import Window, Windows
 
 
@@ -144,6 +145,9 @@ class Application:
         self.next_probe_id = 1
         self.active_probe: ProbeState | None = None
         self.live_potion_ticket: int | None = None
+        self.arbiter = Arbiter(min(0.06, config.input.max_action_seconds))
+        # Potions that live combat may press: calibrated bar, threshold set, probe confirmed.
+        self.sustain: tuple[str, ...] = ()
         self.potion_hud_missing_since: float | None = None
         self.probe_results: dict[str, dict[str, object]] = {}
         self.stop_reason = (
@@ -362,6 +366,7 @@ class Application:
                 "mode": self.mode,
                 "calibrating": self.calibrating,
                 "area_editing": self.area_editing,
+                "sustain": list(self.sustain),
                 "player_threshold": self.config.perception.confidence,
                 "calibration": asdict(self.calibration) if self.calibration else {},
                 "frame": {
@@ -415,6 +420,8 @@ class Application:
             self._cancel_active_probe(message)
             self.live_potion_ticket = None
             self.potion_hud_missing_since = None
+            self.arbiter.reset()
+            self.sustain = ()
             if self.potter.live:
                 self.potter.stop()
             if self.mode in {"live", "pending_arm", "potion_wait", "potion_live"} or (
@@ -722,6 +729,8 @@ class Application:
             raise ValueError(f"Unknown stop code: {code}")
         self.live_potion_ticket = None
         self.potion_hud_missing_since = None
+        self.arbiter.reset()
+        self.sustain = ()
         self._cancel_active_probe(message)
         # This must happen before any recorder, encoder, status, or audio work.
         self.controller.stop(message, code=code, notify=False)
@@ -1161,6 +1170,39 @@ class Application:
             "frame": [image.shape[1], image.shape[0]],
         }
 
+    def _start_sustain(self) -> None:
+        """Let live combat press the potions whose bar, threshold and probe are all ready."""
+        self.arbiter.reset()
+        self.sustain = tuple(
+            resource for resource in ("hp", "mp")
+            if resource in self.potter.bars and f"{resource}_potion" in self.probed
+            and self.potter.settings[f"{resource}_threshold"] > 0
+        )
+        if self.sustain:
+            self.potter.start(live=True)
+            self.note("Live combat sustain: " + ", ".join(r.upper() for r in self.sustain))
+
+    def _arbitrate(self, combat: Action, suggestion: str | None) -> int | str:
+        """Queue the arbiter's choice; return the combat ticket or why combat was not sent."""
+        choice = self.arbiter.choose(
+            sustain=suggestion if suggestion in self.sustain else None, combat=combat
+        )
+        if choice.lane in SUSTAIN:
+            assert choice.action is not None and choice.lane is not None
+            submitted = self.controller.submit(choice.action, priority=choice.priority)
+            if not isinstance(submitted, int):
+                self._stop("INPUT_BACKEND_FAILURE", f"Potion key not queued: {submitted}")
+                return submitted
+            self.arbiter.submitted(submitted, choice.lane)
+            self.live_potion_ticket = submitted
+            return f"deferred: {choice.action.kind} queued ({submitted})"
+        if choice.action is None:
+            return f"deferred: {choice.reason}"
+        submitted = self.controller.submit(choice.action)
+        if isinstance(submitted, int):
+            self.arbiter.submitted(submitted, "combat")
+        return submitted
+
     def _position_command(self, name: str, payload: dict) -> dict:
         """Read-only position tracking. These commands never enable or send input."""
         if name == "position_stop":
@@ -1302,6 +1344,7 @@ class Application:
                     self._restore_probes(clear_results=False)
                     self.note("Game view verified by confident player or HUD recognition")
         for outcome in self.controller.poll_outcomes():
+            self.arbiter.finished(outcome.ticket)
             self.last_action = outcome.result
             self.policy_outcome = {"status": "completed", **asdict(outcome)}
             self._handle_probe_outcome(outcome)
@@ -1387,12 +1430,43 @@ class Application:
                 else:
                     self.mode = "live"
                     self.agent.start()
+                    self._start_sustain()
                     if self.config.recording.auto:
                         self.recorder.start("combat")
         if self.mode == "live" and (
             not self.controller.enabled or self.controller.stopped.is_set()
         ):
             self._stop("INPUT_BACKEND_FAILURE", self.controller.reason)
+        potter = self.potter.observe(
+            image,
+            now,
+            safe=bool(
+                self.calibration
+                and self.calibration.capture_verified
+                and not self.calibrating
+                and not self.stop_requested.is_set()
+                and time.perf_counter() - now <= 0.5
+                and self.window
+                and self.region
+                and self.windows.unobscured(self.window.hwnd, self.region)
+            ),
+        )
+        mp = potter["readings"].get("mp", {})
+        self.mp_percent = mp.get("percent") if mp.get("confidence", 0) >= 0.9 else None
+        if self.mode == "live" and self.sustain:
+            readings = potter["readings"]
+            if readings.get("hp", {}).get("percent") == 0:
+                self._stop("PLAYER_UNCERTAIN", "HP empty; combat stopped")
+            elif any(
+                readings.get(r, {}).get("percent") is None or readings[r]["confidence"] < 0.9
+                for r in self.sustain
+            ):
+                if self.potion_hud_missing_since is None:
+                    self.potion_hud_missing_since = now
+                if now - self.potion_hud_missing_since >= 5.0:
+                    self._stop("PLAYER_UNCERTAIN", "HUD unreadable for 5 seconds; combat stopped")
+            else:
+                self.potion_hud_missing_since = None
         if self.mode in {"live", "dry_run"}:
             policy_began = time.perf_counter()
             uncertain = (
@@ -1411,7 +1485,7 @@ class Application:
                 self._stop("PLAYER_UNCERTAIN" if uncertain else "POLICY_STOP", decision.reason)
                 self.policy_outcome = {"status": "not_sent"}
             elif self.mode == "live":
-                submitted = self.controller.submit(decision.action)
+                submitted = self._arbitrate(decision.action, potter["suggestion"])
                 self.last_action = (
                     f"{decision.action.kind} queued ({submitted})"
                     if isinstance(submitted, int)
@@ -1440,22 +1514,6 @@ class Application:
             policy_ms = 0.0
         annotation_began = time.perf_counter()
         annotated = annotate(image, observation, decision.target, decision.state, decision.reason)
-        potter = self.potter.observe(
-            image,
-            now,
-            safe=bool(
-                self.calibration
-                and self.calibration.capture_verified
-                and not self.calibrating
-                and not self.stop_requested.is_set()
-                and time.perf_counter() - now <= 0.5
-                and self.window
-                and self.region
-                and self.windows.unobscured(self.window.hwnd, self.region)
-            ),
-        )
-        mp = potter["readings"].get("mp", {})
-        self.mp_percent = mp.get("percent") if mp.get("confidence", 0) >= 0.9 else None
         if self.mode == "potion_live":
             unreadable = any(
                 self.potter.settings[f"{r}_threshold"] > 0

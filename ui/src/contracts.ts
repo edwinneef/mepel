@@ -56,7 +56,7 @@ export interface Snapshot {
   failures?: string[]; history: { time: number; reason: string }[];
   stage_timing?: Record<string, number>; encoder?: Record<string, unknown>;
   recorder?: Record<string, unknown>; action_outcome?: Record<string, unknown>;
-  area_editing?: boolean; position?: LivePosition | null;
+  area_editing?: boolean; position?: LivePosition | null; sustain?: string[];
 }
 export interface CommandEnvelope {
   schema_version: 1; session_id: string; command_id: string; command_epoch: number;
