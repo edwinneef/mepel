@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from urllib.parse import parse_qs, urlparse
 
+from .contracts import CommandGate
 from .runtime import Application
 
 
@@ -18,6 +19,7 @@ def serve(
 ) -> ThreadingHTTPServer:
     token = secrets.token_urlsafe(32)
     instance_id = secrets.token_hex(12)
+    command_gate = CommandGate()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
@@ -47,7 +49,7 @@ def serve(
                 self.reply(
                     200, html.replace("__TOKEN__", token).encode(), "text/html; charset=utf-8"
                 )
-            elif parsed.path == "/api/status":
+            elif parsed.path in {"/api/status", "/api/v1/status"}:
                 status = {
                     **app.snapshot(),
                     "instance_id": instance_id,
@@ -55,6 +57,11 @@ def serve(
                     "shutdown_available": on_shutdown is not None,
                 }
                 self.reply(200, json.dumps(status).encode(), "application/json")
+            elif parsed.path == "/api/v1/frame":
+                query = parse_qs(parsed.query)
+                body = app.frame(query.get("id", [""])[0], raw="raw" in query)
+                self.reply(200 if body else 409, body or b"Frame superseded", "image/png"
+                           if body else "text/plain")
             elif parsed.path == "/frame.png":
                 key = parse_qs(parsed.query).get("id", [None])[0]
                 if key:
@@ -81,6 +88,12 @@ def serve(
                     raise ValueError("Invalid request length")
                 payload = json.loads(self.rfile.read(length))
                 command = self.path.removeprefix("/api/")
+                context = None
+                versioned = self.path == "/api/v1/command"
+                if versioned:
+                    command, payload, context = command_gate.accept(payload, app.snapshot())
+                elif not isinstance(payload, dict):
+                    raise ValueError("Command payload must be an object")
                 if command in {"restart_bot", "shutdown_bot"}:
                     callback = on_restart if command == "restart_bot" else on_shutdown
                     if callback is None:
@@ -105,7 +118,8 @@ def serve(
                 elif command == "restart_capture":
                     result = app.restart_capture()
                 else:
-                    result = app.request(command, payload)
+                    result = app.request(command, payload, context=context) if versioned \
+                        else app.request(command, payload)
                 self.reply(200, json.dumps(result).encode(), "application/json")
             except Exception as error:
                 self.reply(400, json.dumps({"error": str(error)}).encode(), "application/json")

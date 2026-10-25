@@ -17,6 +17,7 @@ from .alarm import AlarmManager
 from .autopotter import BarReading, PotionMonitor
 from .capture import Calibration, Capture, Image
 from .config import Config
+from .contracts import CommandContext, readiness
 from .decision import Action, Agent, Decision, PolicyInput
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
@@ -107,6 +108,9 @@ class Application:
         capture_only: bool = False,
     ) -> None:
         self.config = config
+        self.session_id = uuid.uuid4().hex
+        self.command_epoch = 0
+        self.published_frame: dict[str, Any] | None = None
         self.capture_only = capture_only
         self.data = Path(config.capture.data_dir).resolve()
         self.data.mkdir(parents=True, exist_ok=True)
@@ -217,7 +221,17 @@ class Application:
         self.recorder.close()
         self.alarm.close()
 
-    def request(self, name: str, payload: dict) -> Any:
+    def request(
+        self, name: str, payload: dict, *, context: CommandContext | None = None
+    ) -> Any:
+        if context is not None:
+            with self.stop_lock:
+                context.validate(self.command_epoch)
+        if name in {"stop", "pause"}:
+            self.stop_requested.set()
+            self.safe_stop("OPERATOR_STOP", "Paused; input released" if name == "pause"
+                           else "Operator stopped the agent")
+            return {"ok": True}
         if name == "acknowledge":
             return self.acknowledge_stop(payload.get("incident_id"), require_id=True)
         if name == "restart_capture":
@@ -246,6 +260,16 @@ class Application:
         if name in {"autopotter_settings", "autopotter_stop", "autopotter_start"}:
             self.stop_requested.set()
             self.safe_stop("OPERATOR_STOP", "Autopotter mode/settings change; input stopped")
+        if context is not None:
+            # Calibration/settings commands above deliberately supersede older work.
+            # Start commands do not: a Stop that races a queued Start must win.
+            if name in {
+                "attach", "connect_saved_window", "manual", "reset_crop", "freeze", "crop",
+                "template", "autopotter_calibrate", "reload_templates", "autopotter_settings",
+                "autopotter_stop", "autopotter_start",
+            }:
+                context = replace(context, epoch=self.command_epoch)
+            payload = {**payload, "_context": context}
         future: Future = Future()
         self.commands.put((name, payload, future))
         try:
@@ -266,8 +290,26 @@ class Application:
             }
             if not self.potter.enabled:
                 potter.update(suggestion=None, reason="Potion preview stopped")
-            return {
+            frame = self.published_frame if self.raw is not None else None
+            result = {
                 **self.status,
+                "schema_version": 1,
+                "session_id": self.session_id,
+                "command_epoch": self.command_epoch,
+                "mode": self.mode,
+                "calibrating": self.calibrating,
+                "player_threshold": self.config.perception.confidence,
+                "calibration": asdict(self.calibration) if self.calibration else {},
+                "frame": {
+                    "id": frame["id"] if frame else None,
+                    "sequence": frame["sequence"] if frame else None,
+                    "captured_at": frame["captured_at"] if frame else None,
+                    "age_ms": max(0, round((time.time() - frame["captured_at"]) * 1000, 1))
+                    if frame else None,
+                    "width": frame["width"] if frame else 0,
+                    "height": frame["height"] if frame else 0,
+                    "available": frame is not None,
+                },
                 "stop": asdict(self.stop_record) if self.stop_record else None,
                 "capture_only": self.capture_only,
                 "bindings": asdict(self.config.input),
@@ -279,6 +321,14 @@ class Application:
                 "alarm": self.alarm.snapshot(),
                 "history": list(self.history),
             }
+            result["readiness"] = readiness(result)
+            return result
+
+    def frame(self, frame_id: str, *, raw: bool = False) -> bytes | None:
+        with self.lock:
+            if not self.published_frame or frame_id != self.published_frame["id"]:
+                return None
+            return self.raw if raw else self.latest
 
     def _probe_profile(self) -> tuple[dict, dict]:
         if not self.calibration:
@@ -564,6 +614,7 @@ class Application:
         # This must happen before any recorder, encoder, status, or audio work.
         self.controller.stop(message, code=code, notify=False)
         with self.stop_lock:
+            self.command_epoch += 1
             if self.stop_record is not None:
                 self.potter.stop()
                 self.agent.stop(message)
@@ -708,6 +759,10 @@ class Application:
             future.cancel()
 
     def _command(self, name: str, payload: dict) -> Any:
+        context = payload.get("_context")
+        if context is not None:
+            context.validate(self.command_epoch)
+            payload = {key: value for key, value in payload.items() if key != "_context"}
         if self.capture_only and name in {"arm", "probe", "confirm_controls"}:
             raise ValueError("Capture-only session: gameplay controls are unavailable")
         if name == "probe":
@@ -996,6 +1051,13 @@ class Application:
         status["recorder"] = self.recorder.snapshot()
         with self.lock:
             self.latest, self.raw, self.status = annotated, raw, status
+            self.published_frame = {
+                "id": f"{self.session_id}:{packet.sequence}",
+                "sequence": packet.sequence,
+                "captured_at": packet.status.get("captured_at", time.time()),
+                "width": packet.raw.shape[1],
+                "height": packet.raw.shape[0],
+            }
         self.frame_ready.set()
 
     def _process(

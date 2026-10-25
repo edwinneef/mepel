@@ -1,6 +1,7 @@
 import json
 import re
 import threading
+import time
 from http.client import HTTPConnection
 
 import pytest
@@ -71,6 +72,34 @@ def test_restart_requires_the_debugger_token():
         code, _ = request(server, "POST", "/api/restart_bot", "invalid")
         assert code == 403
         assert app.events == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_versioned_commands_reject_stale_and_duplicate_requests_before_dispatch():
+    app = RestartApp()
+    calls = []
+    app.snapshot = lambda: {
+        "session_id": "current", "command_epoch": 1,
+        "frame": {"id": "current:1", "available": True, "age_ms": 10},
+    }
+    app.request = lambda name, payload, *, context: calls.append(name) or {"ok": True}
+    server = serve(app, 0)
+    try:
+        _, page = request(server, "GET", "/")
+        token = re.search(r"const token='([^']+)'", page)[1]
+        payload = {
+            "schema_version": 1, "session_id": "current", "command_epoch": 1,
+            "issued_at": time.time(), "command_id": "unique-command", "name": "dry_run",
+            "expected_frame_id": "old", "payload": {},
+        }
+        assert request(server, "POST", "/api/v1/command", token, payload)[0] == 400
+        assert calls == []
+        payload["expected_frame_id"] = "current:1"
+        assert request(server, "POST", "/api/v1/command", token, payload)[0] == 200
+        assert request(server, "POST", "/api/v1/command", token, payload)[0] == 400
+        assert calls == ["dry_run"]
     finally:
         server.shutdown()
         server.server_close()

@@ -9,6 +9,7 @@ import pytest
 
 from maplebot.capture import Calibration
 from maplebot.config import Config
+from maplebot.contracts import CommandContext
 from maplebot.geometry import Rect
 from maplebot.runtime import REQUIRED_PROBES, STOP_REASONS, Application, StopSeverity
 from maplebot.windows import Window
@@ -170,6 +171,45 @@ def test_canceled_queued_command_cannot_arm_input_later(app):
     app._drain_commands()
     assert app.mode == "capture"
     assert not app.controller.enabled
+
+
+def test_stop_request_releases_without_waiting_for_the_capture_queue(app):
+    app.controller.enable()
+    with app.controller.lock:
+        app.controller.held["right"] = time.perf_counter() + 0.2
+    assert app.request("pause", {}) == {"ok": True}
+    assert app.commands.empty()
+    assert not app.controller.enabled
+    assert app.controller.backend.events == [("right", False)]
+
+
+def test_stop_supersedes_a_queued_versioned_start(app):
+    epoch = app.command_epoch
+    future = Future()
+    app.commands.put(("dry_run", {"_context": CommandContext(epoch, time.time())}, future))
+    app.request("stop", {})
+    app._drain_commands()
+    with pytest.raises(ValueError, match="superseded"):
+        future.result()
+    assert app.mode == "capture"
+    assert not app.controller.enabled
+
+
+def test_published_frames_are_identified_and_superseded_bytes_cannot_be_read(app):
+    from maplebot.frame_encoder import FramePacket
+
+    now = time.time()
+    packet = FramePacket(1, "1", app.image, app.image, {"captured_at": now}, 0)
+    app._encoded(packet, b"raw-1", b"annotated-1", 0)
+    first = app.snapshot()
+    assert first["schema_version"] == 1
+    assert first["frame"]["width"] == 1024
+    assert first["frame"]["captured_at"] == now
+    assert app.frame(first["frame"]["id"]) == b"annotated-1"
+    packet = replace(packet, sequence=2)
+    app._encoded(packet, b"raw-2", b"annotated-2", 0)
+    assert app.frame(first["frame"]["id"]) is None
+    assert app.frame(app.snapshot()["frame"]["id"], raw=True) == b"raw-2"
 
 
 def test_backend_can_be_supplied_without_constructing_win32_input(monkeypatch, tmp_path):
