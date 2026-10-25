@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from .geometry import Rect
+from .minimap_reader import MinimapFix
 from .perception import Detection
 
 
@@ -187,4 +188,143 @@ class SurfaceTracker:
 
     def _unknown(self, reason: str, feet: tuple[float, float] | None = None) -> Location:
         self.candidate = None
+        return Location("unknown", None, feet, reason)
+
+
+def register_view(reference: np.ndarray, image: np.ndarray) -> tuple[float, float] | None:
+    """Camera offset from a screenshot to its reference view: reference = screen + offset.
+
+    For calibration only. Textured patches must find unique strong matches and at
+    least three must agree; parallax scenery and moving characters disagree and drop
+    out. A lost or ambiguous registration returns None.
+    """
+    if image.shape != reference.shape:
+        return None
+    target = cv2.cvtColor(reference, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    height, width = gray.shape
+    offsets = []
+    # Skip the minimap and HUD margins; they stay fixed while the camera scrolls.
+    for y in range(height // 5, height * 3 // 4 - 100, 100):
+        for x in range(width // 6, width * 5 // 6 - 120, 120):
+            patch = gray[y:y + 100, x:x + 120]
+            if patch.std() < 25:
+                continue
+            scores = cv2.matchTemplate(target, patch, cv2.TM_CCOEFF_NORMED)
+            _, best, _, (mx, my) = cv2.minMaxLoc(scores)
+            scores[max(0, my - 50):my + 51, max(0, mx - 60):mx + 61] = -1
+            if math.isfinite(best) and best >= 0.85 and best - float(scores.max()) >= 0.05:
+                offsets.append((mx - x, my - y))
+    if not offsets:
+        return None
+    ox, oy = max(set(offsets), key=offsets.count)
+    agree = [(dx, dy) for dx, dy in offsets if abs(dx - ox) <= 2 and abs(dy - oy) <= 2]
+    if len(agree) < 3:
+        return None
+    return median(dx for dx, _ in agree), median(dy for _, dy in agree)
+
+
+@dataclass(frozen=True)
+class MinimapTransform:
+    """Minimap marker (canvas pixels) to area feet: per-axis scale and offset."""
+
+    scale_x: float
+    offset_x: float
+    scale_y: float
+    offset_y: float
+
+    def __post_init__(self) -> None:
+        values = (self.scale_x, self.offset_x, self.scale_y, self.offset_y)
+        if (not all(math.isfinite(v) for v in values)
+                or not all(1 <= v <= 100 for v in (self.scale_x, self.scale_y))):
+            raise ValueError("Invalid minimap transform")
+
+    @classmethod
+    def fit(cls, dots: list[tuple[float, float]],
+            feet: list[tuple[float, float]]) -> "MinimapTransform":
+        """Least squares per axis. With too little height change, y reuses the x scale."""
+        if len(dots) != len(feet) or len(dots) < 10:
+            raise ValueError("Calibration needs at least ten marker and feet pairs")
+        marker, area = np.array(dots, float), np.array(feet, float)
+        if np.ptp(marker[:, 0]) < 10:
+            raise ValueError("Walk further: the marker must move at least ten minimap pixels")
+        scale_x, offset_x = np.polyfit(marker[:, 0], area[:, 0], 1)
+        if np.ptp(marker[:, 1]) >= 3:
+            scale_y, offset_y = np.polyfit(marker[:, 1], area[:, 1], 1)
+        else:
+            scale_y = scale_x
+            offset_y = float(np.median(area[:, 1] - scale_y * marker[:, 1]))
+        return cls(float(scale_x), float(offset_x), float(scale_y), float(offset_y))
+
+    def to_area(self, x: float, y: float) -> tuple[float, float]:
+        return self.scale_x * x + self.offset_x, self.scale_y * y + self.offset_y
+
+
+class MinimapTracker:
+    """Fuse the minimap marker (absolute) with the name tag (fresh, precise).
+
+    The marker places the player in the area. Between consecutive frames, the name
+    tag must move the same way once the camera shift is removed. A platform needs
+    both on a stable height, for two observations at least 150 ms apart. As with
+    SurfaceTracker, this is a spatial match: contact and movement are not verified.
+    """
+
+    def __init__(self, transform: MinimapTransform, platforms: tuple[Platform, ...], *,
+                 agreement: float = 32, height: float = 12) -> None:
+        self.transform = transform
+        self.platforms = platforms
+        self.agreement = agreement
+        self.height = height
+        self.previous_time = float("-inf")
+        self.last: tuple[tuple[float, float], tuple[float, float]] | None = None
+        self.candidate: str | None = None
+        self.candidate_since = 0.0
+
+    def update(self, fix: MinimapFix, player: Detection | None,
+               camera_shift: tuple[float, float] | None, now: float) -> Location:
+        if not math.isfinite(now) or now <= self.previous_time:
+            raise ValueError("Capture time must be finite and strictly increasing")
+        if now - self.previous_time > 1.0:
+            self.last = None
+        self.previous_time = now
+        if fix.dot is None:
+            return self._unknown(fix.reason)
+        feet = self.transform.to_area(*fix.dot)
+        if (player is None or player.kind != "player" or player.tracked
+                or not math.isfinite(player.confidence) or player.confidence < 0.90):
+            return self._unknown("Name tag missing, weak or tracked-only", feet)
+        screen = (player.box.center[0], float(player.box.feet))
+        last, self.last = self.last, (fix.dot, screen)
+        if last is None or camera_shift is None:
+            return self._unknown("Waiting for a second fused observation", feet, keep=True)
+        marker = (fix.dot[0] - last[0][0], fix.dot[1] - last[0][1])
+        # Logged camera shift is the scenery's screen motion: the camera moved by -shift.
+        tag = (screen[0] - last[1][0] - camera_shift[0], screen[1] - last[1][1] - camera_shift[1])
+        if (abs(marker[0] * self.transform.scale_x - tag[0]) > self.agreement
+                or abs(marker[1] * self.transform.scale_y - tag[1]) > self.agreement):
+            return self._unknown("Minimap marker and name tag disagree", feet, keep=True)
+        if abs(marker[1]) > 0.5 or abs(tag[1]) > 3:
+            return self._unknown("Moving vertically (jump, fall or climb)", feet, keep=True)
+        matches = [
+            platform.id for platform in self.platforms
+            if platform.left <= feet[0] <= platform.right
+            and abs(feet[1] - platform.y) <= self.height
+        ]
+        if len(matches) != 1:
+            return self._unknown("No unique taught platform", feet, keep=True)
+        if matches[0] != self.candidate:
+            self.candidate, self.candidate_since = matches[0], now
+            return Location("unknown", None, feet, "Waiting for a second platform observation")
+        if now - self.candidate_since < 0.15:
+            return Location("unknown", None, feet, "Waiting for platform confirmation time")
+        return Location(
+            "platform", matches[0], feet, "Marker and name tag agree; contact not verified"
+        )
+
+    def _unknown(self, reason: str, feet: tuple[float, float] | None = None, *,
+                 keep: bool = False) -> Location:
+        """Clear the platform candidate; without keep, also forget the last observation."""
+        self.candidate = None
+        if not keep:
+            self.last = None
         return Location("unknown", None, feet, reason)

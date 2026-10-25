@@ -11,11 +11,15 @@ from maplebot.geometry import Rect
 from maplebot.localization import (
     Alignment,
     AnchorMatcher,
+    MinimapTracker,
+    MinimapTransform,
     Platform,
     Rope,
     SpotGeometry,
     SurfaceTracker,
+    register_view,
 )
+from maplebot.minimap_reader import MinimapFix
 from maplebot.perception import Detection
 
 
@@ -206,3 +210,64 @@ def test_probe_replays_saved_frames_without_changing_source(scene, tmp_path, mon
     assert (repeat / "locations.jsonl").read_bytes() == (output / "locations.jsonl").read_bytes()
     with pytest.raises(ValueError, match="already exists"):
         runpy.run_path(str(script), run_name="__main__")
+
+
+def test_minimap_transform_fits_each_axis_and_reuses_x_scale_on_flat_walks():
+    dots = [(x, 40 + x % 3) for x in range(20, 60, 2)]
+    feet = [(16 * x - 500, 15 * y - 100) for x, y in dots]
+    transform = MinimapTransform.fit(dots, feet)
+    assert transform.to_area(30, 41) == pytest.approx((-20, 515))
+    flat = MinimapTransform.fit([(x, 45) for x, _ in dots], [(16 * x - 500, 593) for x, _ in dots])
+    assert flat.scale_y == pytest.approx(16) and flat.to_area(30, 45)[1] == pytest.approx(593)
+    with pytest.raises(ValueError, match="Walk further"):
+        MinimapTransform.fit([(20, 45)] * 12, [(0, 593)] * 12)
+
+
+def fix(x=40.0, y=45.0):
+    return MinimapFix((x, y), Rect(13, 72, 183, 64), 0.97, 1, "Player marker on the taught map")
+
+
+@pytest.fixture
+def fused():
+    return MinimapTracker(MinimapTransform(16, -500, 16, -127),
+                          (Platform("floor", 0, 1300, 593),))
+
+
+def test_fused_platform_needs_agreeing_marker_and_tag_for_150_ms(fused):
+    assert fused.update(fix(), player(600, 480), (0, 0), 1.0).reason.startswith("Waiting")
+    first = fused.update(fix(41), player(600, 480), (-16, 0), 1.1)
+    assert first.kind == "unknown" and first.reference_feet == (156, 593)
+    assert fused.update(fix(42), player(600, 480), (-16, 0), 1.2).kind == "unknown"
+    located = fused.update(fix(43), player(600, 480), (-16, 0), 1.3)
+    assert (located.kind, located.surface_id) == ("platform", "floor")
+
+
+@pytest.mark.parametrize(("marker", "tag", "shift", "reason"), [
+    (fix(41), player(600, 480), (40, 0), "disagree"),
+    (fix(40, 44), player(600, 470), (0, 0), "Moving vertically"),
+    (fix(40), player(600, 480, tracked=True), (0, 0), "Name tag missing"),
+    (MinimapFix(None, None, 0.4, 0, "Minimap missing, covered or showing another map"),
+     player(600, 480), (0, 0), "Minimap missing"),
+])
+def test_fused_location_is_unknown_without_agreement(fused, marker, tag, shift, reason):
+    for now in (1.0, 1.2, 1.4):
+        fused.update(fix(), player(600, 480), (0, 0), now)
+    location = fused.update(marker, tag, shift, 1.6)
+    assert location.kind == "unknown" and reason in location.reason
+    assert fused.update(fix(), player(600, 480), (0, 0), 1.8).kind == "unknown"
+
+
+def test_stale_fused_observation_starts_over(fused):
+    for now in (1.0, 1.2, 1.4):
+        fused.update(fix(), player(600, 480), (0, 0), now)
+    assert fused.update(fix(), player(600, 480), (0, 0), 2.6).reason.startswith("Waiting")
+
+
+def test_register_view_finds_camera_offset_and_rejects_featureless_frames():
+    noise = np.random.default_rng(5).integers(0, 255, (96, 171, 3), dtype=np.uint8)
+    reference = cv2.resize(noise, (1366, 768), interpolation=cv2.INTER_LINEAR)
+    shifted = np.zeros_like(reference)
+    shifted[:, 37:] = reference[:, :-37]
+    assert register_view(reference, shifted) == (-37, 0)
+    assert register_view(reference, np.zeros_like(reference)) is None
+    assert register_view(reference, shifted[:700]) is None
