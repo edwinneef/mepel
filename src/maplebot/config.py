@@ -25,6 +25,8 @@ class PerceptionConfig:
     nametag_partial: float = 0.6
     track_seconds: float = 1.0
     track_max_seconds: float = 5.0
+    roi_width: int = 700
+    roi_height: int = 420
 
 
 @dataclass(frozen=True)
@@ -184,6 +186,9 @@ class Config:
             raise ValueError("capture.fps must be between 1 and 60")
         if not config.capture.window_title.strip():
             raise ValueError("capture.window_title must identify the intended game window")
+        for size in (config.perception.roi_width, config.perception.roi_height):
+            if size != 0 and size < 200:
+                raise ValueError("perception.roi_width/roi_height must be 0 (off) or at least 200")
         if not 0.5 <= config.perception.confidence <= 1:
             raise ValueError("perception.confidence must be between 0.5 and 1")
         if not 0.01 <= config.input.max_action_seconds <= 0.5:

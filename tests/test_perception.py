@@ -389,3 +389,53 @@ def test_tracking_chain_ends_after_a_gap_without_evidence(tmp_path):
     assert detector.detect(tag_scene(covered), now=0.5).player.tracked
     assert detector.detect(tag_scene(hidden), now=1.0).player is None
     assert detector.detect(tag_scene(covered), now=1.6).player is None
+
+
+def test_search_window_follows_the_player_and_reports_full_frame_coordinates(tmp_path):
+    player, monster = templates(tmp_path)
+    config = PerceptionConfig(roi_width=200, roi_height=200)
+    detector = TemplateDetector(tmp_path, config)
+    frame = np.full((400, 600, 3), 30, dtype=np.uint8)
+    frame[300:328, 400:424] = player
+    frame[300:328, 470:494] = monster
+    seen = []
+    original = detector._observe
+
+    def spy(image, *args):
+        seen.append(image.shape[:2])
+        return original(image, *args)
+
+    detector._observe = spy
+    first = detector.detect(frame, 0.0)
+    assert seen == [(400, 600)] and first.player.box == Rect(400, 300, 24, 28)
+    frame[300:328, 400:424] = 30
+    frame[300:328, 410:434] = player
+    second = detector.detect(frame, 0.3)
+    assert seen[1] == (200, 200)
+    assert second.player.box == Rect(410, 300, 24, 28)
+    assert [m.box for m in second.monsters if m.confidence >= 0.9] == [Rect(470, 300, 24, 28)]
+
+
+def test_search_window_falls_back_to_the_whole_frame_when_the_player_jumps_away(tmp_path):
+    player, _ = templates(tmp_path)
+    detector = TemplateDetector(tmp_path, PerceptionConfig(roi_width=200, roi_height=200))
+    frame = np.full((400, 600, 3), 30, dtype=np.uint8)
+    frame[300:328, 100:124] = player
+    assert detector.detect(frame, 0.0).player.box == Rect(100, 300, 24, 28)
+    frame[300:328, 100:124] = 30
+    frame[40:68, 500:524] = player
+    moved = detector.detect(frame, 0.3)
+    assert moved.player is not None and moved.player.box == Rect(500, 40, 24, 28)
+
+
+def test_search_window_size_is_validated_and_zero_disables_it(tmp_path):
+    from maplebot.config import Config
+
+    for value, valid in ((0, True), (100, False), (200, True)):
+        path = tmp_path / f"{value}.toml"
+        path.write_text(f"[perception]\nroi_width = {value}\n", encoding="utf-8")
+        if valid:
+            assert Config.load(path).perception.roi_width == value
+        else:
+            with pytest.raises(ValueError, match="roi_width"):
+                Config.load(path)

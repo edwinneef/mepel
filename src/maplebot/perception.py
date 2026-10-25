@@ -4,7 +4,7 @@ import hashlib
 import json
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -576,7 +576,6 @@ class TemplateDetector:
 
     def detect(self, image: Image, now: float | None = None) -> Observation:
         now = time.monotonic() if now is None else now
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         floor = max(0.5, self.config.confidence - 0.15)
         allowed = self.map_filter.select(image)
         templates = (
@@ -592,6 +591,55 @@ class TemplateDetector:
         self.catalog_info["active_map"] = self.map_filter.title
         self.catalog_info["map_filter_error"] = self.map_filter.error
         self.catalog_info["active_variants"] = len(templates)
+        player, monsters, failures, tag_confidence = self._observe_window(
+            image, now, templates, floor
+        )
+        if player and not player.tracked and tag_confidence >= REFRESH_TAG_CONFIDENCE:
+            self._refresh_sprite(image, player, monsters, now)
+        shift, response = self.camera.update(image)
+        return Observation(player, monsters, failures, shift, response)
+
+    def _window(self, image: Image) -> Rect | None:
+        """Region around the tracked player, or None when the whole frame must be searched."""
+        width, height = self.config.roi_width, self.config.roi_height
+        if self.track is None or not width or not height:
+            return None
+        if width >= image.shape[1] and height >= image.shape[0]:
+            return None
+        cx, cy = self.track[0].center
+        width, height = min(width, image.shape[1]), min(height, image.shape[0])
+        x = min(max(0, round(cx - width / 2)), image.shape[1] - width)
+        y = min(max(0, round(cy - height / 2)), image.shape[0] - height)
+        return Rect(x, y, width, height)
+
+    def _observe_window(
+        self, image: Image, now: float, templates: list[Template], floor: float
+    ) -> tuple[Detection | None, list[Detection], list[str], float]:
+        window = self._window(image)
+        if window is None:
+            return self._observe(image, now, templates, floor)
+        saved = self.track
+        assert saved is not None
+        local = (saved[0].translated(-window.x, -window.y), saved[1], saved[2])
+        self.track = local
+        crop = image[window.y : window.y + window.height, window.x : window.x + window.width]
+        player, monsters, failures, tag_confidence = self._observe(crop, now, templates, floor)
+        if player is None:
+            self.track = saved  # Lost inside the window: search the whole frame.
+            return self._observe(image, now, templates, floor)
+        if self.track is not None:
+            box, confirmed, seen = self.track
+            self.track = (box.translated(window.x, window.y), confirmed, seen)
+
+        def shifted(item: Detection) -> Detection:
+            return replace(item, box=item.box.translated(window.x, window.y))
+
+        return shifted(player), [shifted(item) for item in monsters], failures, tag_confidence
+
+    def _observe(
+        self, image: Image, now: float, templates: list[Template], floor: float
+    ) -> tuple[Detection | None, list[Detection], list[str], float]:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         candidates = self._candidates(image, gray, templates, floor)
         kept = self._suppress(candidates)
         players = [item for item in kept if item.kind == "player"]
@@ -623,10 +671,7 @@ class TemplateDetector:
             failures.append("No visible monster template matches")
         elif not any(item.confidence >= self.config.confidence for item in monsters):
             failures.append("Monster matches below confidence threshold")
-        if player and not player.tracked and tag_confidence >= REFRESH_TAG_CONFIDENCE:
-            self._refresh_sprite(image, player, monsters, now)
-        shift, response = self.camera.update(image)
-        return Observation(player, monsters, failures, shift, response)
+        return player, monsters, failures, tag_confidence
 
     def _refresh_sprite(
         self, image: Image, player: Detection, monsters: list[Detection], now: float

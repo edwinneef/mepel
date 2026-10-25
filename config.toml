@@ -20,6 +20,10 @@ nametag_confidence = 0.90
 nametag_partial = 0.6  # random scenery near the player scores up to ~0.46
 track_seconds = 1.0
 track_max_seconds = 5.0
+# Search only this many pixels around the tracked player once found; the whole frame is
+# searched when the player is lost. 0 for either value searches the whole frame.
+roi_width = 700
+roi_height = 420
 
 [agent]
 platform_tolerance = 18
