@@ -4,11 +4,14 @@ import hashlib
 import json
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.request import Request, urlopen
 
 import cv2
 import numpy as np
+
+from .perception import TemplateDetector
 
 API = "https://api.dreamms.gg/api/GMS/latest"
 STARTER_IDS = (
@@ -36,13 +39,72 @@ def fetch_public_image(url: str) -> bytes:
     return data
 
 
+def monster_ids_through_level(
+    maximum: int, *, fetch: Callable[[str], bytes] = fetch_public_image
+) -> list[int]:
+    """Select non-boss references from setup-only public level metadata."""
+    if maximum < 1:
+        raise ValueError("Maximum monster level must be positive")
+    monsters = json.loads(fetch(f"{API}/mob"))
+    return sorted(
+        {
+            monster["id"]
+            for monster in monsters
+            if isinstance(monster.get("level"), int)
+            and 1 <= monster["level"] <= maximum
+            and monster.get("isBoss") is False
+        }
+    )
+
+
+def import_map_catalog(
+    templates: Path, *, fetch: Callable[[str], bytes] = fetch_public_image
+) -> dict:
+    """Cache map titles and monster IDs during setup, without positions or navigation data."""
+    root = templates / "catalog"
+    cache = root / "cache" / "maps"
+    cache.mkdir(parents=True, exist_ok=True)
+    index = json.loads(fetch(f"{API}/map"))
+    index = [item for item in index if item.get("name") and item.get("streetName")]
+
+    def load(item: dict) -> tuple[dict | None, str | None]:
+        path = cache / f"{item['id']}.json"
+        try:
+            if path.exists():
+                return json.loads(path.read_text("utf-8")), None
+            detail = json.loads(fetch(f"{API}/map/{item['id']}"))
+            profile = {**item, "monsters": sorted({mob["id"] for mob in detail.get("mobs", [])})}
+            path.write_text(json.dumps(profile), encoding="utf-8")
+            return profile, None
+        except (OSError, ValueError, KeyError) as error:
+            return None, f"{item['id']}: {error}"
+
+    profiles, warnings = [], []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for profile, warning in pool.map(load, index):
+            if profile is not None:
+                profiles.append(profile)
+            if warning:
+                warnings.append(warning)
+    if not profiles:
+        raise ValueError("No usable map references imported")
+    path = root / "maps.json"
+    if path.exists():
+        path.with_suffix(f".{time.time_ns()}.bak").write_bytes(path.read_bytes())
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(profiles), encoding="utf-8")
+    temporary.replace(path)
+    return {"maps": len(profiles), "warnings": warnings}
+
+
 def import_catalog(
     templates: Path,
     ids: Sequence[int] = STARTER_IDS,
     *,
     fetch: Callable[[str], bytes] = fetch_public_image,
+    actions: Sequence[str] = ("stand", "move"),
 ) -> dict:
-    """Cache stand/move images and their provenance; never request maps, stats or spawns."""
+    """Cache visible sprite poses and their provenance; never request gameplay data."""
     if not ids or any(mob <= 0 for mob in ids):
         raise ValueError("Choose one or more positive monster IDs")
     root = templates / "catalog"
@@ -66,20 +128,16 @@ def import_catalog(
         except (OSError, ValueError, KeyError) as error:
             warnings.append(f"{mob}: {error}")
             continue
-        for action in ("stand", "move"):
+        for action in actions:
             url = f"{API}/mob/animated/{mob}/{action}?format=png"
             raw_path = cache / f"{mob}-{action}.apng"
             try:
                 data = raw_path.read_bytes() if raw_path.exists() else fetch(url)
-                ok, animation = cv2.imdecodeanimation(np.frombuffer(data, np.uint8), count=32)
+                ok, animation = cv2.imdecodeanimation(np.frombuffer(data, np.uint8))
                 if not ok or not animation.frames:
                     raise ValueError("Unreadable animation")
-                selected = np.linspace(
-                    0, len(animation.frames) - 1, min(3, len(animation.frames)), dtype=int
-                )
                 usable = 0
-                for index in selected:
-                    image = animation.frames[int(index)]
+                for index, image in enumerate(animation.frames):
                     if image.ndim != 3 or image.shape[2] != 4 or max(image.shape[:2]) > 512:
                         continue
                     alpha = image[:, :, 3]
@@ -88,6 +146,10 @@ def import_catalog(
                     x, y, width, height = cv2.boundingRect(alpha)
                     image = image[y : y + height, x : x + width]
                     if min(width, height) < 6:
+                        continue
+                    try:
+                        TemplateDetector.validate(image[:, :, :3])
+                    except ValueError:
                         continue
                     ok, encoded = cv2.imencode(".png", image)
                     if not ok:

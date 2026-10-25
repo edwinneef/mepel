@@ -171,6 +171,33 @@ def test_transparent_enemy_references_match_multiple_enemies_on_new_background(
     assert {item.box for item in strong} == {Rect(40, 70, 40, 30), Rect(200, 70, 40, 30)}
 
 
+@pytest.mark.parametrize("obscured_sample", [0, 12])
+def test_one_obscured_signature_pixel_does_not_hide_a_confident_monster(tmp_path, obscured_sample):
+    directory = tmp_path / "monster"
+    directory.mkdir()
+    rng = np.random.default_rng(71)
+    example = np.zeros((36, 36, 4), dtype=np.uint8)
+    example[2:34, 2:34, :3] = rng.integers(20, 240, (32, 32, 3), dtype=np.uint8)
+    example[2:34, 2:34, 3] = 255
+    cv2.imwrite(str(directory / "reference.png"), example)
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    frame = np.full((120, 160, 3), 80, dtype=np.uint8)
+    patch = frame[40:76, 60:96]
+    patch[example[:, :, 3] != 0] = example[:, :, :3][example[:, :, 3] != 0]
+    # Exercise both an indexed proposal pixel and a later verification sample.
+    y, x = detector.templates[0].signature.offsets[obscured_sample]
+    patch[y, x] = 255 - patch[y, x]
+    result = detector.detect(frame)
+    assert any(
+        item.box == Rect(60, 40, 36, 36) and item.confidence >= 0.9 for item in result.monsters
+    )
+    # Matching the sampled colors alone must still fail full-sprite verification.
+    patch[:] = 80
+    signature = detector.templates[0].signature
+    patch[signature.offsets[:, 0], signature.offsets[:, 1]] = signature.colors
+    assert not any(item.confidence >= 0.9 for item in detector.detect(frame).monsters)
+
+
 def name_tag(seed: int = 3) -> np.ndarray:
     # Synthetic stand-in for a name label: white glyph strokes on a dark box.
     tag = np.full((13, 60, 3), 40, dtype=np.uint8)

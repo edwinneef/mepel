@@ -31,20 +31,38 @@ def main() -> None:
         help="Replay logged policy inputs only; never loads screenshots, templates, or input",
     )
     catalog = sub.add_parser("catalog", help="Import public enemy sprites for offline detection")
-    catalog.add_argument(
+    selection = catalog.add_mutually_exclusive_group()
+    selection.add_argument(
         "--ids",
         nargs="+",
         type=int,
         help="Monster IDs; defaults to 12 classic ground-monster species",
     )
+    selection.add_argument(
+        "--max-level", type=int, help="Import all non-boss monster IDs through this level"
+    )
     args = parser.parse_args()
     config = Config.load(args.config)
     if args.command == "catalog":
-        from .catalog import STARTER_IDS, import_catalog
-
-        result = import_catalog(
-            Path(config.capture.data_dir) / "templates", args.ids or STARTER_IDS
+        from .catalog import (
+            STARTER_IDS,
+            import_catalog,
+            import_map_catalog,
+            monster_ids_through_level,
         )
+
+        ids = (
+            monster_ids_through_level(args.max_level)
+            if args.max_level is not None
+            else args.ids or STARTER_IDS
+        )
+        result = import_catalog(
+            Path(config.capture.data_dir) / "templates",
+            ids,
+            actions=("stand", "move", "jump", "hit1"),
+        )
+        if args.max_level is not None:
+            result["map_catalog"] = import_map_catalog(Path(config.capture.data_dir) / "templates")
         print(json.dumps(result, indent=2))
         return
     if args.command == "replay":

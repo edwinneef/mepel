@@ -48,7 +48,7 @@ Successful control probes are saved in `data/confirmed-probes.json`. Reattaching
 
 ## Teach and inspect detection
 
-The installed enemy catalog covers **12 classic ground-monster species** with **61 stand/move frames**. Those enemies are detected automatically; no manual enemy selection or vision-model installation is needed. The debugger lists the loaded species, and boxes show the matched species and confidence. The player still uses your screenshot examples.
+The default enemy catalog starts with **12 classic ground-monster species**. It can also import every available non-boss reference through a chosen level. All usable standing, moving, jumping and hit-reaction frames are retained. Those enemies are detected automatically; no manual enemy selection or vision-model installation is needed. The debugger lists the loaded species, and boxes show the matched species and confidence. The player still uses your screenshot examples.
 
 Public reference images are downloaded **only during setup**, then read from `data/templates/catalog` while playing. To install or extend the catalog:
 
@@ -56,11 +56,15 @@ Public reference images are downloaded **only during setup**, then read from `da
 .venv\Scripts\python.exe -m maplebot catalog
 # Optional: import specific public database monster IDs.
 .venv\Scripts\python.exe -m maplebot catalog --ids 100100 100101 130101
+# Import every API-listed non-boss monster at levels 1 through 50.
+.venv\Scripts\python.exe -m maplebot catalog --max-level 50
 ```
 
-The importer uses the public [Dream MS image API](https://api.dreamms.gg/) for monster names and transparent stand/move animation images. It saves frame hashes and source URLs in `data/templates/catalog/manifest.json`, caches downloads for repeatable offline use, and preserves manual templates. Sprites belong to Nexon; they are local reference files, not bundled with this repository. No monster stats, map contents, spawn lists or internal game files are used. The API supplies its current assets, so these classic sprites still need verification against the actual game version.
+The importer uses the public [Dream MS image API](https://api.dreamms.gg/) for monster names and transparent stand/move animation images. Level selection additionally reads the public monster index's level and boss flags during setup; event/quest variants may be included, and entries without known levels are excluded. It saves frame hashes and source URLs in `data/templates/catalog/manifest.json`, caches downloads for repeatable offline use, and preserves manual templates. Sprites belong to Nexon; they are local reference files, not bundled with this repository. No internal game files are used. The API supplies its current assets, so these sprites still need verification against the actual game version. Larger catalogs can reduce processing FPS.
 
-Matching uses a color index to find native-pixel candidate positions, then checks the full opaque foreground using color and structural similarity. Reference transparency excludes scenery. Both directions and several animation poses are included; the confidence threshold and input gates remain unchanged. Use **1x game pixels**: scaling, major tint changes, occlusion, unsupported poses or a missing catalog type can cause no detection. A matching sprite is appearance evidence; visually identical friendly entities still require context checks. Unknown types are not guessed to be enemies.
+`--max-level` also caches public map titles and their monster IDs in `data/templates/catalog/maps.json`; positions and navigation data are not retained. Windows OCR reads the top-left map title in a background worker, then detection searches only that map's catalog species. Player and manual monster examples remain active. The complete library stays installed. Unreadable, changed or unknown titles use the full catalog until a map is recognized. Identically named maps use the union of their species. All recognition remains offline. Missing Windows English OCR also falls back to the complete catalog; the status reports `active_map`, `active_variants` and `map_filter_error`.
+
+Matching uses a color index to find native-pixel candidate positions, then checks the full opaque foreground using color and structural similarity. Reference transparency excludes scenery. Both directions and several animation poses are included. A few obstructed sample pixels are tolerated when proposing candidates; full foreground verification still applies the unchanged confidence threshold. The input gates remain unchanged. Use **1x game pixels**: scaling, major tint changes, occlusion, unsupported poses or a missing catalog type can cause no detection. A matching sprite is appearance evidence; visually identical friendly entities still require context checks. Unknown types are not guessed to be enemies.
 
 Manual enemy examples remain available for types outside the installed catalog:
 

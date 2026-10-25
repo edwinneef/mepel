@@ -7,7 +7,13 @@ name = "maple-external-bot"
 version = "0.1.0"
 description = "Screenshot-only external MapleStory agent and calibration debugger"
 requires-python = ">=3.12"
-dependencies = ["mss>=10,<11", "numpy>=2,<3", "opencv-python-headless>=4.13,<5"]
+dependencies = [
+    "mss>=10,<11", "numpy>=2,<3", "opencv-python-headless>=4.13,<5",
+    "winrt-Windows.Media.Ocr>=4!10.0,<5!0; sys_platform == 'win32'",
+    "winrt-Windows.Graphics.Imaging>=4!10.0,<5!0; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams>=4!10.0,<5!0; sys_platform == 'win32'",
+    "winrt-Windows.Globalization>=4!10.0,<5!0; sys_platform == 'win32'",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1"]

@@ -14,6 +14,7 @@ import numpy as np
 from .capture import Image
 from .config import PerceptionConfig
 from .geometry import Rect
+from .map_filter import MapFilter
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,8 @@ class TemplateDetector:
         self.reload()
 
     def reload(self) -> None:
+        if hasattr(self, "map_filter"):
+            self.map_filter.close()
         templates = []
         manifest_path = self.directory / "catalog" / "manifest.json"
         manifest = json.loads(manifest_path.read_text("utf-8")) if manifest_path.exists() else {}
@@ -165,6 +168,8 @@ class TemplateDetector:
             ("monster", "catalog/monster"),
         ):
             for path in sorted((self.directory / folder).glob("*.png")):
+                if folder == "catalog/monster" and path.name not in entries:
+                    continue
                 raw = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
                 if raw is None or raw.ndim != 3 or raw.shape[2] not in (3, 4):
                     raise ValueError(f"Unreadable template: {path}")
@@ -225,6 +230,7 @@ class TemplateDetector:
                         )
                     )
         self.templates = templates
+        self.map_filter = MapFilter(self.directory, list(entries.values()))
         self.nametags = [
             self.load_nametag(path) for path in sorted((self.directory / "nametag").glob("*.png"))
         ]
@@ -373,33 +379,41 @@ class TemplateDetector:
         order, boundaries = index
         sizes = [int((boundaries[bins + 1] - boundaries[bins]).sum()) for bins in signature.buckets]
         ranked = np.argsort(sizes)
-        if sizes[int(ranked[0])] == 0:
-            return []
-        key = int(ranked[0])
-        pixels = np.concatenate(
-            [
+        max_misses = len(signature.colors) // 10
+        proposals = []
+        # Multiple seeds keep a covered proposal pixel from hiding an otherwise valid sprite.
+        for key in ranked[: max_misses + 1]:
+            buckets = [
                 order[boundaries[b] : boundaries[b + 1]]
                 for b in signature.buckets[key]
                 if boundaries[b + 1] > boundaries[b]
             ]
-        )
-        ys = pixels // image.shape[1] - signature.offsets[key, 0]
-        xs = pixels % image.shape[1] - signature.offsets[key, 1]
-        valid = (
-            (ys >= 0)
-            & (xs >= 0)
-            & (ys + template.image.shape[0] <= image.shape[0])
-            & (xs + template.image.shape[1] <= image.shape[1])
-        )
-        ys, xs = ys[valid], xs[valid]
+            if not buckets:
+                continue
+            pixels = np.concatenate(buckets)
+            ys = pixels // image.shape[1] - signature.offsets[key, 0]
+            xs = pixels % image.shape[1] - signature.offsets[key, 1]
+            valid = (
+                (ys >= 0)
+                & (xs >= 0)
+                & (ys + template.image.shape[0] <= image.shape[0])
+                & (xs + template.image.shape[1] <= image.shape[1])
+            )
+            proposals.append(ys[valid] * image.shape[1] + xs[valid])
+        if not proposals:
+            return []
+        positions = np.unique(np.concatenate(proposals))
+        ys, xs = positions // image.shape[1], positions % image.shape[1]
+        misses = np.zeros(len(xs), dtype=np.uint8)
         # Indexed color patterns propose exact native-pixel positions; full masks verify them.
         for key in ranked:
             if not len(xs):
                 return []
             dy, dx = signature.offsets[key]
             delta = image[ys + dy, xs + dx].astype(np.int16) - signature.colors[key]
-            valid = np.max(np.abs(delta), axis=1) <= 12
-            ys, xs = ys[valid], xs[valid]
+            misses += np.max(np.abs(delta), axis=1) > 12
+            valid = misses <= max_misses
+            ys, xs, misses = ys[valid], xs[valid], misses[valid]
         mask = template.mask != 0
         reference = template.image[
             anchor.y : anchor.y + anchor.height, anchor.x : anchor.x + anchor.width
@@ -564,7 +578,21 @@ class TemplateDetector:
         now = time.monotonic() if now is None else now
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         floor = max(0.5, self.config.confidence - 0.15)
-        candidates = self._candidates(image, gray, self.templates, floor)
+        allowed = self.map_filter.select(image)
+        templates = (
+            self.templates
+            if allowed is None
+            else [
+                template
+                for template in self.templates
+                if not template.name.startswith("catalog:")
+                or template.name.split(":")[1] in allowed
+            ]
+        )
+        self.catalog_info["active_map"] = self.map_filter.title
+        self.catalog_info["map_filter_error"] = self.map_filter.error
+        self.catalog_info["active_variants"] = len(templates)
+        candidates = self._candidates(image, gray, templates, floor)
         kept = self._suppress(candidates)
         players = [item for item in kept if item.kind == "player"]
         tags = self._nametag_candidates(gray)
