@@ -528,7 +528,7 @@ def test_live_potions_reject_missing_prerequisites(potion_app, blocker):
 
 
 @pytest.mark.parametrize(
-    "blocker", ["focus", "visibility", "verification", "stale", "hud", "death", "f8"]
+    "blocker", ["focus", "visibility", "verification", "stale", "death", "f8"]
 )
 def test_live_potions_stop_without_sending_on_unsafe_frames(potion_app, monkeypatch, blocker):
     from test_autopotter import hud
@@ -545,8 +545,6 @@ def test_live_potions_stop_without_sending_on_unsafe_frames(potion_app, monkeypa
         app.calibration.capture_verified = False
     elif blocker == "stale":
         now -= 1
-    elif blocker == "hud":
-        image[:] = 0
     elif blocker == "death":
         image = hud(0, 20)
     else:
@@ -707,3 +705,60 @@ def test_fresh_application_restores_probes_without_arming(app, monkeypatch):
         assert restarted.controller.backend.events == []
     finally:
         restarted.close()
+
+
+def test_portal_loading_pauses_live_potions_then_requires_two_fresh_readings(potion_app):
+    from test_autopotter import hud
+
+    app = potion_app
+    start_live_potions(app)
+    loading = np.zeros_like(app.image)
+    _, status = app._process(loading, time.perf_counter())
+    assert app.mode == "potion_live"
+    assert app.potter.enabled
+    assert app.controller.backend.events == []
+    assert not app.alarm.snapshot()["active"]
+    assert "Waiting for HUD" in status["autopotter"]["reason"]
+    app._process(hud(20, 100), time.perf_counter())
+    assert app.controller.backend.events == []
+    assert app.live_potion_ticket is None
+    app._process(hud(20, 100), time.perf_counter())
+    assert app.live_potion_ticket is not None
+    finish_live_potion(app, hud(100, 100))
+    assert app.controller.backend.events == [("insert", True), ("insert", False)]
+    assert app.potion_hud_missing_since is None
+
+
+def test_live_potions_alarm_after_hud_grace_expires(potion_app):
+    app = potion_app
+    start_live_potions(app)
+    loading = np.zeros_like(app.image)
+    app._process(loading, time.perf_counter())
+    app.potion_hud_missing_since = time.perf_counter() - 5.1
+    app._process(loading, time.perf_counter())
+    assert app.mode == "capture"
+    assert not app.potter.enabled
+    assert app.alarm.snapshot()["active"]
+    assert "5 seconds" in app.stop_record.message
+    assert app.controller.backend.events == []
+
+
+def test_hud_loading_cancels_queued_potion_without_alarm(potion_app):
+    from test_autopotter import hud
+
+    app = potion_app
+    start_live_potions(app)
+    app.controller.planner.config = replace(
+        app.controller.planner.config, reaction_min_seconds=0.4, reaction_max_seconds=0.4
+    )
+    app._process(hud(20, 20), time.perf_counter())
+    app._process(hud(20, 20), time.perf_counter())
+    assert app.live_potion_ticket is not None
+    app._process(np.zeros_like(app.image), time.perf_counter())
+    time.sleep(0.05)
+    app._process(np.zeros_like(app.image), time.perf_counter())
+    assert app.mode == "potion_live"
+    assert app.live_potion_ticket is None
+    assert not app.controller.enabled
+    assert app.controller.backend.events == []
+    assert not app.alarm.snapshot()["active"]

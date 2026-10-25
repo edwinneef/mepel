@@ -124,6 +124,7 @@ class Application:
         self.next_probe_id = 1
         self.active_probe: ProbeState | None = None
         self.live_potion_ticket: int | None = None
+        self.potion_hud_missing_since: float | None = None
         self.probe_results: dict[str, dict[str, object]] = {}
         self.stop_reason = (
             "Capture-only session: keyboard output locked; recognition and dry run available"
@@ -535,6 +536,7 @@ class Application:
         if reason is None:
             raise ValueError(f"Unknown stop code: {code}")
         self.live_potion_ticket = None
+        self.potion_hud_missing_since = None
         self._cancel_active_probe(message)
         # This must happen before any recorder, encoder, status, or audio work.
         self.controller.stop(message, code=code, notify=False)
@@ -1104,16 +1106,30 @@ class Application:
             ),
         )
         if self.mode == "potion_live":
-            if potter["readings"].get("hp", {}).get("percent") == 0 or any(
+            unreadable = any(
                 self.potter.settings[f"{r}_threshold"] > 0
                 and (
                     potter["readings"].get(r, {}).get("percent") is None
                     or potter["readings"][r]["confidence"] < 0.9
                 )
                 for r in ("hp", "mp")
-            ):
-                self._stop("PLAYER_UNCERTAIN", "HUD unreadable or HP empty; live potions stopped")
-            elif potter["suggestion"] and self.live_potion_ticket is None:
+            )
+            if potter["readings"].get("hp", {}).get("percent") == 0:
+                self._stop("PLAYER_UNCERTAIN", "HP empty; live potions stopped")
+            elif unreadable:
+                self.live_potion_ticket = None
+                self.controller.stop("Waiting for HUD after transition", notify=False)
+                if self.potion_hud_missing_since is None:
+                    self.potion_hud_missing_since = now
+                if now - self.potion_hud_missing_since >= 5.0:
+                    self._stop(
+                        "PLAYER_UNCERTAIN", "HUD unreadable for 5 seconds; live potions stopped"
+                    )
+                else:
+                    potter.update(reason="Waiting for HUD after transition; potion input paused")
+            else:
+                self.potion_hud_missing_since = None
+            if not unreadable and potter["suggestion"] and self.live_potion_ticket is None:
                 with self.controller.lock:
                     if not self.stop_requested.is_set() and self.mode == "potion_live":
                         try:

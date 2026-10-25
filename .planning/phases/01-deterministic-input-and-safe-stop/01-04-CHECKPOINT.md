@@ -1,37 +1,34 @@
 ---
 phase: 01-deterministic-input-and-safe-stop
 plan: 01-04
-status: blocking-human
-checkpoint: remaining-native-acceptance
+status: native-accepted-phase-gates-pending
+checkpoint: native-accepted-phase-gates-pending
 ---
 
 # Plan 01-04 Checkpoint
 
 ## Reconciled on 2026-10-25
 
-Installation is complete. Phase 1 remains at 3/4 completed plans; do not mark 01-04 or the phase complete until the remaining acceptance and phase gates are resolved. The old plan-approval/install-blocked routing is stale: this is an operator acceptance checkpoint, not a request to approve or rerun the plan.
+Installation is complete. Phase 1 remains at 3/4 completed plans; do not mark 01-04 or the phase complete until the remaining acceptance and phase gates are resolved. The old plan-approval/install-blocked routing is stale: the operator acceptance checkpoint is now passed; remaining phase gates still apply. This is not a request to approve or rerun the plan.
 
 | Evidence | Current result |
 | --- | --- |
 | Offline install and dependencies | Installed repeatedly from this checkout with no index/dependency fetch; saved configuration and existing data preserved; rollback sources/metadata under artifacts/ |
-| Current validation | 235 pytest tests pass; Ruff passes for src, tests and tools; pip check reports no broken requirements (run during this reconciliation) |
-| Native control observations | Operator confirmed Left, Right, Attack, Jump, Skill, HP potion and MP potion worked; no repeat of these seven checks is requested |
+| Current validation | 237 pytest tests pass after the portal HUD fix; Ruff passes for src, tests and tools; pip check reports no broken requirements |
+| Native control observations | Operator confirmed all nine offered probes worked, including explicit Up/Down confirmation without unintended portal/rope interaction; no repeat is requested |
 | Potion full-bar guard | Operator observed no countdown at full HP/MP; runtime showed both at 100%; guard explanation accepted, followed by successful potion report |
-| Probe persistence | Seven operator-confirmed controls migrated with an audit under artifacts/probe-confirmation-migration-*.json; restored on the selected MapleStory window after restart |
-| Latest alarm | FOCUS_LOSS: actual game was not focused at the countdown deadline; recorded clip exists, acknowledgement=true and active=false; this proves runtime acknowledgement, not audible silence at the speaker |
+| Probe persistence | All nine confirmed controls are present in the saved profile for the selected MapleStory window; seven were originally migrated and Up/Down have now also been confirmed |
+| Latest alarm | FOCUS_LOSS: actual game was not focused at the countdown deadline; recorded clip exists, acknowledgement=true and active=false; operator subsequently explicitly confirmed that both the dashboard button and F8 silence the repeating sound |
 | Live Autopotter | User-authorized standalone live mode installed; two-frame HP priority/shared cooldown and safe stops tested. Latest native attempt stopped on focus loss before acceptance; live sustain effect remains unverified |
 | Phase completion | Pending; no 01-04-SUMMARY.md or phase verification report has been created |
 
-## Remaining operator evidence
+## Operator acceptance passed on 2026-10-25
 
-Do not restart the full checklist or request another recording. First determine whether these were already included in the operator's earlier successful checks:
+The operator explicitly answered that both Up and Down already worked without unintended portal/rope interaction, and that both the dashboard Acknowledge alarm button and F8 silenced the repeating sound. Together with the seven earlier confirmed controls, the remaining native acceptance questions are resolved. No additional probe round or recording is requested.
 
-1. Up and Down: each reached the game once as the configured arrow, away from portals/ropes, without an unexpected interaction. These two optional probes were not specifically identified in the conversation and were not migrated as confirmed.
-2. Alarm acknowledgement after the fix: the debugger Acknowledge alarm button and F8 each silence a repeating alarm. Runtime records show an acknowledged incident, but the exact acknowledgement method and audible result were not separately reported after the fix.
+Resume `$gsd-execute-phase 1` at the accepted 01-04 checkpoint and remaining phase verification/review/security gates. Do not rerun completed plans 01-01 through 01-03. This record does not itself approve or complete those gates, create the missing plan summary, or advance to Phase 2.
 
-If an item has not been observed, resume only that item with its existing bounded procedure. Stop on the first failure. No Arm/combat run, native worker-crash injection, or repeated gameplay recording is requested here. Own-window keyboard smoke and subsequent phase verification/review gates remain the execute workflow's responsibility; offline tests are not live-game evidence.
-
-After the remaining evidence is resolved, resume `$gsd-execute-phase 1` at 01-04's checkpoint and remaining phase gates. Do not rerun completed plans 01-01 through 01-03. Phase 2 follows only after Phase 1 is actually verified.
+A subsequent standalone live-Autopotter issue was reported: crossing a portal made the HUD temporarily unreadable and triggered PLAYER_UNCERTAIN immediately (incident f3ead329ec3e47e5b40c1ce231e07981). The fix pauses potion input for up to five seconds and requires two confident recovery frames; it cancels any queued/held potion input during the pause. HP zero, focus/visibility/calibration loss, and stale frames still stop immediately; prolonged HUD loss still alarms. This covers manual portal/loading transitions in standalone potion mode and does not remove future spot-anchor/map-change checks. Native effect acceptance of this fix remains separate from the successful control/acknowledgement probes.
 
 ## Operator-authorized changes superseding the original plan
 
