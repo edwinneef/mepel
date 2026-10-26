@@ -23,6 +23,7 @@ from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
 from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win32Input
 from .live_position import STALE_SECONDS, LivePosition
+from .navigation_runtime import NavigationRuntime
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
 from .preview_stream import PreviewSource, PreviewStream
 from .probe_store import ProbeStore
@@ -208,6 +209,7 @@ class Application:
             timing=config.timing,
             on_stop=self._controller_stop,
         )
+        self.navigation = NavigationRuntime(self)
 
     def start(self) -> None:
         self.connect_saved_window()
@@ -325,6 +327,12 @@ class Application:
             return self.confirm_probe(payload)
         if name == "reject_probe":
             return self.reject_probe(payload)
+        canceled_navigation = name in POSITION_COMMANDS and self.mode in {
+            "navigation", "navigation_wait",
+        }
+        if canceled_navigation:
+            self.stop_requested.set()
+            self.safe_stop("OPERATOR_STOP", "Position/teaching change canceled navigation")
         if name in {
             "stop",
             "attach",
@@ -346,7 +354,7 @@ class Application:
         if context is not None:
             # Calibration/settings commands above deliberately supersede older work.
             # Start commands do not: a Stop that races a queued Start must win.
-            if name in {
+            if canceled_navigation or name in {
                 "attach", "connect_saved_window", "manual", "reset_crop", "freeze", "crop",
                 "template", "autopotter_calibrate", "reload_templates", "autopotter_settings",
                 "autopotter_stop", "autopotter_start",
@@ -383,6 +391,7 @@ class Application:
                 "calibrating": self.calibrating,
                 "area_editing": self.area_editing,
                 "sustain": list(self.sustain),
+                "navigation": self.navigation.snapshot(),
                 "player_threshold": self.config.perception.confidence,
                 "calibration": asdict(self.calibration) if self.calibration else {},
                 "frame": {
@@ -726,6 +735,11 @@ class Application:
         return self._input_block_reason() is None
 
     def _input_block_reason(self) -> str | None:
+        if self.mode == "navigation":
+            feedback = self.navigation.feedback
+            if (not feedback or not feedback.motion_ok
+                    or time.perf_counter() - feedback.now > .5):
+                return "Navigation fused position is stale or uncertain"
         if self.area_editing:
             return "Area editing: gameplay input is stopped"
         if self.capture_only:
@@ -769,6 +783,8 @@ class Application:
         self._cancel_active_probe(message)
         # This must happen before any recorder, encoder, status, or audio work.
         self.controller.stop(message, code=code, notify=False)
+        if hasattr(self, "navigation"):
+            self.navigation.cancel(message)
         with self.stop_lock:
             self.command_epoch += 1
             if self.stop_record is not None:
@@ -932,6 +948,14 @@ class Application:
             return self.request_probe(payload)
         if name == "confirm_controls":
             raise ValueError("Use the per-probe confirmation controls")
+        if name in {"nav_refresh", "nav_preview", "nav_start"}:
+            if name == "nav_start":
+                return self.navigation.start(context, payload.get("opt_in") is True)
+            self._stop("OPERATOR_STOP", "Navigation route preview; gameplay stopped")
+            if name == "nav_refresh":
+                return self.navigation.refresh()
+            return self.navigation.preview(str(payload.get("origin", "")),
+                                           str(payload.get("target", "")))
         if name == "autopotter_calibrate":
             self._stop("CALIBRATION", "HUD calibration; potion preview stopped")
             if not self.calibration or not self.calibration.capture_verified or not self.hwnd:
@@ -1171,6 +1195,8 @@ class Application:
             self.note("Capture confirmed by operator; evidence screenshot saved")
             return {"path": path}
         if name in POSITION_COMMANDS:
+            if self.mode in {"navigation", "navigation_wait"}:
+                self._stop("OPERATOR_STOP", "Position/teaching change canceled navigation")
             return self._position_command(name, payload)
         if name == "save":
             return {"path": self._save()}
@@ -1400,6 +1426,7 @@ class Application:
             except (ValueError, cv2.error) as error:
                 position = {"kind": "unknown", "reason": f"Position unavailable: {error}",
                             "captured_at": time.time(), "input_sent": False}
+        self.navigation.observe(fix, observation, position, now)
         if (
             self.calibration
             and not self.calibration.capture_verified
@@ -1461,7 +1488,9 @@ class Application:
                     self.potter.start(live=True)
                     self.mode = "potion_live"
                     self.stop_reason = "Live potions enabled; combat remains stopped"
-        if self.capture_only and self.mode in {"live", "pending_arm", "probe_wait"}:
+        if self.capture_only and self.mode in {
+            "live", "pending_arm", "probe_wait", "navigation", "navigation_wait",
+        }:
             self._stop("CAPTURE_ONLY_GUARD", "Capture-only session: keyboard output locked")
         if self.stop_requested.is_set() and self.mode != "capture":
             self._stop("CALIBRATION", "Operator stop or calibration requested")
@@ -1469,7 +1498,8 @@ class Application:
             self.mode != "capture" or self.potter.enabled
         ):
             self._stop("EMERGENCY_STOP", "Emergency stop hotkey")
-        if self.mode in {"live", "pending_arm", "probe_wait", "probe_confirm", "probe_effect"}:
+        if self.mode in {"live", "pending_arm", "probe_wait", "probe_confirm", "probe_effect",
+                         "navigation", "navigation_wait"}:
             if time.perf_counter() - now > 0.5:
                 self._stop(
                     "PLAYER_UNCERTAIN", "Observation processing exceeded 500 ms; no input sent"
@@ -1543,6 +1573,13 @@ class Application:
         )
         mp = potter["readings"].get("mp", {})
         self.mp_percent = mp.get("percent") if mp.get("confidence", 0) >= 0.9 else None
+        if self.mode == "navigation" and self.sustain:
+            readings = potter["readings"]
+            if (readings.get("hp", {}).get("percent") == 0 or any(
+                    readings.get(r, {}).get("percent") is None
+                    or readings[r]["confidence"] < .9 for r in self.sustain)):
+                self._stop("PLAYER_UNCERTAIN", "Navigation sustain HUD unreadable or HP empty")
+        self.navigation.tick(potter["suggestion"], now)
         if self.mode == "live" and self.sustain:
             readings = potter["readings"]
             if readings.get("hp", {}).get("percent") == 0:
@@ -1593,7 +1630,7 @@ class Application:
                 self.note(f"{decision.state}: {decision.reason} · {self.last_action}")
             policy_ms = (time.perf_counter() - policy_began) * 1000
         else:
-            reason = self.stop_reason
+            reason = self.navigation.reason if self.mode == "navigation" else self.stop_reason
             if self.mode in {"pending_arm", "probe_wait", "potion_wait"}:
                 reason = f"Focus the game window; input in {max(0, self.pending_at - now):.1f}s"
             decision = Decision(self.agent.state, Action(), reason)

@@ -173,6 +173,7 @@ class KeyboardController:
         self.outcomes: queue.SimpleQueue[ActionOutcome] = queue.SimpleQueue()
         self.active: _QueuedPlan | None = None
         self.errors: dict[int, Exception] = {}
+        self.cancelled_tickets: set[int] = set()
         self.leases: dict[int, VerticalLease] = {}
         self.next_lease_id = 1
         self.held: dict[str, float] = {}
@@ -224,6 +225,7 @@ class KeyboardController:
                 self._finish(item, f"{item.action} interrupted", None)
 
     def _finish(self, item: _QueuedPlan, result: str, started_at: float | None) -> None:
+        self.cancelled_tickets.discard(item.ticket)
         self.outcomes.put(
             ActionOutcome(
                 item.ticket,
@@ -296,6 +298,36 @@ class KeyboardController:
                     if item.disable_after and item.generation == self.generation:
                         self.stop("Bounded control probe finished", notify=False)
             self._finish(item, result, started_at)
+
+    def submit_sequence(
+        self, holds: Sequence[KeyHold], *, priority: int = PRIORITY_COMBAT,
+    ) -> int | str:
+        """Queue a navigation chord under the same duration, generation and Stop guards."""
+        if (not holds or any(h.action not in ACTIONS or h.seconds <= 0 or h.start_seconds < 0
+                             for h in holds)
+                or max(h.start_seconds + h.seconds for h in holds)
+                > self.config.max_action_seconds):
+            raise ValueError("Navigation chord exceeds the bounded action duration")
+        with self.lock:
+            if self.replay or not self.enabled or self.stopped.is_set():
+                return "blocked: input disabled"
+            schedule = self.planner.plan(holds)
+            ticket = self.next_ticket
+            self.next_ticket += 1
+            item = _QueuedPlan(ticket, self.generation, "navigation", schedule,
+                               time.perf_counter(), False)
+            try:
+                self.queue.put_nowait((priority, ticket, item))
+            except queue.Full:
+                return "blocked: queue full"
+            return ticket
+
+    def cancel_ticket(self, ticket: int) -> None:
+        """Cancel only the navigation plan being superseded; preserve potion plans."""
+        with self.lock:
+            self.cancelled_tickets.add(ticket)
+            if self.active and self.active.ticket == ticket:
+                self.release_all()
 
     def _cancelled(self, item: _QueuedPlan) -> bool:
         return self._cancelled_generation(item.generation)
@@ -485,6 +517,8 @@ class KeyboardController:
         schedule = item.schedule
         self.release_all()
         with self.lock:
+            if item.ticket in self.cancelled_tickets:
+                return f"{item.action} interrupted"
             if self._cancelled(item) or self.emergency() or not self.safe():
                 self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
                 return f"{item.action} interrupted"
@@ -499,6 +533,8 @@ class KeyboardController:
                 if self.stopped.wait(max(0, due - time.perf_counter())):
                     return f"{item.action} interrupted"
                 with self.lock:
+                    if item.ticket in self.cancelled_tickets:
+                        return f"{item.action} interrupted"
                     if self._cancelled(item) or self.emergency() or not self.safe():
                         self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
                         return f"{item.action} interrupted"

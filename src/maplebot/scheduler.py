@@ -26,13 +26,20 @@ class Arbiter:
         self.potion_seconds = potion_seconds
         self.in_flight: dict[int, str] = {}
 
-    def choose(self, *, sustain: str | None, combat: Action | None) -> Choice:
+    def choose(self, *, sustain: str | None, combat: Action | None,
+               navigation: Action | None = None) -> Choice:
         """At most one key plan per frame; `sustain` is a monitor suggestion, "hp" or "mp"."""
         if sustain is not None:
             if sustain not in SUSTAIN:
                 raise ValueError(f"Unknown sustain resource: {sustain}")
             return Choice(sustain, Action(f"{sustain}_potion", self.potion_seconds),
                           SUSTAIN[sustain], f"{sustain.upper()} potion precedes combat")
+        if navigation is not None:
+            if combat is not None and combat.kind != "release":
+                return Choice(None, None, PRIORITY_COMBAT, "Navigation and combat are exclusive")
+            if any(lane in SUSTAIN for lane in self.in_flight.values()):
+                return Choice(None, None, PRIORITY_COMBAT, "Navigation waits for potion completion")
+            return Choice("navigation", navigation, PRIORITY_COMBAT, "Navigation movement")
         if combat is None or combat.kind == "release":
             return Choice(None, combat, PRIORITY_COMBAT, "No combat key")
         if any(lane in SUSTAIN for lane in self.in_flight.values()):
