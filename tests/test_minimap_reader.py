@@ -84,3 +84,21 @@ def test_translucent_grey_sky_is_ignored_when_matching_the_map():
     scrolled = image.copy()
     scrolled[72:112, 4:139] = (120, 110, 95)  # scenery behind the sky changed
     assert reader.read(scrolled).reason == "Player marker on the taught map"
+
+
+def test_dark_saturated_background_is_not_static_terrain():
+    image = view(((60, 50),))
+    # Dark brown scenery through a translucent background was retained by the grey mask.
+    image[76:102, 17:192] = (25, 45, 70)
+    reader = AreaMinimap(image)
+    scrolled = image.copy()
+    scrolled[76:102, 17:192] = (15, 20, 30)
+    assert reader.read(scrolled).dot == (62.5, 52.5)
+
+
+def test_dark_only_reference_cannot_supply_identity_evidence():
+    image = view()
+    image[71:137, 12:197] = 255
+    image[72:136, 13:196] = (25, 45, 70)
+    with pytest.raises(ValueError, match="too little terrain"):
+        AreaMinimap(image)

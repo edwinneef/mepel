@@ -20,6 +20,7 @@ DOT_SHAPE = np.array([
 SEARCH = (400, 300)  # the minimap is anchored in the top-left corner
 NAVY = ((80, 40, 15), (120, 80, 50))  # BGR minimap background
 MIN_AGREEMENT = 0.85
+MIN_TERRAIN_VALUE = 80
 
 
 @dataclass(frozen=True)
@@ -129,7 +130,10 @@ class AreaMinimap:
         background = cv2.inRange(self.template, *NAVY) | np.uint8(
             (hsv[..., 1] < 50) & (hsv[..., 2] < 140)) * 255
         background = cv2.dilate(background, np.ones((3, 3), np.uint8)) > 0
-        self.static = ~_markers(self.template) & ~background
+        # Dark saturated scenery also shows through the minimap's translucent gaps.
+        # Use brighter terrain for identity; dark-only references must stay unknown.
+        self.static = (~_markers(self.template) & ~background
+                       & (hsv[..., 2] >= MIN_TERRAIN_VALUE))
         if np.count_nonzero(self.static) < 200:
             raise ValueError("The reference minimap shows too little terrain to recognize the map")
         self.weights = self.static.astype(np.uint8)
