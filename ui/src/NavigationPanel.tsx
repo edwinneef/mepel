@@ -7,11 +7,13 @@ interface Props {
   act: (operation: () => Promise<unknown>) => Promise<void>;
   onPreview: () => void; onInvalidate: () => void;
   supervised: boolean; onSupervised: (value: boolean) => void;
+  areas?: { id: string; name: string }[];
 }
 
 export function NavigationPanel({ snapshot: s, client, disabled, act, onPreview, onInvalidate,
-  supervised, onSupervised }: Props) {
+  supervised, onSupervised, areas = [] }: Props) {
   const [origin, setOrigin] = useState('');
+  const [chosenMap, setChosenMap] = useState('');
   const [target, setTarget] = useState('');
   const nav = s.navigation;
   const map = s.position && s.position.area_id !== nav?.map?.area_id ? null : nav?.map;
@@ -38,8 +40,15 @@ export function NavigationPanel({ snapshot: s, client, disabled, act, onPreview,
     <p>{nav?.active || nav?.stage === 'stopped' || nav?.stage === 'arrived' ? nav.reason
       : 'Preview recorded paths first. Movement starts only from the header after explicit supervision.'}</p>
     {nav?.active && <p>Move {Math.min((nav.edge_index ?? 0) + 1, route?.edges.length ?? 0)} of {route?.edges.length ?? 0} · {nav.stage.replaceAll('_', ' ')} · {nav.completed ?? 0} completed</p>}
-    {!map ? <><p>{s.position ? 'Load routes for the tracked saved map.' : 'Track a saved map from Teach map first.'}</p>
-      <button className="primary" disabled={disabled || !s.position} onClick={() => void load()}>Load navigation routes</button></>
+    {!map ? s.position ? <><p>Load routes for {s.position.area_name ?? 'the tracked map'}.</p>
+      <button className="primary" disabled={disabled} onClick={() => void load()}>Load navigation routes</button></>
+      : <><label>Saved map<select aria-label="Map to track" value={chosenMap} disabled={disabled}
+          onChange={e => setChosenMap(e.target.value)}><option value="">Choose a map…</option>
+          {areas.map(area => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
+        <button className="primary" disabled={disabled || !chosenMap} onClick={() => void act(async () => {
+          await client.command('position_start', { area_id: chosenMap });
+          return client.command('nav_refresh');
+        })}>Track map and load routes</button></>
       : <>
         <label>Preview origin<select aria-label="Route origin" value={from} disabled={frozen}
           onChange={e => { setOrigin(e.target.value); onInvalidate(); }}>

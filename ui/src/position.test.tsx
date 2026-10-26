@@ -32,10 +32,10 @@ function setup(position: LivePosition | null) {
 
 it('tracks a saved map or creates a new map without starting gameplay', async () => {
   const { command, refreshAreas } = setup(null);
-  fireEvent.click(screen.getByText('Other map actions'));
   fireEvent.change(screen.getByLabelText('Saved map'), { target: { value: 'a'.repeat(32) } });
-  fireEvent.click(screen.getByRole('button', { name: 'Track position' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Track selected map' }));
   expect(command).toHaveBeenCalledWith('position_start', { area_id: 'a'.repeat(32) });
+  fireEvent.click(screen.getByText('Other map actions'));
   fireEvent.change(screen.getByLabelText('Map name'), { target: { value: 'Ant Tunnel' } });
   fireEvent.click(screen.getByRole('button', { name: 'Teach a new map' }));
   await waitFor(() => expect(refreshAreas).toHaveBeenCalled());

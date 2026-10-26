@@ -26,14 +26,20 @@ function setup(nav: NavigationStatus | undefined = navigation, captureOnly = tru
     ...(areaId ? { position: { area_id: areaId, kind: 'unknown', reason: 'Unknown', input_sent: false } } : {}) })}
     client={{ command } as unknown as EngineClient} disabled={false}
     act={async operation => { await operation(); }} onPreview={onPreview} onInvalidate={onInvalidate}
-    supervised={false} onSupervised={vi.fn()} />);
+    supervised={false} onSupervised={vi.fn()} areas={[{ id: 'area', name: 'Over the Wall' }]} />);
   return { command, onPreview, onInvalidate };
 }
 
 it('loads routes only on request and never starts input', async () => {
   const { command } = setup({ ...navigation, map: null, route: null });
   expect(command).not.toHaveBeenCalled();
-  expect(screen.getByRole('button', { name: 'Load navigation routes' }).hasAttribute('disabled')).toBe(true);
+  const track = screen.getByRole('button', { name: 'Track map and load routes' });
+  expect(track.hasAttribute('disabled')).toBe(true);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Map to track' }), { target: { value: 'area' } });
+  fireEvent.click(track);
+  await waitFor(() => expect(command).toHaveBeenCalledWith('nav_refresh'));
+  expect(command).toHaveBeenCalledWith('position_start', { area_id: 'area' });
+  expect(command.mock.calls.map(([name]) => name)).not.toContain('nav_start');
 });
 
 it('previews named routes, disables excluded destinations and makes no movement request', async () => {

@@ -107,9 +107,9 @@ export function PositionPanel({ snapshot: s, client, act, disabled, areas, refre
     try { await navigator.clipboard.writeText(text); setCopied(true); setReport(''); }
     catch { setReport(text); setCopied(false); }
   };
-  let title = 'Choose a map to teach';
-  let instruction = 'Track a saved map, or create one from the current game picture. Teaching sends no game keys.';
-  let action = 'Track position';
+  let title = 'Choose a map';
+  let instruction = 'Pick a saved map to track. To record a new one, use Teach a new map under Other map actions. Teaching sends no game keys.';
+  let action = 'Track selected map';
   let run = () => command('position_start', { area_id: mapId });
   let blocked = disabled || !mapId;
   if (position) {
@@ -157,6 +157,7 @@ export function PositionPanel({ snapshot: s, client, act, disabled, areas, refre
   return <section className="teaching-panel" aria-label="Map teaching">
     <div className="teaching-summary">
       <span className="eyebrow">{position?.area_name ?? 'Map teaching'}</span><h3>{title}</h3><p>{instruction}</p>
+      {!position && <label>Saved map<select aria-label="Saved map" value={mapId} onChange={event => setChosenArea(event.target.value)}><option value="">Choose a map…</option>{areas.map(area => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>}
       <div className="teaching-primary"><button className="primary" disabled={blocked || Boolean(confirmation) || discard || (lost && copied && !draft?.error)} onClick={() => void act(run)}>{action}</button>
         <span className={draft?.error ? 'draft-error' : 'draft-status'} role="status">{draft?.error ? 'Draft save needs attention' : draft?.pending ? 'Saving recent changes…' : draft?.saved && phase ? `Draft checkpoint saved · ${draft.saved_at ? new Date(draft.saved_at * 1000).toLocaleTimeString() : ''}` : phase ? 'Waiting for a saved checkpoint' : teaching?.map_receipt ? `Map revision ${teaching.map_receipt.revision} saved` : teaching?.map_revision ? `Saved map revision ${teaching.map_revision}` : ''}</span>
       </div>
@@ -177,8 +178,8 @@ export function PositionPanel({ snapshot: s, client, act, disabled, areas, refre
       {missing.length > 0 && <div className="issue-places" aria-label="Places needing review">{missing.map(id => <button key={id} aria-pressed={place?.id === id} onClick={() => setSelected(id)}>{placeName(nodes.find(item => item.id === id))} · {label(id)}</button>)}</div>}
     </>}
     <details className="teaching-options"><summary>Other map actions</summary>
-      <label>Saved map<select value={mapId} onChange={event => setChosenArea(event.target.value)}><option value="">Choose a map…</option>{areas.map(area => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
-      <div className="button-grid"><button disabled={disabled || !mapId} onClick={() => void command('position_start', { area_id: mapId })}>{position ? 'Switch / reconnect map' : 'Track selected map'}</button><button disabled={disabled || !position} onClick={() => void command('position_stop')}>Stop tracking</button></div>
+      {position && <label>Saved map<select value={mapId} onChange={event => setChosenArea(event.target.value)}><option value="">Choose a map…</option>{areas.map(area => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>}
+      <div className="button-grid">{position && <button disabled={disabled || !mapId} onClick={() => void command('position_start', { area_id: mapId })}>Switch / reconnect map</button>}<button disabled={disabled || !position} onClick={() => void command('position_stop')}>Stop tracking</button></div>
       <label>Map name<input value={name} onChange={event => setName(event.target.value)} placeholder="e.g. Ant Tunnel" /></label>
       <button disabled={disabled} onClick={() => void act(async () => { const result = await client.command('teach_new_area', { name }); await refreshAreas(); return result; })}>Teach a new map</button>
       {phase && <div className="button-grid">{phase === 'review' && <><button disabled={disabled} onClick={() => void command('teach_resume')}>Continue teaching anyway</button><button disabled={disabled} onClick={() => void activate()}>Use this map…</button></>}

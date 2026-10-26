@@ -167,3 +167,39 @@ it('offers acknowledgement beside the capture failure inside the safety banner',
   fireEvent.click(within(banner).getByRole('button', { name: 'Acknowledge alarm' }));
   await waitFor(() => expect(commands).toContainEqual(expect.objectContaining({ name: 'acknowledge', payload: { incident_id: 'capture-failure' } })));
 });
+
+it('keeps the supervision opt-in when the engine refuses Start and shows why', async () => {
+  const sent: { name: string; payload: Record<string, unknown> }[] = [];
+  const route = { area_id: 'area', revision: 4, fingerprint: 'hash', origin: 'p3', target: 'p2',
+    edges: [{ id: 'l33', source: 'p3', target: 'p2', kind: 'jump', launch: [1, 2] as [number, number], landing: [3, 4] as [number, number], evidence: 'saved' }] };
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    if (String(url).startsWith('/api/v1/frame') || String(url).startsWith('/api/v1/preview')) return new Response(new Blob(['image']));
+    if (url === '/api/v1/status') {
+      const s = snapshot({ capture_only: false, navigation: {
+        stage: 'preview', reason: 'Preview', active: false, ready: true, blocker: null, route,
+        map: { area_id: 'area', revision: 4, home: 'p3', usable_edges: 1, disabled_edges: {}, nodes: [
+          { id: 'p3', name: 'Ground floor · P3', kind: 'platform', excluded: false },
+          { id: 'p2', name: 'Middle ledge · P2', kind: 'platform', excluded: false }] },
+      }, position: { area_id: 'area', kind: 'platform', surface_id: 'p3', reason: 'On P3', input_sent: false } });
+      return json(s);
+    }
+    const body = JSON.parse(String(options?.body));
+    sent.push({ name: body.name, payload: body.payload });
+    if (body.name === 'nav_start') return json({ error: 'Waiting for fresh fused position on the previewed origin' }, 400);
+    return json({ ok: true });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  render(<App client={new EngineClient('token', fetcher)} />);
+  await waitFor(() => expect(screen.getByRole('img')).toBeTruthy());
+  fireEvent.change(screen.getByRole('combobox', { name: 'Run mode' }), { target: { value: 'navigation' } });
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Route destination' }), { target: { value: 'p2' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview route' }));
+  const opt = await screen.findByRole('checkbox', { name: /supervise/ });
+  fireEvent.click(opt);
+  const start = screen.getByRole('button', { name: /Start navigation$/ });
+  await waitFor(() => expect(start.hasAttribute('disabled')).toBe(false), { timeout: 3000 });
+  fireEvent.click(start);
+  await waitFor(() => expect(screen.getByRole('alert', { name: 'Action blocked' }).textContent).toMatch(/fresh fused position/));
+  expect(sent.find(item => item.name === 'nav_start')?.payload).toEqual({ opt_in: true });
+  expect((screen.getByRole('checkbox', { name: /supervise/ }) as HTMLInputElement).checked).toBe(true);
+});

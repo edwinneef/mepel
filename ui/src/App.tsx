@@ -54,10 +54,11 @@ export function App({ client }: { client: EngineClient }) {
     } catch (error) { client.fail(error); }
   };
   const showTool = (value: Tool) => setTool(previous => previous === value ? null : value);
-  const start = () => act(() => {
+  const start = () => act(async () => {
     if (runMode === 'navigation') {
-      const optIn = supervised; setSupervised(false);
-      return client.command('nav_start', { opt_in: optIn });
+      const result = await client.command('nav_start', { opt_in: supervised });
+      setSupervised(false); // A started route consumes the opt-in; a refused start keeps it.
+      return result;
     }
     return client.command(runMode === 'preview' ? 'dry_run' : 'arm');
   });
@@ -137,7 +138,7 @@ export function App({ client }: { client: EngineClient }) {
             <button aria-pressed={navigationTab === 'teaching'} onClick={() => setNavigationTab('teaching')}>Teach map</button>
           </nav>
           <div hidden={navigationTab !== 'routes'}>{props && <NavigationPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled}
-            onInvalidate={() => { setRouteCurrent(false); setSupervised(false); }} onPreview={() => { setRouteCurrent(true); setRunMode('navigation'); }} supervised={supervised} onSupervised={setSupervised} />}</div>
+            onInvalidate={() => { setRouteCurrent(false); setSupervised(false); }} onPreview={() => { setRouteCurrent(true); setRunMode('navigation'); }} supervised={supervised} onSupervised={setSupervised} areas={area.areas} />}</div>
           <div hidden={navigationTab !== 'teaching'}>{props && <PositionPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} areas={area.areas} refreshAreas={area.refresh} />}
             <details className="advanced-editor"><summary>Advanced: draw by hand</summary><AreaEditor workspace={area} active={tool === 'Navigation' && navigationTab === 'teaching'} connected={state.connected} disabled={disabled} /></details></div></div>
           {tool !== 'Navigation' && (!props ? <p>Waiting for the engine connection…</p> : tool === 'Tracking' ? <TrackingTool {...props} /> : tool === 'Combat' ? <CombatTool {...props} /> : tool === 'Potions' ? <PotionsTool key={s!.session_id} {...props} /> : tool === 'Settings' ? <SettingsTool key={s!.session_id} {...props} /> : tool === 'Diagnostics' ? <DiagnosticsTool {...props} /> : null)}</div>
