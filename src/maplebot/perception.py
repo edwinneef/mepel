@@ -2,8 +2,10 @@
 
 import hashlib
 import json
+import os
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol
@@ -153,6 +155,9 @@ class TemplateDetector:
         self.camera = CameraTracker()
         # Set by the runtime when the taught area's minimap confirms the current map.
         self.taught_map = False
+        self.pool = ThreadPoolExecutor(
+            max_workers=min(8, os.cpu_count() or 1), thread_name_prefix="match"
+        )
         self.reload()
 
     def reload(self) -> None:
@@ -533,42 +538,51 @@ class TemplateDetector:
     def _candidates(
         self, image: Image, gray: Image, templates: list[Template], floor: float
     ) -> list[Detection]:
+        usable = [
+            template for template in templates
+            if template.gray.shape[0] <= image.shape[0] and template.gray.shape[1] <= image.shape[1]
+        ]
+        color_index = (
+            self._color_index(image)
+            if any(template.signature is not None for template in usable) else None
+        )
+
+        def search(template: Template) -> list[Detection]:
+            return self._template_candidates(image, gray, template, floor, color_index)
+
+        # OpenCV releases the GIL, so templates match in parallel; map keeps template order.
+        results = self.pool.map(search, usable) if len(usable) > 1 else map(search, usable)
+        return [candidate for found in results for candidate in found]
+
+    def _template_candidates(
+        self, image: Image, gray: Image, template: Template, floor: float, color_index
+    ) -> list[Detection]:
+        if template.signature is not None:
+            return self._sprite_candidates(image, gray, template, floor, color_index)
+        if template.anchor is not None:
+            return self._anchor_candidates(image, gray, template, floor)
+        height, width = template.gray.shape
         candidates: list[Detection] = []
-        color_index = None
-        for template in templates:
-            height, width = template.gray.shape
-            if height > image.shape[0] or width > image.shape[1]:
-                continue
-            if template.signature is not None:
-                if color_index is None:
-                    color_index = self._color_index(image)
-                candidates.extend(
-                    self._sprite_candidates(image, gray, template, floor, color_index)
+        # Color helps distinguish similar silhouettes; correlation adds local structure.
+        color = 1 - cv2.matchTemplate(image, template.image, cv2.TM_SQDIFF_NORMED)
+        structure = cv2.matchTemplate(gray, template.gray, cv2.TM_CCOEFF_NORMED)
+        score = np.nan_to_num(0.6 * color + 0.4 * structure, nan=0, posinf=0, neginf=0)
+        for _ in range(self.config.max_candidates):
+            _, peak, _, (x, y) = cv2.minMaxLoc(score)
+            if peak < floor:
+                break
+            candidates.append(
+                Detection(
+                    template.kind,
+                    Rect(x, y, width, height),
+                    round(float(peak), 6),
+                    template.name,
                 )
-                continue
-            if template.anchor is not None:
-                candidates.extend(self._anchor_candidates(image, gray, template, floor))
-                continue
-            # Color helps distinguish similar silhouettes; correlation adds local structure.
-            color = 1 - cv2.matchTemplate(image, template.image, cv2.TM_SQDIFF_NORMED)
-            structure = cv2.matchTemplate(gray, template.gray, cv2.TM_CCOEFF_NORMED)
-            score = np.nan_to_num(0.6 * color + 0.4 * structure, nan=0, posinf=0, neginf=0)
-            for _ in range(self.config.max_candidates):
-                _, peak, _, (x, y) = cv2.minMaxLoc(score)
-                if peak < floor:
-                    break
-                candidates.append(
-                    Detection(
-                        template.kind,
-                        Rect(x, y, width, height),
-                        round(float(peak), 6),
-                        template.name,
-                    )
-                )
-                score[
-                    max(0, y - height // 2) : y + height // 2 + 1,
-                    max(0, x - width // 2) : x + width // 2 + 1,
-                ] = 0
+            )
+            score[
+                max(0, y - height // 2) : y + height // 2 + 1,
+                max(0, x - width // 2) : x + width // 2 + 1,
+            ] = 0
         return candidates
 
     @staticmethod
