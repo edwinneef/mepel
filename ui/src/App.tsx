@@ -71,7 +71,11 @@ export function App({ client }: { client: EngineClient }) {
       <div className="nav-spacer" /><button aria-pressed={tool === 'Settings'} onClick={() => showTool('Settings')}>Settings</button>
       <button className="quiet" aria-pressed={tool === 'Diagnostics'} onClick={() => showTool('Diagnostics')}>Diagnostics</button>
     </nav>
-    {s && <AlarmBanner snapshot={s} showAcknowledge={false} onAcknowledge={id => void act(() => client.command('acknowledge', { incident_id: id }))} />}
+    {state.needsReload && <section className="alarm-banner" aria-label="Reconnect workspace">
+      <div><span className="eyebrow">Engine restarted</span><p>Reload this workspace to reconnect. Gameplay input stays stopped.</p></div>
+      <button onClick={() => location.reload()}>Reload workspace</button>
+    </section>}
+    {s && <AlarmBanner snapshot={s} onAcknowledge={id => void act(() => client.command('acknowledge', { incident_id: id }))} />}
     <main className={`workspace ${tool ? 'with-dock' : ''}`}>
       <section className="preview-panel" aria-label="Live game workspace">
         <div className="preview-heading"><div><span className="eyebrow">{area.editing ? 'Area reference' : view.frozen ? 'Frozen frame' : 'Game view'}</span>
@@ -102,7 +106,7 @@ export function App({ client }: { client: EngineClient }) {
       </aside>
     </main>
     <div className={`feedback ${state.error ? 'error' : ''}`} role="status" aria-live="polite">{state.error || state.notice || (state.connected ? 'Ready when you are. Preview sends no keyboard input.' : 'Connecting to the local engine…')}
-      {state.needsReload && <button onClick={() => location.reload()}>Reload workspace</button>}</div>
+      </div>
     <footer className="app-footer"><span>Screenshot in · bounded keyboard out</span><span>{s?.capture_only ? 'Capture-only session' : 'Supervised session'} · No automatic resume</span></footer>
   </div>;
 }

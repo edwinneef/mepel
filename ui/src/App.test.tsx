@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { EngineClient } from './client';
@@ -115,4 +115,35 @@ it('acknowledges only the displayed alarm and provides a clipboard fallback', as
   fireEvent.click(screen.getByText('Details'));
   fireEvent.click(screen.getByRole('button', { name: 'Copy alarm' }));
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Alarm details to copy' })).toBeTruthy());
+});
+
+it('shows the reload recovery above the game view when a restarted engine disables commands', async () => {
+  let sessionId = 'first-session';
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => String(url).startsWith('/api/v1/frame')
+    ? new Response(new Blob(['image'])) : json(snapshot({ session_id: sessionId })));
+  vi.stubGlobal('fetch', fetcher);
+  const client = new EngineClient('token', fetcher);
+  render(<App client={client} />);
+  await waitFor(() => expect(screen.getByRole('img')).toBeTruthy());
+  sessionId = 'replacement-session';
+  await act(async () => { await client.readStatus(); });
+  expect(screen.getByRole('button', { name: /Start$/ }).hasAttribute('disabled')).toBe(true);
+  const recovery = screen.getByRole('region', { name: 'Reconnect workspace' });
+  expect(within(recovery).getByRole('button', { name: 'Reload workspace' }).hasAttribute('disabled')).toBe(false);
+  expect(recovery.compareDocumentPosition(screen.getByLabelText('Live game workspace')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+});
+
+it('offers acknowledgement beside the capture failure inside the safety banner', async () => {
+  const commands: { name: string; payload: Record<string, unknown> }[] = [];
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    if (String(url).startsWith('/api/v1/frame')) return new Response(new Blob(['image']));
+    if (options?.method === 'POST') { commands.push(JSON.parse(String(options.body))); return json({ acknowledged: true }); }
+    return json(snapshot({ alarm: { active: true, incident_id: 'capture-failure' } }));
+  });
+  vi.stubGlobal('fetch', fetcher);
+  render(<App client={new EngineClient('token', fetcher)} />);
+  const banner = await screen.findByRole('region', { name: 'Safety stop' });
+  fireEvent.click(within(banner).getByRole('button', { name: 'Acknowledge alarm' }));
+  await waitFor(() => expect(commands).toContainEqual(expect.objectContaining({ name: 'acknowledge', payload: { incident_id: 'capture-failure' } })));
 });
