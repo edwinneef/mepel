@@ -487,6 +487,7 @@ class TemplateDetector:
         gray: Image,
         template: Template,
         floor: float,
+        coarse: Image | None = None,
     ) -> list[Detection]:
         anchor = template.anchor
         assert anchor is not None and template.mask is not None
@@ -496,18 +497,24 @@ class TemplateDetector:
         reference_gray = template.gray[
             anchor.y : anchor.y + anchor.height, anchor.x : anchor.x + anchor.width
         ]
-        # Fast grayscale proposals, then masked verification in small native-resolution crops.
-        proposals = cv2.matchTemplate(gray, reference_gray, cv2.TM_CCOEFF_NORMED)
+        # Half-resolution grayscale proposals, then masked verification in native crops.
+        coarse = cv2.pyrDown(gray) if coarse is None else coarse
+        reference_coarse = cv2.pyrDown(reference_gray)
+        if (reference_coarse.shape[0] > coarse.shape[0]
+                or reference_coarse.shape[1] > coarse.shape[1]):
+            return []
+        proposals = cv2.matchTemplate(coarse, reference_coarse, cv2.TM_CCOEFF_NORMED)
         proposals = np.nan_to_num(proposals, nan=-1, posinf=-1, neginf=-1)
         found = []
         bounds = Rect(0, 0, image.shape[1], image.shape[0])
         for _ in range(self.config.max_candidates):
-            _, peak, _, (x, y) = cv2.minMaxLoc(proposals)
+            _, peak, _, (cx, cy) = cv2.minMaxLoc(proposals)
             if peak < 0.25:
                 break
-            left, top = max(0, x - 3), max(0, y - 3)
-            right = min(image.shape[1], x + anchor.width + 3)
-            bottom = min(image.shape[0], y + anchor.height + 3)
+            x, y = cx * 2, cy * 2
+            left, top = max(0, x - 4), max(0, y - 4)
+            right = min(image.shape[1], x + anchor.width + 4)
+            bottom = min(image.shape[0], y + anchor.height + 4)
             color = 1 - cv2.matchTemplate(
                 image[top:bottom, left:right], reference, cv2.TM_SQDIFF_NORMED, mask=template.mask
             )
@@ -530,8 +537,8 @@ class TemplateDetector:
                     Detection(template.kind, box, round(float(confidence), 6), template.name)
                 )
             proposals[
-                max(0, y - anchor.height // 2) : y + anchor.height // 2 + 1,
-                max(0, x - anchor.width // 2) : x + anchor.width // 2 + 1,
+                max(0, cy - anchor.height // 4) : cy + anchor.height // 4 + 1,
+                max(0, cx - anchor.width // 4) : cx + anchor.width // 4 + 1,
             ] = -1
         return found
 
@@ -547,20 +554,23 @@ class TemplateDetector:
             if any(template.signature is not None for template in usable) else None
         )
 
+        coarse = cv2.pyrDown(gray) if any(t.anchor is not None for t in usable) else None
+
         def search(template: Template) -> list[Detection]:
-            return self._template_candidates(image, gray, template, floor, color_index)
+            return self._template_candidates(image, gray, template, floor, color_index, coarse)
 
         # OpenCV releases the GIL, so templates match in parallel; map keeps template order.
         results = self.pool.map(search, usable) if len(usable) > 1 else map(search, usable)
         return [candidate for found in results for candidate in found]
 
     def _template_candidates(
-        self, image: Image, gray: Image, template: Template, floor: float, color_index
+        self, image: Image, gray: Image, template: Template, floor: float, color_index,
+        coarse: Image | None = None,
     ) -> list[Detection]:
         if template.signature is not None:
             return self._sprite_candidates(image, gray, template, floor, color_index)
         if template.anchor is not None:
-            return self._anchor_candidates(image, gray, template, floor)
+            return self._anchor_candidates(image, gray, template, floor, coarse)
         height, width = template.gray.shape
         candidates: list[Detection] = []
         # Color helps distinguish similar silhouettes; correlation adds local structure.
