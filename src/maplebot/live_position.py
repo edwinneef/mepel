@@ -8,7 +8,9 @@ reference view. Registration is slow, so it runs on one background thread.
 import json
 import math
 import time
+import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import asdict
 
 import cv2
 import numpy as np
@@ -25,6 +27,7 @@ from .map_teacher import MapTeacher
 from .minimap_reader import AreaMinimap, MinimapFix
 from .perception import Detection, Observation
 from .profiles import AreaStore
+from .teaching_drafts import TeachingDrafts, basis
 
 STALE_SECONDS = 0.5
 MAX_PAIRS = 400
@@ -65,7 +68,94 @@ class LivePosition:
         self.teach_calibrating = False
         self.proposal: dict | None = None
         self.preview: tuple[float, dict] | None = None
+        self.drafts = TeachingDrafts(store.directory, area_id)
+        self.draft_revision = 0
+        self.draft_id = uuid.uuid4().hex
+        self.draft_saved_at: float | None = None
+        self.draft_error: str | None = None
+        self.interrupted = False
+        self.checkpoint_at = 0.0
         self._load(area_id)
+        self._recover_draft()
+
+    def _recover_draft(self) -> None:
+        try:
+            saved = self.drafts.load()
+            if saved is None:
+                self._import_legacy_log()
+                return
+            self.draft_revision = saved["revision"]
+            if saved["phase"] in {"used", "discarded"}:
+                return
+            self.draft_id, self.draft_saved_at = saved["id"], saved["saved_at"]
+            if saved["basis"] != basis(self.profile):
+                raise ValueError("Saved map changed; teaching draft preserved for recovery")
+            if saved.get("teacher") is not None:
+                self.finished = MapTeacher.restore(saved["teacher"])
+                if saved["phase"] == "review":
+                    self.proposal = self.finished.geometry()
+                else:
+                    self.interrupted = True
+            else:
+                self.samples = [(tuple(a), tuple(b)) for a, b in saved.get("pairs", [])]
+                self.interrupted = True
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            self.draft_error = f"Draft recovery: {error}"
+
+    def _import_legacy_log(self) -> None:
+        """Recover the last Finish result without replacing the saved map."""
+        if self.tracker is None:
+            return
+        logs = sorted((self.store.directory / "teaching").glob(
+            f"{self.profile['id']}-[0-9]*.jsonl"), key=lambda p: p.stat().st_mtime)
+        if not logs:
+            return
+        path = logs[-1]
+        if path.stat().st_size > 16_000_000:
+            raise ValueError("Legacy log too large; preserved for recovery")
+        rows = [json.loads(row) for row in path.read_text("utf-8").splitlines()]
+        if not all(isinstance(row, dict) for row in rows):
+            raise ValueError("Invalid legacy teaching log; original file preserved")
+        proposal = rows[-1].get("proposal") if rows else None
+        if not proposal:
+            return
+        if all(self.profile[key] == proposal[key] for key in ("platforms", "ropes", "links")):
+            return  # This result has already been installed as the saved map.
+        transform = self.tracker.transform
+        teacher = MapTeacher.restore({
+            "transform": asdict(transform),
+            "samples": [{"t": row["t"], "kind": row["kind"], "dot": row["sample_dot"],
+                         "feet": transform.to_area(*row["sample_dot"])}
+                        for row in rows if "sample_dot" in row],
+            "log": [row for row in rows if "reason" in row],
+        })
+        if teacher.geometry() != proposal:
+            raise ValueError("Legacy log/calibration mismatch; original log preserved")
+        self.finished, self.proposal = teacher, proposal
+        self._checkpoint(force=True)
+
+    def _checkpoint(self, *, force: bool = False) -> None:
+        teacher = self.teacher or self.finished
+        if teacher is None and not self.teach_calibrating:
+            return
+        now = time.perf_counter()
+        if not force and now - self.checkpoint_at < 1:
+            return
+        try:
+            if self.draft_error and self.draft_error.startswith("Draft recovery:"):
+                return  # Never overwrite an unreadable or conflicting checkpoint.
+            saved = self.drafts.save({
+                "id": self.draft_id, "basis": basis(self.profile),
+                "base_revision": self.profile["revision"], "reference": self.view_id,
+                "phase": "review" if self.proposal else "recording" if teacher else "calibrating",
+                "teacher": teacher.checkpoint() if teacher else None,
+                "pairs": self.samples or [],
+            }, self.draft_revision)
+            self.draft_revision, self.draft_saved_at = saved["revision"], saved["saved_at"]
+            self.draft_error = None
+        except (OSError, ValueError, TypeError) as error:
+            self.draft_error = f"Draft not saved: {error}"
+        self.checkpoint_at = now
 
     def _load(self, area_id: str) -> None:
         profile = self.store.load(area_id)["profile"]
@@ -134,24 +224,37 @@ class LivePosition:
             self.teacher = MapTeacher(self.tracker.transform)
         if self.teacher is not None:
             self.teacher.add(fix, player, shift, now)
+        self._checkpoint()
 
     def _teaching_status(self, now: float) -> dict:
-        phase = ("calibrating" if self.teach_calibrating else "recording" if self.teacher
+        phase = ("conflict" if self.draft_error and self.draft_error.startswith("Draft recovery:")
+                 else "interrupted" if self.interrupted
+                 else "calibrating" if self.teach_calibrating else "recording" if self.teacher
                  else "review" if self.proposal else None)
         if self.teacher is not None and (self.preview is None or now - self.preview[0] >= 1):
             self.preview = (now, self.teacher.geometry())
         geometry = self.proposal or (self.preview[1] if self.preview and self.teacher else None)
         return {"phase": phase, "geometry": geometry,
-                "samples": len(self.teacher.samples) if self.teacher else 0}
+                "samples": len(self.teacher.samples) if self.teacher else 0,
+                "draft": {"id": self.draft_id, "revision": self.draft_revision,
+                          "saved_at": self.draft_saved_at, "error": self.draft_error,
+                          "saved": self.draft_saved_at is not None and not self.draft_error},
+                "map_revision": self.profile["revision"]}
 
     def begin_teaching(self) -> dict:
         """Record the operator's play; calibrate first when the area has no calibration."""
+        if self.draft_error or self.finished is not None or self.interrupted:
+            raise ValueError("Resume or explicitly discard the existing teaching draft first")
+        if self.teacher is not None or self.teach_calibrating:
+            return self._teaching_status(time.perf_counter())
         self.proposal, self.preview = None, None
+        self.draft_id = uuid.uuid4().hex
         if self.tracker is None:
             self.begin_calibration()
             self.teach_calibrating, self.teacher = True, None
         else:
             self.teach_calibrating, self.teacher = False, MapTeacher(self.tracker.transform)
+        self._checkpoint(force=True)
         return self._teaching_status(time.perf_counter())
 
     def finish_teaching(self) -> dict:
@@ -162,13 +265,25 @@ class LivePosition:
             raise ValueError("No platform seen yet: walk along each floor and ledge")
         self.proposal, self.finished = proposal, self.teacher
         self.teacher, self.preview = None, None
+        self._checkpoint(force=True)
         return {**proposal, "log": self._write_log(self.finished, proposal)}
 
     def resume_teaching(self) -> dict:
         """Back from review to recording, keeping everything walked so far."""
+        if self.draft_error:
+            raise ValueError(self.draft_error)
+        if self.interrupted and self.finished is None:
+            self.interrupted, self.teach_calibrating = False, True
+            self._checkpoint(force=True)
+            return self._teaching_status(time.perf_counter())
         if self.finished is None:
             raise ValueError("Nothing to resume; start teaching first")
         self.teacher, self.finished, self.proposal = self.finished, None, None
+        self.interrupted = False
+        self.teacher.last, self.teacher.climb_run = None, 0
+        # Separate the recording segments even when Resume follows Finish immediately.
+        self.teacher = MapTeacher.restore(self.teacher.checkpoint())
+        self._checkpoint(force=True)
         return self._teaching_status(time.perf_counter())
 
     def _save_miss(self, image: np.ndarray) -> None:
@@ -203,11 +318,16 @@ class LivePosition:
             raise ValueError("Finish teaching before saving the map")
         saved = self.store.save_geometry(self.profile["id"], self.profile["revision"],
                                          self.proposal)
+        retired = self.drafts.retire("used", self.draft_revision)
+        self.draft_revision, self.draft_saved_at = retired["revision"], None
         self.proposal, self.finished = None, None
         self._load(self.profile["id"])
         return saved
 
     def cancel_teaching(self) -> dict:
+        retired = self.drafts.retire("discarded", self.draft_revision)
+        self.draft_revision, self.draft_saved_at = retired["revision"], None
+        self.draft_error, self.interrupted = None, False
         if self.teach_calibrating:
             self.cancel_calibration()
         self.teacher, self.proposal, self.preview, self.teach_calibrating = None, None, None, False
@@ -285,4 +405,5 @@ class LivePosition:
                 "warnings": saved["warnings"]}
 
     def close(self) -> None:
+        self._checkpoint(force=True)
         self.pool.shutdown(wait=False, cancel_futures=True)

@@ -6,7 +6,8 @@ on it. Only moves the operator actually made become links, in their direction.
 """
 
 import math
-from dataclasses import dataclass, replace
+import time
+from dataclasses import asdict, dataclass, replace
 
 import numpy as np
 
@@ -41,6 +42,43 @@ class MapTeacher:
         self.log: list[dict] = []
         self.last: tuple[float, tuple[float, float], tuple[float, float] | None] | None = None
         self.climb_run = 0
+
+    def checkpoint(self) -> dict:
+        return {"transform": asdict(self.transform),
+                "samples": [asdict(sample) for sample in self.samples], "log": self.log}
+
+    @classmethod
+    def restore(cls, value: dict) -> "MapTeacher":
+        teacher = cls(MinimapTransform(**value["transform"]))
+        samples, log = value["samples"], value["log"]
+        if not isinstance(samples, list) or not isinstance(log, list):
+            raise ValueError("Invalid teaching samples")
+        if len(samples) > MAX_SAMPLES or len(log) > MAX_SAMPLES:
+            raise ValueError("Too many teaching samples")
+        if not all(isinstance(row, dict) for row in log):
+            raise ValueError("Invalid teaching log")
+        for item in samples:
+            if (not isinstance(item, dict)
+                    or item.get("kind") not in {"ground", "slope", "climb", "air"}):
+                raise ValueError("Invalid teaching sample kind")
+            for key in ("dot", "feet"):
+                if (not isinstance(item.get(key), (list, tuple)) or len(item[key]) != 2
+                        or not all(type(v) in (int, float) and math.isfinite(v)
+                                   for v in item[key])):
+                    raise ValueError("Invalid teaching sample coordinates")
+            t = item["t"]
+            if (type(t) not in (int, float) or not math.isfinite(t)
+                    or (teacher.samples and t < teacher.samples[-1].t)):
+                raise ValueError("Invalid teaching sample time")
+            teacher.samples.append(_Sample(t, item["kind"], tuple(item["dot"]),
+                                           tuple(item["feet"])))
+        # A restart/resume must never invent a move across the interruption.
+        if teacher.samples:
+            offset = time.perf_counter() - LINK_SECONDS - 2 - teacher.samples[-1].t
+            teacher.samples = [replace(sample, t=sample.t + offset)
+                               for sample in teacher.samples]
+        teacher.log = log
+        return teacher
 
     def add(self, fix: MinimapFix, player: Detection | None,
             camera_shift: tuple[float, float] | None, now: float) -> None:

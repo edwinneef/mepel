@@ -1237,6 +1237,11 @@ class Application:
             })["profile"]
             name, payload = "position_start", {"area_id": saved["id"], "teach": True}
         if name == "position_start":
+            if self.position is not None:
+                self.position._checkpoint(force=True)
+                if self.position.profile["id"] == payload.get("area_id"):
+                    return {"tracking": True, "area_id": self.position.profile["id"],
+                            "calibrated": self.position.tracker is not None}
             position = LivePosition(self.areas, payload.get("area_id"))
             if self.position is not None:
                 self.position.close()
