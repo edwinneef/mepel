@@ -91,7 +91,8 @@ export function App({ client }: { client: EngineClient }) {
           <span className="map-name">{area.editing ? area.draft?.name ?? 'Area teaching' : s?.catalog?.active_map || s?.window?.title || 'Waiting for connection'}</span></div>
           <span className={`view-badge ${!liveFrame || area.editing ? 'stale' : ''}`}>{area.editing ? 'Editing · input stopped' : view.frozen ? 'Selection mode' : liveFrame ? 'Live picture' : !state.connected ? 'Disconnected · last frame' : view.image ? 'Last frame · waiting for capture' : 'Waiting for fresh frame'}</span></div>
         {area.editing ? <AreaCanvas workspace={area} disabled={disabled || area.working} /> : <GameViewport image={view.image} frozen={Boolean(view.frozen)} stale={!liveFrame} selection={view.selection} onSelection={view.setSelection}
-          overlay={!liveFrame ? null : <PositionOverlay position={s?.position} showText={tool !== 'Navigation'} />} />}
+          overlay={!liveFrame ? null : <PositionOverlay position={s?.position} showText={tool !== 'Navigation'} />}
+          onStop={() => void stop('stop')} stopDisabled={state.process !== 'running'} />}
         {area.editing ? <div className="preview-toolbar"><span className="area-reference-note">{area.view?.name ?? 'Capture a reference from Navigation'} · fixed image</span>
           <div className="nav-spacer" /><button disabled={disabled || area.working} onClick={() => void area.end()}>Exit area editing</button></div> : <>
         <div className="preview-toolbar" aria-label="Capture tools">

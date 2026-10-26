@@ -12,6 +12,8 @@ interface Props {
   selection: Rect | null;
   onSelection: (selection: Rect) => void;
   overlay?: ReactNode;
+  onStop?: () => void;
+  stopDisabled?: boolean;
 }
 
 function GameSurface({ image, frozen, stale = false, selection, onSelection, overlay }: Props) {
@@ -70,7 +72,10 @@ export function GameViewport(props: Props) {
     </div>
     {content}
     {expanded && <dialog ref={dialog} className="game-dialog" aria-label="Expanded game" onClose={() => setExpanded(false)}>
-      <header><strong>Game picture</strong><button onClick={() => dialog.current?.close()}>Close expanded game</button></header>
+      <header><strong>Game picture</strong><div className="game-dialog-actions">
+        {props.onStop && <button className="stop-button" disabled={props.stopDisabled} onClick={props.onStop}>Stop <kbd>F8</kbd></button>}
+        <button onClick={() => dialog.current?.close()}>Close expanded game</button>
+      </div></header>
       {content}
     </dialog>}
   </>;
