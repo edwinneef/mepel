@@ -80,6 +80,17 @@ def test_walk_calibration_saves_transform_and_residual_then_locates(store):
         assert results[-1]["surface_id"] == "floor"
         assert results[-1]["feet"] == pytest.approx([500, 600], abs=1)
         assert results[-1]["calibration"]["saved"]["pairs"] == calibration["pairs"]
+        assert results[0]["projection"] is None
+        projection = results[-1]["projection"]
+        assert projection["scale"] == 1
+        assert projection["revision"] == saved["revision"]
+        assert projection["x"] + results[-1]["feet"][0] == pytest.approx(500)
+        assert projection["y"] + results[-1]["feet"][1] == pytest.approx(600)
+        # A camera scroll changes screen placement without moving saved geometry.
+        image = view(((60, 20),))
+        moved = Observation(observe(470).player, [], camera_shift=(-30, 0), camera_confidence=0.9)
+        scrolled = position.update(image, position.read_map(image), moved, 11)
+        assert scrolled["projection"]["x"] == pytest.approx(projection["x"] - 30)
     finally:
         position.close()
 
@@ -108,6 +119,7 @@ def test_covered_minimap_is_unknown(store):
         result = position.update(image, position.read_map(image), observe(500), 20.0)
         assert result["kind"] == "unknown" and result["marker"] is None
         assert result["reason"] == "Minimap missing, covered or showing another map"
+        assert result["projection"] is None
     finally:
         position.close()
 
@@ -134,6 +146,7 @@ def test_position_older_than_500_ms_is_cleared():
     stale = Application._position_snapshot(tracking, {**fresh, "captured_at": time.time() - 0.6})
     assert stale["stale"] is True and stale["kind"] == "unknown"
     assert stale["surface_id"] is None and stale["feet"] is None and stale["marker"] is None
+    assert stale["projection"] is None
     assert Application._position_snapshot(SimpleNamespace(position=None), fresh) is None
 
 

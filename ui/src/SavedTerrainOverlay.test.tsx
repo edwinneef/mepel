@@ -1,0 +1,35 @@
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, expect, it } from 'vitest';
+import { SavedTerrainOverlay } from './SavedTerrainOverlay';
+import type { AreaProfile, LivePosition } from './contracts';
+
+afterEach(cleanup);
+const map: AreaProfile = { schema_version: 2, id: 'map', revision: 3, name: 'Map',
+  boundary: { x: 0, y: 0, width: 1000, height: 1000 }, views: [], zones: [], links: [],
+  platforms: [{ id: 'floor', start: { x: 100, y: 200 }, end: { x: 300, y: 210 } }],
+  ropes: [{ id: 'rope', start: { x: 200, y: 50 }, end: { x: 200, y: 200 } }],
+};
+const position: LivePosition = { area_id: 'map', kind: 'platform', surface_id: 'floor',
+  reason: 'Matched', input_sent: false, captured_at: 10,
+  projection: { x: -30, y: 50, scale: 2, revision: 3 } };
+
+it('projects slopes and ropes with scale and camera translation, separately labelled', () => {
+  const view = render(<svg><SavedTerrainOverlay map={map} position={position} now={10100} /></svg>);
+  const lines = view.container.querySelectorAll('line');
+  expect(lines).toHaveLength(2);
+  expect(lines[0].getAttribute('x1')).toBe('170');
+  expect(lines[0].getAttribute('y2')).toBe('470');
+  expect(lines[1].getAttribute('x1')).toBe('370');
+  expect(screen.getByText('Saved · floor · spatial match')).toBeTruthy();
+  expect(screen.getByText(/not live detection/)).toBeTruthy();
+});
+
+it.each([
+  { stale: true }, { kind: 'unknown' }, { area_id: 'other' }, { captured_at: 9 },
+  { captured_at: 11 }, { captured_at: undefined }, { projection: null },
+  { projection: { ...position.projection!, revision: 2 } },
+  { projection: { ...position.projection!, scale: NaN } },
+])('hides uncertain, old or mismatched alignment: %j', change => {
+  const view = render(<svg><SavedTerrainOverlay map={map} position={{ ...position, ...change }} now={10100} /></svg>);
+  expect(view.container.querySelector('g')).toBeNull();
+});

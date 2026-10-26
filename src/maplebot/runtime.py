@@ -1407,7 +1407,7 @@ class Application:
         if age <= STALE_SECONDS:
             return {**position, "stale": False}
         return {**position, "kind": "unknown", "surface_id": None, "feet": None,
-                "marker": None, "stale": True,
+                "marker": None, "projection": None, "stale": True,
                 "reason": f"Position stale: no processed frame for {age * 1000:.0f} ms"}
 
     @staticmethod

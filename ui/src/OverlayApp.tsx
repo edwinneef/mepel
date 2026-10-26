@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { OverlayClient, freshDetections, isRunning } from './overlay';
 import type { OverlayAction } from './overlay';
-import type { AreaProfile, Detection } from './contracts';
+import type { AreaProfile, Detection, Rect } from './contracts';
+import { useOverlayLayout } from './overlayLayout';
 import { useViewport } from './useViewport';
 import { GameViewport } from './GameViewport';
 import { SettingsTool, TrackingTool, PotionsTool, DiagnosticsTool } from './tools';
@@ -9,12 +10,15 @@ import { PositionPanel, MapSketch } from './PositionPanel';
 import { GoBar } from './GoBar';
 import { NavigationPanel } from './NavigationPanel';
 import { AlarmBanner } from './AlarmBanner';
+import { SavedTerrainOverlay } from './SavedTerrainOverlay';
 import './overlay.css';
 
 export function OverlayApp({ client }: { client: OverlayClient }) {
   const state = useSyncExternalStore(client.subscribe, client.getState);
   const s = state.snapshot;
   const [panel, setPanel] = useState(true);
+  const [gameBounds, setGameBounds] = useState<(Rect & { visible: boolean }) | null>(null);
+  const layout = useOverlayLayout(panel);
   const [tab, setTab] = useState('Bot');
   const [layers, setLayers] = useState(true);
   const [terrain, setTerrain] = useState(true);
@@ -25,13 +29,22 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
   const [starting, setStarting] = useState(false);
   const [supervised, setSupervised] = useState(false);
   const startRef = useRef(false);
+  const wasRunning = useRef(false);
   const dataKey = useRef('');
   const currentToggle = useRef<() => void>(() => {});
   const view = useViewport(client, s, state.connected && panel);
   const running = isRunning(s);
-  const fresh = freshDetections(s, state.connected, now);
+  // Status can arrive between timer ticks; don't compare a new frame against
+  // the previous tick and incorrectly classify it as coming from the future.
+  const fresh = freshDetections(s, state.connected, Math.max(now, Date.now()));
   const disabled = !state.connected || state.busy || state.needsReload;
   const act = async (fn: () => Promise<unknown>) => { try { await fn(); } catch (e) { client.fail(e); } };
+  useEffect(() => {
+    const previous = wasRunning.current;
+    wasRunning.current = running;
+    if (previous && !running && state.connected) client.message(`Off · ${s?.reason ?? 'Engine stopped'}`);
+    else if (!previous && running) client.message(`${action.label} On${action.name === 'dry_run' ? ' · no gameplay keys' : ''}`);
+  }, [running, state.connected, client, s?.reason, action.label, action.name]);
   const refreshAreas = async () => {
     const result = await client.command<{ areas: { id: string; name: string; revision: number }[] }>('area_list');
     setAreas(result.areas);
@@ -42,6 +55,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
     const timer = setInterval(() => { setNow(Date.now()); window.mapleOverlay?.heartbeat(); }, 200);
     const unsub = window.mapleOverlay?.subscribe(event => {
       if (event.type === 'panel') setPanel(Boolean(event.value));
+      if (event.type === 'game-bounds') setGameBounds(event.value as (Rect & { visible: boolean }) | null);
       if (event.type === 'toggle') currentToggle.current();
       if (event.type === 'off') { startRef.current = false; setStarting(false); void act(() => client.command('stop')); }
       if (event.type === 'layers') setLayers(value => !value);
@@ -70,15 +84,19 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
   const toggle = async () => {
     if (running || startRef.current) {
       startRef.current = false; setStarting(false);
-      await act(() => client.command('stop')); return;
+      await act(() => client.command('stop'));
+      client.message('F6 · bot switched Off'); return;
     }
+    if (!panel && !s?.focused) { client.message('F6 · focus the game to turn On; F8 always stops'); return; }
     if (disabled || !fresh) { client.message('OFF · waiting for fresh recognition and an engine connection'); return; }
+    client.message(`F6 · starting ${action.label}${action.name === 'dry_run' ? ' (no gameplay keys)' : ''}`);
     startRef.current = true; setStarting(true);
     try {
       if (panel) await window.mapleOverlay?.settings(false);
       if (!startRef.current) return;
       await client.execute(action);
-      await client.readStatus();
+      const result = await client.readStatus();
+      if (!isRunning(result)) client.message(`${action.label} stopped: ${result.reason}`);
     } catch (e) { client.fail(e); }
     finally { startRef.current = false; setStarting(false); }
   };
@@ -97,26 +115,35 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
     runMode: (action.name === 'arm' ? 'live' : 'preview') as 'live' | 'preview',
     setRunMode: (mode: 'live' | 'preview' | 'navigation') => choose(mode === 'live' ? 'arm' : 'dry_run', mode),
   } : null;
-  return <div className="native-overlay">
-    {layers && fresh && s && <svg className="world-layer" viewBox={`0 0 ${s.frame.width} ${s.frame.height}`} preserveAspectRatio="none" aria-label="Live detections">
+  const game = gameBounds ?? { x: 0, y: 0, width: innerWidth, height: innerHeight };
+  return <div className={`native-overlay ${panel ? 'editing-layout' : ''}`}>
+    {layers && fresh && s && gameBounds?.visible && <svg className="world-layer"
+      style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
+      viewBox={`0 0 ${s.frame.width} ${s.frame.height}`} preserveAspectRatio="none" aria-label="Live detections">
+      {terrain && <SavedTerrainOverlay map={map} position={position} now={Math.max(now, Date.now())} />}
       {s.player && detection(s.player, 'Player', '#81edbb')}
       {s.monsters?.map((item, i) => detection(item, `${item.kind} ${i + 1}`, '#ffbd72'))}
       {s.target && detection(s.target, 'Target', '#ff6b89')}
     </svg>}
-    <div className={`overlay-hud ${active ? 'on' : 'off'}`} role="status">
-      <strong><span className="status-dot" /> BOT {status}</strong><span>{action.label}</span>
+    <div className={`overlay-hud ${active ? 'on' : 'off'}`} role="status"
+      style={layout.position('hud', { x: game.x + 14, y: game.y + 14 })}>
+      <strong className="panel-drag-handle" {...layout.handlers('hud')}><span className="status-dot" /> BOT {status}{panel && <small>Drag to move</small>}</strong><span>{action.label}</span>
       <small>F6 On/Off · F7 Settings · F8 Stop · F9 Layers</small>
+      {state.notice && <p className="overlay-notice">{state.notice}</p>}
       <p>{state.error || (!fresh ? 'Waiting for fresh recognition' : s?.active_probe?.instruction || s?.navigation?.active && s.navigation.reason || s?.reason)}</p>
       <span>{(['hp', 'mp'] as const).map(r => `${r.toUpperCase()} ${s?.autopotter.readings[r]?.percent ?? '—'}%`).join(' · ')}</span>
     </div>
-    {layers && terrain && map?.boundary && <section className="terrain-inset">
-      <strong>Saved terrain · {map.name}</strong>
+    {layers && terrain && map?.boundary && <section className="terrain-inset"
+      style={layout.position('terrain', { x: game.x + 14, y: game.y + game.height - 240 })}>
+      <strong className="panel-drag-handle" {...layout.handlers('terrain')}>Saved terrain · {map.name}</strong>
       <MapSketch geometry={map} feet={fresh && position && !position.stale ? position.feet : null} />
       <small>{position?.stale ? 'Position stale' : position?.reason} · saved geometry, not live terrain detection</small>
     </section>}
-    {panel && <section className="overlay-panel" aria-label="Overlay settings">
-      <header><h1>Maple Overlay</h1><button onClick={() => void window.mapleOverlay?.settings(false)}>Close · F7</button></header>
+    {panel && <section className="overlay-panel" aria-label="Overlay settings"
+      style={layout.position('settings', { x: game.x + game.width - 474, y: game.y + 14 })}>
+      <header className="panel-drag-handle" {...layout.handlers('settings')}><h1>Maple Overlay · drag to move</h1><button onClick={() => void window.mapleOverlay?.settings(false)}>Close · F7</button></header>
       <p>Bot is Off while settings are open. Closing settings never resumes it.</p>
+      <p>Drag panel headings anywhere on the desktop, including outside the game. <button onClick={layout.reset}>Reset positions</button></p>
       <nav>{['Bot', 'Connection', 'Recognition', 'Potions', 'Map', 'Diagnostics'].map(name =>
         <button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>{name}</button>)}</nav>
       {state.error && <p role="alert" className="warning-copy">{state.error}</p>}

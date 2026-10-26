@@ -40,6 +40,8 @@ export interface LivePosition {
   area_id?: string; area_name?: string; kind: string; surface_id?: string | null;
   feet?: [number, number] | null; reason: string; map?: string; canvas?: Rect | null;
   marker?: [number, number] | null; calibrated?: boolean; stale?: boolean;
+  captured_at?: number;
+  projection?: { x: number; y: number; scale: number; revision: number } | null;
   calibration?: WalkCalibration; input_sent: false;
   teaching?: TeachingSession;
 }

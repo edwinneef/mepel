@@ -231,12 +231,24 @@ class LivePosition:
         else:
             location = self.tracker.update(fix, player, shift, now)
         canvas = fix.canvas
+        # Project saved area coordinates into this same observation's crop pixels.
+        # Never infer a camera transform from an unconfirmed/airborne position.
+        projection = None
+        if location.kind == "platform" and location.reference_feet and player is not None:
+            x, y = location.reference_feet
+            projection = {
+                "x": player.box.center[0] - x * self.view.scale,
+                "y": player.box.feet - y * self.view.scale,
+                "scale": self.view.scale,
+                "revision": self.profile["revision"],
+            }
         return {
             "area_id": self.profile["id"],
             "area_name": self.profile["name"],
             "kind": location.kind,
             "surface_id": location.surface_id,
             "feet": list(location.reference_feet) if location.reference_feet else None,
+            "projection": projection,
             "reason": location.reason,
             "map": fix.reason,
             "canvas": {"x": canvas.x, "y": canvas.y, "width": canvas.width,

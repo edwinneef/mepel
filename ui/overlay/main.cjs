@@ -9,7 +9,13 @@ const base = `http://127.0.0.1:${port}`;
 const owner = randomUUID();
 let win, token, panel = true, quitting = false, lastPaint = 0, polling = false;
 let session = null, lastBounds = '', transition = false;
-let gameFocused = false;
+function desktopBounds() {
+  const displays = screen.getAllDisplays().map(display => display.bounds);
+  const x = Math.min(...displays.map(rect => rect.x));
+  const y = Math.min(...displays.map(rect => rect.y));
+  return { x, y, width: Math.max(...displays.map(rect => rect.x + rect.width)) - x,
+    height: Math.max(...displays.map(rect => rect.y + rect.height)) - y };
+}
 async function post(route, body) {
   const response = await fetch(`${base}/api/${route}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Token': token },
@@ -53,22 +59,22 @@ async function poll() {
     // Read session identity before using the token: restarts rotate credentials.
     // A stalled renderer also loses its input lease.
     if (Date.now() - lastPaint < 1200 && !transition) await heartbeat(panel);
-    gameFocused = Boolean(status.focused);
+    const desktop = desktopBounds();
+    const key = JSON.stringify(desktop);
+    if (key !== lastBounds) { win.setBounds(desktop); lastBounds = key; }
     const crop = status.calibration?.crop;
     const client = status.window?.client;
     if (client && crop && status.preview_frame?.available) {
       const rect = { x: client.x + crop.x, y: client.y + crop.y,
         width: crop.width, height: crop.height };
       const bounds = screen.screenToDipRect(null, rect);
-      const key = JSON.stringify(bounds);
-      if (key !== lastBounds) { win.setBounds(bounds); lastBounds = key; }
-      if (!panel) {
-        if (status.focused) win.showInactive(); else win.hide();
-      }
-    } else if (!panel) win.hide();
+      send('game-bounds', { x: bounds.x - desktop.x, y: bounds.y - desktop.y,
+        width: bounds.width, height: bounds.height, visible: Boolean(status.focused || panel) });
+    } else send('game-bounds', null);
+    if (!panel) win.showInactive();
   } catch (error) {
     send('error', error.message);
-    if (!panel) win.hide();
+    send('game-bounds', null);
   } finally { polling = false; }
 }
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -78,7 +84,7 @@ else app.whenReady().then(async () => {
     token = html.match(/name="debug-token" content="([^"]+)"/)?.[1];
     if (!token) throw new Error('Start the MapleBot engine before opening the overlay.');
     await stop();
-    const area = screen.getPrimaryDisplay().workArea;
+    const area = desktopBounds();
     win = new BrowserWindow({ ...area, transparent: true, frame: false, show: false,
       alwaysOnTop: true, skipTaskbar: false, title: 'Maple Overlay',
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), sandbox: true,
@@ -122,7 +128,9 @@ else app.whenReady().then(async () => {
       }, 3000);
     }
     for (const [key, action] of [
-      ['F6', () => { if (!panel && gameFocused) send('toggle'); }],
+      // Always deliver the key. The renderer reports blockers and the engine
+      // retains its authoritative focus/input gates. Off must never be ignored.
+      ['F6', () => send('toggle')],
       ['F7', () => void settings(!panel)],
       ['F8', () => { void stop(); send('off'); }],
       ['F9', () => send('layers')],

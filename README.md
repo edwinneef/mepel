@@ -17,6 +17,12 @@ resumes it. Select combat, potions, a navigation destination or a bounded probe
 in settings, then close settings and press F6 with the game focused. The indicator
 reports the engine state, including Off, Starting, On and Blocked.
 
+With F7 settings open, drag the status, saved-terrain or settings heading to move
+that panel anywhere on the desktop, including outside the game. Positions are
+remembered; **Reset positions** returns them beside the game. Detection boxes stay
+anchored to the game. F6 also works from settings and reports why a start stops or
+is blocked. The default decision preview sends no gameplay keys.
+
 Live boxes show existing player/enemy detection. The separate saved-terrain inset
 shows learned geometry and fresh localization; it is not live terrain detection.
 Stale detections disappear. The engine stops if the overlay stops responding.
