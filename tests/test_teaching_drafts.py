@@ -1,5 +1,6 @@
 import json
 import time
+from dataclasses import replace
 
 import pytest
 from test_live_position import AREA, calibrate, step
@@ -112,6 +113,27 @@ def test_partial_activation_requires_confirmation_and_returns_actual_saved_revis
     assert saved["receipt"]["revision"] == before["revision"] + 1
     assert position._teaching_status(0)["phase"] is None
     position.close()
+
+
+def test_recovered_sloped_teaching_saves_through_the_real_area_store(store):
+    position = recording(store)
+    position.teacher.samples = [replace(sample, kind="ground" if index == 0 else "slope",
+                                       feet=(sample.feet[0], 600 - index * 2))
+                                for index, sample in enumerate(position.teacher.samples)]
+    position.finish_teaching()
+    position.close()
+    recovered = LivePosition(store, AREA)
+    try:
+        before = store.load(AREA)["profile"]
+        segment = recovered.proposal["platforms"][0]
+        assert segment["start"]["y"] != segment["end"]["y"]
+        saved = recovered.save_teaching(confirm_partial=True)
+        assert saved["receipt"]["revision"] == before["revision"] + 1
+        assert store.load(AREA)["profile"]["platforms"] == saved["profile"]["platforms"]
+        assert list(store.directory.glob(f"{AREA}.r{before['revision']}.*.bak"))
+        assert recovered.drafts.load()["phase"] == "used"
+    finally:
+        recovered.close()
 
 
 def test_pausing_and_resuming_calibration_preserves_the_pairs(store):

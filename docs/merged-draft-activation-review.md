@@ -1,6 +1,7 @@
 # Merged draft activation review — 2026-10-26
 
-**Verdict: keep the draft in review. Fix the save-path blocker before activation.**
+**Current status: the save-path blocker below is fixed and verified on a temporary
+copy. The real draft remains in review; P16 remains unreachable.**
 The active map remains revision 3. No real activation, recording, gameplay input,
 draft edit or configuration change was performed during this review.
 
@@ -58,3 +59,16 @@ silently to obtain a clean graph.
 
 Evidence: `artifacts/merged-draft-activation-review.json` records counts, affected
 platforms, normalized validation warnings and active-map/draft SHA-256s.
+
+## Resolution
+
+Rounded platform endpoint heights now leave the geometry generator as built-in
+floats. Their values and strict coordinate validation are unchanged. A regression
+recovers sloped teaching, saves through `LivePosition.save_teaching` and the real
+`AreaStore`, checks the revision receipt/backup, and verifies draft retirement.
+It failed with the recorded error before the fix and passes afterward.
+
+The actual merged draft was also saved successfully on a temporary copy: revision
+3 → 4, all 16 platforms/33 links retained, backup created, and P16 still reported
+unreachable. The real map/draft hashes were unchanged by this test. All 53 targeted
+tests and Ruff pass. Evidence: `artifacts/slope-save-validation.json`.

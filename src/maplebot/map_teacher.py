@@ -192,8 +192,9 @@ class MapTeacher:
                 slope, offset = np.polyfit(xs, ys, 1)
                 y_left, y_right = slope * left + offset, slope * right + offset
             key = f"walk_p{len(platforms) + 1}"
-            platforms.append({"id": key, "start": {"x": round(left, 1), "y": round(y_left, 1)},
-                              "end": {"x": round(right, 1), "y": round(y_right, 1)}})
+            platforms.append({"id": key,
+                              "start": {"x": round(left, 1), "y": float(round(y_left, 1))},
+                              "end": {"x": round(right, 1), "y": float(round(y_right, 1))}})
             members[key] = {s.dot for s in group}
         return platforms, members
 
