@@ -1058,7 +1058,7 @@ class Application:
                 json.dumps({"kind": kind, "box": asdict(roi), "window": asdict(window)}),
                 encoding="utf-8",
             )
-            self.detector.reload()
+            self.detector.add(path, kind)
             self.note(f"Added {kind} template from screenshot pixels")
             return {"path": str(path), "variants": len(self.detector.templates)}
         if name == "reload_templates":

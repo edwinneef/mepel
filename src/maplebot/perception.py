@@ -172,11 +172,7 @@ class TemplateDetector:
             for path in sorted((self.directory / folder).glob("*.png")):
                 if folder == "catalog/monster" and path.name not in entries:
                     continue
-                raw = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-                if raw is None or raw.ndim != 3 or raw.shape[2] not in (3, 4):
-                    raise ValueError(f"Unreadable template: {path}")
-                image = raw[:, :, :3].copy()
-                self.validate(image)
+                raw = self._read_template(path)
                 name = path.stem
                 if folder == "catalog/monster":
                     entry = entries.get(path.name)
@@ -191,46 +187,7 @@ class TemplateDetector:
                         continue
                     seen_catalog.add(digest)
                     name = f"catalog:{entry['name']}:{entry['animation']}-{entry['frame']}"
-                if raw.shape[2] == 4:
-                    full_mask = np.uint8(raw[:, :, 3] >= 250) * 255
-                    if np.count_nonzero(full_mask) < 16:
-                        raise ValueError(f"Reference has no usable opaque foreground: {path.name}")
-                    x, y, width, height = cv2.boundingRect(full_mask)
-                    anchor = Rect(x, y, width, height)
-                    mask = full_mask[y : y + height, x : x + width].copy()
-                else:
-                    anchor, mask = self._player_anchor(image) if kind == "player" else (None, None)
-                for mirrored in (False, True):
-                    variant = cv2.flip(image, 1) if mirrored else image
-                    variant_anchor, variant_mask = anchor, mask
-                    if mirrored and anchor is not None:
-                        variant_anchor = Rect(
-                            image.shape[1] - anchor.x - anchor.width,
-                            anchor.y,
-                            anchor.width,
-                            anchor.height,
-                        )
-                        variant_mask = cv2.flip(mask, 1)
-                    variant_gray = cv2.cvtColor(variant, cv2.COLOR_BGR2GRAY)
-                    signature = None
-                    if raw.shape[2] == 4 and variant_anchor is not None:
-                        box = variant_anchor
-                        signature = self._sprite_signature(
-                            variant[box.y : box.y + box.height, box.x : box.x + box.width],
-                            variant_mask,
-                            box,
-                        )
-                    templates.append(
-                        Template(
-                            kind,
-                            name,
-                            variant,
-                            variant_gray,
-                            variant_anchor,
-                            variant_mask,
-                            signature,
-                        )
-                    )
+                templates.extend(self._variants(kind, name, raw, path))
         self.templates = templates
         self.map_filter = MapFilter(self.directory, list(entries.values()))
         self.nametags = [
@@ -246,6 +203,69 @@ class TemplateDetector:
             "names": sorted(catalog_names),
             "network_during_detection": False,
         }
+
+
+    def add(self, path: Path, kind: str) -> None:
+        """Load one newly taught file without re-reading the sprite catalog."""
+        if kind == "nametag":
+            self.nametags.append(self.load_nametag(path))
+            self.catalog_info = {**self.catalog_info, "nametags": len(self.nametags)}
+        else:
+            raw = self._read_template(path)
+            self.templates = [*self.templates, *self._variants(kind, path.stem, raw, path)]
+        self.fresh.clear()
+
+    def _read_template(self, path: Path) -> Image:
+        raw = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+        if raw is None or raw.ndim != 3 or raw.shape[2] not in (3, 4):
+            raise ValueError(f"Unreadable template: {path}")
+        self.validate(raw[:, :, :3].copy())
+        return raw
+
+    def _variants(self, kind: str, name: str, raw: Image, path: Path) -> list[Template]:
+        image = raw[:, :, :3].copy()
+        variants: list[Template] = []
+        if raw.shape[2] == 4:
+            full_mask = np.uint8(raw[:, :, 3] >= 250) * 255
+            if np.count_nonzero(full_mask) < 16:
+                raise ValueError(f"Reference has no usable opaque foreground: {path.name}")
+            x, y, width, height = cv2.boundingRect(full_mask)
+            anchor = Rect(x, y, width, height)
+            mask = full_mask[y : y + height, x : x + width].copy()
+        else:
+            anchor, mask = self._player_anchor(image) if kind == "player" else (None, None)
+        for mirrored in (False, True):
+            variant = cv2.flip(image, 1) if mirrored else image
+            variant_anchor, variant_mask = anchor, mask
+            if mirrored and anchor is not None:
+                variant_anchor = Rect(
+                    image.shape[1] - anchor.x - anchor.width,
+                    anchor.y,
+                    anchor.width,
+                    anchor.height,
+                )
+                variant_mask = cv2.flip(mask, 1)
+            variant_gray = cv2.cvtColor(variant, cv2.COLOR_BGR2GRAY)
+            signature = None
+            if raw.shape[2] == 4 and variant_anchor is not None:
+                box = variant_anchor
+                signature = self._sprite_signature(
+                    variant[box.y : box.y + box.height, box.x : box.x + box.width],
+                    variant_mask,
+                    box,
+                )
+            variants.append(
+                Template(
+                    kind,
+                    name,
+                    variant,
+                    variant_gray,
+                    variant_anchor,
+                    variant_mask,
+                    signature,
+                )
+            )
+        return variants
 
     @staticmethod
     def load_nametag(path: Path) -> NameTag:

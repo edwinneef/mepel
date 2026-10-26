@@ -52,6 +52,23 @@ def test_detects_sprites_and_mirrored_pose_with_confidence(tmp_path):
     assert strong[0].box == Rect(180, 90, 24, 28)
 
 
+
+def test_added_player_template_matches_like_a_full_reload_without_rereading(tmp_path, monkeypatch):
+    templates(tmp_path)
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    geared = sprite(7)
+    path = tmp_path / "player" / "geared.png"
+    cv2.imwrite(str(path), geared)
+    monkeypatch.setattr(detector, "reload", lambda: pytest.fail("add must not reload"))
+    detector.add(path, "player")
+    reloaded = TemplateDetector(tmp_path, PerceptionConfig())
+    names = sorted((item.kind, item.name) for item in detector.templates)
+    assert names == sorted((item.kind, item.name) for item in reloaded.templates)
+    image = np.full((160, 260, 3), 30, dtype=np.uint8)
+    image[90:118, 20:44] = cv2.flip(geared, 1)
+    result = detector.detect(image)
+    assert result.player is not None and result.player.template == "geared"
+
 def test_ambiguous_players_and_blank_frames_are_not_trusted(tmp_path):
     player, _ = templates(tmp_path)
     detector = TemplateDetector(tmp_path, PerceptionConfig())
