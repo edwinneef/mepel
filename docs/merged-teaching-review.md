@@ -1,11 +1,11 @@
 # Reversible merged teaching review
 
-The numeric-type save blocker is fixed and verified on a temporary copy. The real
-draft remains in review with P16 flagged; see [activation review](merged-draft-activation-review.md).
+The merged map is now active as revision 4, with P16 flagged and gameplay stopped.
+See [activation record](merged-map-activation.md).
 
-Prepared 2026-10-26 from the two saved Over the Wall sessions. The app now loads
-the merged checkpoint in **review**, with recording and gameplay input stopped.
-The active map remains revision 3; no `teach_save` or map activation was performed.
+Initially prepared 2026-10-26 from the two saved Over the Wall sessions in review,
+with recording and gameplay input stopped. At that stage the active map remained
+revision 3. The preparation and pre-activation restore procedure are recorded below.
 
 - 1,613 samples and 2,129 historical checks retained.
 - 16 platforms, one rope, 33 directed links.
@@ -24,6 +24,9 @@ Six protected map/configuration hashes remain unchanged. The original 508-sample
 draft is preserved in the backup. All pre-existing untracked files are untouched.
 
 ## Restore the previous review
+
+This draft-only procedure applies before activation. After revision 4 activation,
+the guard refuses it; a coordinated map/checkpoint rollback is required.
 
 Stop the debugger first; the tool refuses to mutate a checkpoint while its port
 is listening. Then run:

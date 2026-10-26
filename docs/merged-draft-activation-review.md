@@ -1,9 +1,9 @@
 # Merged draft activation review — 2026-10-26
 
-**Current status: the save-path blocker below is fixed and verified on a temporary
-copy. The real draft remains in review; P16 remains unreachable.**
-The active map remains revision 3. No real activation, recording, gameplay input,
-draft edit or configuration change was performed during this review.
+**Current status: the blocker is fixed and the map is active as revision 4.
+P16 remains unreachable; gameplay stays stopped.** See [activation record](merged-map-activation.md).
+At review time the active map remained revision 3. No real activation, recording,
+gameplay input, draft edit or configuration change was performed during that review.
 
 ## Blocking finding: sloped coordinates cannot be saved
 

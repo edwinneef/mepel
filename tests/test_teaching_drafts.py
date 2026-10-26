@@ -136,6 +136,23 @@ def test_recovered_sloped_teaching_saves_through_the_real_area_store(store):
         recovered.close()
 
 
+def test_active_map_keeps_unreachable_warning_after_teaching_save(store):
+    position = recording(store)
+    position.finish_teaching()
+    position.proposal["platforms"].append({"id": "orphan", "name": "Isolated ledge",
+                                           "start": {"x": 120, "y": 520},
+                                           "end": {"x": 180, "y": 520}})
+    try:
+        assert position.save_teaching()["requires_confirmation"]
+        position.save_teaching(confirm_partial=True)
+        active = position._teaching_status(0)
+        assert active["geometry_source"] == "active_map"
+        assert active["phase"] is None
+        assert active["geometry"]["problems"]["unreachable"] == ["orphan"]
+    finally:
+        position.close()
+
+
 def test_pausing_and_resuming_calibration_preserves_the_pairs(store):
     position = LivePosition(store, AREA)
     position.begin_teaching()

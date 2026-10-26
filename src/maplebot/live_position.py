@@ -278,6 +278,8 @@ class LivePosition:
         if geometry is None and phase is None:
             geometry = {key: self.profile[key] for key in
                         ("platforms", "ropes", "links", "boundary")}
+            geometry["problems"] = problems(geometry["platforms"], geometry["ropes"],
+                                            geometry["links"])
         teacher = self.teacher or self.finished
         log = teacher.log if teacher else []
         misses = sum(row.get("dot") is None for row in log)
