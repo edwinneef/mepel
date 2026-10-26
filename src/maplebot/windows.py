@@ -37,6 +37,8 @@ class Windows:
         self.api.GetAncestor.restype = wintypes.HWND
         self.api.GetAsyncKeyState.argtypes = [ctypes.c_int]
         self.api.GetAsyncKeyState.restype = ctypes.c_short
+        self.api.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        self.integrity: dict[int, int | None] = {}
         self.dpi_aware()
 
     def dpi_aware(self) -> None:
@@ -96,3 +98,50 @@ class Windows:
 
     def pressed(self, virtual_key: int) -> bool:
         return bool(self.api.GetAsyncKeyState(virtual_key) & 0x8000)
+
+    def outranks_us(self, hwnd: int) -> bool:
+        """True when the window's process has a higher integrity level, e.g. runs elevated.
+
+        Windows (UIPI) then silently drops this process's SendInput events while
+        SendInput still reports success, so every key would be ignored.
+        """
+        pid = wintypes.DWORD()
+        self.api.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        target, own = self._integrity(pid.value), self._integrity(os.getpid())
+        return target is not None and own is not None and target > own
+
+    def _integrity(self, pid: int) -> int | None:
+        if pid not in self.integrity:
+            self.integrity[pid] = process_integrity(pid)
+        return self.integrity[pid]
+
+
+def process_integrity(pid: int) -> int | None:
+    """Mandatory integrity RID of a process (0x2000 medium, 0x3000 high), or None."""
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    advapi.GetSidSubAuthorityCount.argtypes = [ctypes.c_void_p]
+    advapi.GetSidSubAuthorityCount.restype = ctypes.POINTER(ctypes.c_ubyte)
+    advapi.GetSidSubAuthority.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    advapi.GetSidSubAuthority.restype = ctypes.POINTER(wintypes.DWORD)
+    process = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not process:
+        return None
+    token = wintypes.HANDLE()
+    try:
+        if not advapi.OpenProcessToken(process, 0x0008, ctypes.byref(token)):  # TOKEN_QUERY
+            return None
+        size = wintypes.DWORD()
+        advapi.GetTokenInformation(token, 25, None, 0, ctypes.byref(size))  # TokenIntegrityLevel
+        buffer = ctypes.create_string_buffer(size.value)
+        if not advapi.GetTokenInformation(token, 25, buffer, size, ctypes.byref(size)):
+            return None
+        sid = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_void_p))[0]
+        count = advapi.GetSidSubAuthorityCount(sid)[0]
+        return int(advapi.GetSidSubAuthority(sid, count - 1)[0])
+    finally:
+        if token:
+            kernel.CloseHandle(token)
+        kernel.CloseHandle(process)

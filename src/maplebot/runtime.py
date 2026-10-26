@@ -66,6 +66,10 @@ REQUIRED_PROBES = frozenset({"left", "right", "attack", "jump", "skill"})
 OPTIONAL_PROBES = frozenset({"up", "down", "hp_potion", "mp_potion"})
 PROBE_ACTIONS = REQUIRED_PROBES | OPTIONAL_PROBES
 PENDING_SLOW_GRACE_SECONDS = 2.0
+ELEVATED_GAME_REASON = (
+    "MapleStory runs as administrator, so Windows silently drops this bot's keys. "
+    "Start the bot from an administrator terminal, or start the game without elevation"
+)
 POSITION_COMMANDS = frozenset({
     "position_start", "position_stop", "walk_calibration_begin", "walk_calibration_finish",
     "walk_calibration_cancel", "teach_new_area", "teach_begin", "teach_finish", "teach_save",
@@ -604,6 +608,8 @@ class Application:
         window = self.windows.get(self.hwnd)
         if self.config.capture.window_title.casefold() not in window.title.casefold():
             raise ValueError("Input is restricted to the configured game window title")
+        if self.windows.outranks_us(window.hwnd):
+            raise ValueError(ELEVATED_GAME_REASON)
         resource = {"hp_potion": "hp", "mp_potion": "mp"}.get(action)
         baseline_percent: float | None = None
         if resource:
@@ -763,6 +769,8 @@ class Application:
             return "Input is restricted to the configured game window title"
         if not self.calibration.valid_for(window):
             return "Game window size or DPI changed; recalibrate and confirm capture"
+        if self.windows.outranks_us(window.hwnd):
+            return ELEVATED_GAME_REASON
         if not window.focused:
             return "Click the actual game window before the countdown ends"
         region = self.calibration.crop.translated(window.client.x, window.client.y)

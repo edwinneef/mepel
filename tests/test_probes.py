@@ -24,6 +24,9 @@ class FakeWindows:
     def pressed(self, key):
         return False
 
+    def outranks_us(self, hwnd):
+        return getattr(self, "elevated", False)
+
 
 class Backend:
     def __init__(self):

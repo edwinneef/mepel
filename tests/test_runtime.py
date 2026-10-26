@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from concurrent.futures import Future
 from dataclasses import replace
@@ -28,6 +29,9 @@ class FakeWindows:
 
     def pressed(self, key):
         return False
+
+    def outranks_us(self, hwnd):
+        return getattr(self, "elevated", False)
 
 
 class Backend:
@@ -185,6 +189,21 @@ def test_emergency_during_countdown_latches_and_never_sends_input(app):
     assert app.controller.backend.events == []
 
 
+
+
+def test_elevated_game_refuses_probes_with_the_cause_instead_of_sending_ignored_keys(app):
+    app.windows.elevated = True
+    with pytest.raises(ValueError, match="administrator"):
+        app._command("probe", {"action": "left"})
+    assert "administrator" in app._input_block_reason()
+    assert app.controller.backend.events == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows integrity levels")
+def test_own_process_integrity_is_readable():
+    from maplebot.windows import process_integrity
+
+    assert process_integrity(os.getpid()) >= 0x1000
 
 def test_slow_frame_defers_a_due_probe_and_only_cancels_after_the_grace(app):
     assert app._command("probe", {"action": "left"})["mode"] == "probe_wait"
