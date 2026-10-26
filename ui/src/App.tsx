@@ -38,7 +38,7 @@ export function App({ client }: { client: EngineClient }) {
     ready: Boolean(!s?.capture_only && s?.navigation?.ready && routeCurrent && supervised),
     reason: s?.navigation?.blocker ?? (!routeCurrent ? 'Preview the selected route first' : !supervised ? 'Confirm that you will supervise this route' : 'Navigation ready'),
   } : s?.readiness[runMode === 'preview' ? 'preview' : 'combat'];
-  const fresh = Boolean(s?.frame.available && s.frame.captured_at != null && now - s.frame.captured_at * 1000 <= 500);
+  const fresh = Boolean(s?.frame.available && s.frame.captured_at != null && now - s.frame.captured_at * 1000 <= 1500);
   const displayFrame = s?.preview_frame ?? s?.frame;
   const displayed = Boolean(view.image && !view.frozen && (s?.preview_frame
     ? view.image.sourceId === displayFrame?.source_id : view.image.key === displayFrame?.id));

@@ -17,7 +17,7 @@ from .alarm import AlarmManager
 from .autopotter import BarReading, PotionMonitor
 from .capture import Calibration, Capture, CaptureMovedError, Image
 from .config import Config
-from .contracts import FRESH_FRAME_COMMANDS, CommandContext, readiness
+from .contracts import FRESH_FRAME_COMMANDS, FRESH_FRAME_SECONDS, CommandContext, readiness
 from .decision import Action, Agent, Decision, PolicyInput
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
@@ -937,7 +937,8 @@ class Application:
         context = payload.get("_context")
         if context is not None:
             context.validate(
-                self.command_epoch, max_age=0.5 if name in FRESH_FRAME_COMMANDS else 10
+                self.command_epoch,
+                max_age=FRESH_FRAME_SECONDS if name in FRESH_FRAME_COMMANDS else 10,
             )
             payload = {key: value for key, value in payload.items() if key != "_context"}
         if name in {"attach", "manual", "reset_crop", "crop"}:

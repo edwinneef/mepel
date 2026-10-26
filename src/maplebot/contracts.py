@@ -22,6 +22,8 @@ COMMANDS = frozenset({
 })
 FRESH_FRAME_COMMANDS = frozenset({"dry_run", "arm", "probe", "autopotter_live", "nav_start"})
 URGENT_COMMANDS = frozenset({"stop", "pause"})
+# The pipeline runs near 3 fps and publishes frames ~0.4 s after capture; 0.5 s rejected most input.
+FRESH_FRAME_SECONDS = 1.5
 
 
 @dataclass(frozen=True)
@@ -67,8 +69,8 @@ class CommandGate:
                 frame = snapshot["frame"]
                 if (
                     not frame["available"] or frame["age_ms"] is None
-                    or frame["age_ms"] > 500
-                    or envelope.get("expected_frame_id") != frame["id"]
+                    or frame["age_ms"] > FRESH_FRAME_SECONDS * 1000
+                    or envelope.get("expected_frame_id") not in _recent_frame_ids(frame["id"])
                 ):
                     raise ValueError("A fresh matching frame is required; refresh the view")
         with self.lock:
@@ -78,13 +80,25 @@ class CommandGate:
         return name, payload, context
 
 
+
+def _recent_frame_ids(frame_id: str) -> set[str]:
+    """Accept the frame the operator saw or the one published after it."""
+    prefix, _, sequence = frame_id.rpartition(":")
+    if not prefix or not sequence.isdigit():
+        return {frame_id}
+    return {frame_id, f"{prefix}:{int(sequence) - 1}"}
+
+
 def readiness(status: dict) -> dict[str, dict[str, bool | str]]:
     """Summarize existing gates; this never authorizes input or replaces runtime checks."""
     frame = status["frame"]
     reason = ""
     if status.get("area_editing"):
         reason = "Finish area editing first"
-    elif not frame["available"] or frame["age_ms"] is None or frame["age_ms"] > 500:
+    elif (
+        not frame["available"] or frame["age_ms"] is None
+        or frame["age_ms"] > FRESH_FRAME_SECONDS * 1000
+    ):
         reason = "Waiting for a fresh game frame"
     elif status.get("calibrating"):
         reason = "Return to live view first"

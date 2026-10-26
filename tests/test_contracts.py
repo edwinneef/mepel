@@ -31,6 +31,26 @@ def test_fresh_read_only_preview_cannot_authorize_input_from_stale_recognition()
         CommandGate().accept(envelope(), status)
 
 
+
+def test_gate_accepts_three_fps_latency_but_not_older_frames():
+    status = snapshot()
+    status["frame"] = {"id": "session:7", "available": True, "age_ms": 1200}
+    assert readiness(status)["preview"]["ready"]
+    CommandGate().accept(envelope(command_id="seen-frame", expected_frame_id="session:7"), status)
+    CommandGate().accept(envelope(command_id="next-frame", expected_frame_id="session:6"), status)
+    with pytest.raises(ValueError, match="fresh matching frame"):
+        CommandGate().accept(envelope(expected_frame_id="session:5"), status)
+    status["frame"]["age_ms"] = 1600
+    assert not readiness(status)["preview"]["ready"]
+    with pytest.raises(ValueError, match="fresh matching frame"):
+        CommandGate().accept(envelope(expected_frame_id="session:7"), status)
+
+
+def test_fresh_command_context_tolerates_one_slow_worker_loop():
+    CommandContext(2, time.time() - 1.2).validate(2, max_age=1.5)
+    with pytest.raises(ValueError, match="expired"):
+        CommandContext(2, time.time() - 2).validate(2, max_age=1.5)
+
 @pytest.mark.parametrize("change", [
     {"schema_version": 2}, {"session_id": "old"}, {"command_epoch": 1},
     {"issued_at": 0}, {"issued_at": float("nan")}, {"name": "unknown"},
@@ -79,5 +99,5 @@ def test_readiness_separates_capture_only_preview_from_combat():
     gates = readiness(status)
     assert gates["preview"]["ready"]
     assert not gates["combat"]["ready"]
-    status["frame"]["age_ms"] = 501
+    status["frame"]["age_ms"] = 1501
     assert not readiness(status)["preview"]["ready"]
