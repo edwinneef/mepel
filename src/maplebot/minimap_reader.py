@@ -123,10 +123,13 @@ class AreaMinimap:
         self.size = reference.shape[:2]
         self.home = canvas
         self.template = reference[canvas.y:canvas.feet, canvas.x:canvas.x + canvas.width].copy()
-        # The navy background is translucent: scenery shows through it while the
-        # camera scrolls. Only the opaque terrain identifies the map.
-        navy = cv2.dilate(cv2.inRange(self.template, *NAVY), np.ones((3, 3), np.uint8)) > 0
-        self.static = ~_markers(self.template) & ~navy
+        # Minimap backgrounds (navy, or a dull grey sky) are translucent: scenery shows
+        # through them while the camera scrolls. Only the opaque terrain identifies the map.
+        hsv = cv2.cvtColor(self.template, cv2.COLOR_BGR2HSV)
+        background = cv2.inRange(self.template, *NAVY) | np.uint8(
+            (hsv[..., 1] < 50) & (hsv[..., 2] < 140)) * 255
+        background = cv2.dilate(background, np.ones((3, 3), np.uint8)) > 0
+        self.static = ~_markers(self.template) & ~background
         if np.count_nonzero(self.static) < 200:
             raise ValueError("The reference minimap shows too little terrain to recognize the map")
         self.weights = self.static.astype(np.uint8)

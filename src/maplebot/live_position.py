@@ -61,6 +61,7 @@ class LivePosition:
         self.rejected = 0
         self.teacher: MapTeacher | None = None
         self.finished: MapTeacher | None = None  # kept so review can resume recording
+        self.missed = 0  # screenshots kept when the minimap could not be read while teaching
         self.teach_calibrating = False
         self.proposal: dict | None = None
         self.preview: tuple[float, dict] | None = None
@@ -95,6 +96,8 @@ class LivePosition:
         shift = observation.camera_shift if observation.camera_confidence >= 0.35 else None
         self._collect(image, fix, player)
         self._teach(fix, player, shift, now)
+        if self.teacher is not None and fix.canvas is None and self.missed < 5:
+            self._save_miss(image)
         if self.tracker is None:
             location = Location("unknown", None, None, "Walk calibration needed")
         else:
@@ -167,6 +170,16 @@ class LivePosition:
             raise ValueError("Nothing to resume; start teaching first")
         self.teacher, self.finished, self.proposal = self.finished, None, None
         return self._teaching_status(time.perf_counter())
+
+    def _save_miss(self, image: np.ndarray) -> None:
+        """Keep a few frames where the minimap was unreadable, for diagnosis."""
+        self.missed += 1
+        directory = self.store.directory / "teaching"
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(directory / f"{self.profile['id']}-miss-{time.time_ns()}.png"), image)
+        except (OSError, cv2.error):
+            pass
 
     def _write_log(self, teacher: MapTeacher, proposal: dict) -> str | None:
         """Keep every teaching session's raw samples so a missed link can be diagnosed."""

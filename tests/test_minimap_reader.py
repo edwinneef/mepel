@@ -70,3 +70,17 @@ def test_minimap_without_navy_is_found_by_its_white_frame():
     assert describe(image) == {"canvas": {"x": 4, "y": 72, "width": 135, "height": 70},
                                "dot": {"x": 102.5, "y": 42.5}}
     assert AreaMinimap(image).read(image).dot == (102.5, 42.5)
+
+
+def test_translucent_grey_sky_is_ignored_when_matching_the_map():
+    image = np.full((768, 1366, 3), SKY, np.uint8)
+    image[71:143, 3:140] = 255
+    image[72:142, 4:139] = (82, 82, 82)  # translucent grey sky
+    terrain = np.random.default_rng(6).integers(40, 141, (30, 135, 3), dtype=np.uint8)
+    terrain[..., 2] = np.maximum(terrain[..., 2], 120)  # saturated, opaque rock
+    image[112:142, 4:139] = terrain
+    image[115:121, 64:70][DOT_SHAPE] = (0, 220, 255)
+    reader = AreaMinimap(image)
+    scrolled = image.copy()
+    scrolled[72:112, 4:139] = (120, 110, 95)  # scenery behind the sky changed
+    assert reader.read(scrolled).reason == "Player marker on the taught map"

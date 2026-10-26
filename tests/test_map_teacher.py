@@ -90,3 +90,11 @@ def test_problems_list_unreachable_and_stranded_surfaces():
     assert problems(flat, [], links) == {
         "home": "floor", "unreachable": ["island"], "stranded": ["ledge"],
     }
+
+
+def test_level_marker_counts_as_standing_without_a_camera_estimate():
+    teacher = MapTeacher(MinimapTransform(16, 0, 16, 0))
+    for index, x in enumerate(range(10, 30)):
+        teacher.add(fix(x, 40), tag(600), None, index * 0.3)
+    [floor] = teacher.geometry()["platforms"]
+    assert (floor["start"]["x"], floor["end"]["x"]) == (168, 472)

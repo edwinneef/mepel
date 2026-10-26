@@ -63,7 +63,8 @@ class MapTeacher:
         rise = (abs(tag[1] - last[2][1] - camera_shift[1])
                 if tag is not None and last[2] is not None and camera_shift is not None
                 else None)
-        if abs(dy) <= 0.5 and rise is not None and rise <= 3:
+        # Without a camera estimate (fast scrolling), a level marker still means standing.
+        if abs(dy) <= 0.5 and (rise is None or rise <= 3):
             kind, self.climb_run = "ground", 0
         elif abs(dy) <= 1 and abs(dx) > 0.5 and rise is not None and rise <= SLOPE_TAG_PX:
             kind, self.climb_run = "slope", 0
@@ -219,10 +220,14 @@ def _touch(group: list[_Sample], walk: list[_Sample]) -> bool:
 
 
 def problems(platforms: list[dict], ropes: list[dict], links: list[dict]) -> dict:
-    """Surfaces the widest platform cannot reach, and surfaces with no way back to it."""
+    """Surfaces the floor cannot reach, and surfaces with no way back to it.
+
+    The floor ("home") is the lowest platform; among equally low ones, the widest.
+    """
     if not platforms:
         return {"home": None, "unreachable": [], "stranded": []}
-    home = max(platforms, key=lambda p: p["end"]["x"] - p["start"]["x"])["id"]
+    home = max(platforms, key=lambda p: (round(p["start"]["y"] + p["end"]["y"]),
+                                         p["end"]["x"] - p["start"]["x"]))["id"]
     nodes = [item["id"] for item in (*platforms, *ropes)]
     forward: dict[str, set[str]] = {key: set() for key in nodes}
     backward: dict[str, set[str]] = {key: set() for key in nodes}
