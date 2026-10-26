@@ -36,7 +36,7 @@ async function settings(open) {
     // Opening is acknowledged by the engine only after keys have been released.
     await heartbeat(open);
     panel = open;
-    win.setIgnoreMouseEvents(!open);
+    win.setIgnoreMouseEvents(true, { forward: true });
     win.setFocusable(open);
     if (open) { win.show(); win.focus(); } else { win.blur(); win.showInactive(); }
     send('panel', open);
@@ -97,6 +97,11 @@ else app.whenReady().then(async () => {
     });
     const own = event => event.sender === win.webContents;
     ipcMain.on('overlay-paint', event => { if (own(event)) lastPaint = Date.now(); });
+    ipcMain.on('overlay-mouse', (event, interactive) => {
+      if (own(event) && typeof interactive === 'boolean') {
+        win.setIgnoreMouseEvents(!(panel && interactive), { forward: true });
+      }
+    });
     ipcMain.handle('overlay-settings', (event, open) => own(event) && settings(Boolean(open)));
     ipcMain.handle('overlay-quit', event => { if (own(event)) app.quit(); });
     win.webContents.on('render-process-gone', () => { void stop(); app.quit(); });
