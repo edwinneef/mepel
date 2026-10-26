@@ -3,6 +3,7 @@
 import json
 import time
 
+from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
 from .navigation import RouteMap, map_hash
 from .navigation_evidence import build_evidence
@@ -76,7 +77,9 @@ class NavigationRuntime:
         if missing:
             return "Verify navigation controls: " + ", ".join(sorted(missing))
         f = self.feedback
-        if (not f or time.perf_counter() - f.now > .5 or not f.motion_ok
+        # Before the countdown, a reading from the last ~3 fps frame is fresh enough;
+        # while moving, the executor keeps its own 0.5 s limit.
+        if (not f or time.perf_counter() - f.now > FRESH_FRAME_SECONDS or not f.motion_ok
                 or f.surface != self.route.origin):
             return "Waiting for fresh fused position on the previewed origin"
         if self.route.fingerprint != f.fingerprint:
@@ -89,6 +92,22 @@ class NavigationRuntime:
                if f"{r}_potion" in app.probed and app.potter.settings[f"{r}_threshold"] > 0):
             return "Movement and enabled potion bindings overlap"
         return None
+
+    def go(self, context, target: str, opt_in: bool) -> dict:
+        """Plan from the platform the player stands on and start it, in one step."""
+        if self.app.position is not None:
+            self.refresh()
+        if not self.graph:
+            raise ValueError("Track a saved map first")
+        f = self.feedback
+        if not f or not f.surface:
+            raise ValueError(
+                "Your platform is unknown; keep the full minimap open and stand on a platform"
+            )
+        if f.surface == target:
+            raise ValueError("You are already on that platform")
+        self.route = self.graph.plan(f.surface, target)
+        return self.start(context, opt_in)
 
     def start(self, context, opt_in: bool) -> dict:
         app = self.app

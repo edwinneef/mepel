@@ -9,6 +9,7 @@ import { useAreaEditor } from './useAreaEditor';
 import { AreaCanvas, AreaEditor } from './AreaEditor';
 import { PositionOverlay, PositionPanel } from './PositionPanel';
 import { NavigationPanel } from './NavigationPanel';
+import { GoBar } from './GoBar';
 
 export function App({ client }: { client: EngineClient }) {
   const state = useSyncExternalStore(client.subscribe, client.getState);
@@ -102,6 +103,7 @@ export function App({ client }: { client: EngineClient }) {
       <button onClick={() => location.reload()}>Reload workspace</button>
     </section>}
     {s && <AlarmBanner snapshot={s} onAcknowledge={id => void act(() => client.command('acknowledge', { incident_id: id }))} />}
+    {s && !s.capture_only && <GoBar snapshot={s} client={client} act={act} disabled={disabled || areaEditing} />}
     {state.error && <section className="blocked-banner" role="alert" aria-label="Action blocked">
       <div><span className="eyebrow">Action blocked · no keys sent</span><p>{state.error}</p></div>
       <button onClick={() => client.message('')}>Dismiss</button>

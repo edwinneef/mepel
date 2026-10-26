@@ -45,9 +45,34 @@ def test_start_requires_explicit_optin_and_stop_cancels_countdown(app):
     assert app.controller.backend.events == []
 
 
+
+def test_go_plans_from_the_current_platform_and_starts_one_countdown(app):
+    nav = preview(app)
+    nav.route = None
+    with pytest.raises(ValueError, match="opt-in"):
+        app._command("nav_go", {"target": "ledge"})
+    with pytest.raises(ValueError, match="already on"):
+        app._command("nav_go", {"target": "floor", "opt_in": True})
+    app._command("nav_go", {"target": "ledge", "opt_in": True})
+    assert (nav.route.origin, nav.route.target) == ("floor", "ledge")
+    assert app.mode == "navigation_wait" and nav.snapshot()["stage"] == "countdown"
+    assert app.controller.backend.events == []
+
+
+def test_go_refuses_an_unknown_platform_and_slightly_old_feedback_still_counts(app):
+    nav = preview(app)
+    nav.feedback = Feedback(time.perf_counter() - 1, nav.graph.fingerprint, (150, 400),
+                            None, True)
+    with pytest.raises(ValueError, match="platform is unknown"):
+        app._command("nav_go", {"target": "ledge", "opt_in": True})
+    nav.feedback = Feedback(time.perf_counter() - 1, nav.graph.fingerprint, (150, 400),
+                            "floor", True)
+    app._command("nav_go", {"target": "ledge", "opt_in": True})
+    assert app.mode == "navigation_wait"
+
 def test_changed_map_or_old_feedback_cannot_start(app):
     nav = preview(app)
-    nav.feedback = Feedback(time.perf_counter() - 1, nav.graph.fingerprint,
+    nav.feedback = Feedback(time.perf_counter() - 2, nav.graph.fingerprint,
                             (150, 400), "floor", True)
     with pytest.raises(ValueError, match="fresh fused"):
         app._command("nav_start", {"opt_in": True})

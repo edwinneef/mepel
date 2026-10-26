@@ -967,6 +967,10 @@ class Application:
             return self.request_probe(payload)
         if name == "confirm_controls":
             raise ValueError("Use the per-probe confirmation controls")
+        if name == "nav_go":
+            return self.navigation.go(
+                context, str(payload.get("target", "")), payload.get("opt_in") is True
+            )
         if name in {"nav_refresh", "nav_preview", "nav_start"}:
             if name == "nav_start":
                 return self.navigation.start(context, payload.get("opt_in") is True)
@@ -1330,6 +1334,11 @@ class Application:
                 }
             if payload.get("teach"):
                 position.begin_teaching()
+            elif not (self.navigation.agent and self.navigation.agent.active):
+                try:
+                    self.navigation.refresh()  # List destinations as soon as a map is tracked.
+                except ValueError:
+                    pass
             return {"tracking": True, "area_id": position.profile["id"],
                     "calibrated": position.tracker is not None}
         if self.position is None:

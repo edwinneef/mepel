@@ -18,9 +18,11 @@ COMMANDS = frozenset({
     "position_start", "position_stop", "walk_calibration_begin", "walk_calibration_finish",
     "walk_calibration_cancel", "teach_new_area", "teach_begin", "teach_finish", "teach_save",
     "teach_cancel", "teach_resume", "teach_pause", "teach_checkpoint",
-    "nav_refresh", "nav_preview", "nav_start",
+    "nav_refresh", "nav_preview", "nav_start", "nav_go",
 })
-FRESH_FRAME_COMMANDS = frozenset({"dry_run", "arm", "probe", "autopotter_live", "nav_start"})
+FRESH_FRAME_COMMANDS = frozenset(
+    {"dry_run", "arm", "probe", "autopotter_live", "nav_start", "nav_go"}
+)
 URGENT_COMMANDS = frozenset({"stop", "pause"})
 # The pipeline runs near 3 fps and publishes frames ~0.4 s after capture; 0.5 s rejected most input.
 FRESH_FRAME_SECONDS = 1.5
