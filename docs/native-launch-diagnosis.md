@@ -43,6 +43,20 @@ No policy settings were changed and the rejected launch was not retried.
 
 ## Evidence and remaining blocker
 
+### Local rule check
+
+Codex CLI 0.164.0 evaluated the complete rejected batch as argument data to
+`execpolicy check`, with `C:/Users/edwin/.codex/rules/default.rules` supplied.
+Both the exact absolute PowerShell invocation and a check with
+`--resolve-host-executables` returned `{"matchedRules": []}` with exit code 0.
+The target command was not executed. No policy setting or rule was changed.
+
+This rules out a match in the supplied local file under those checker modes;
+it does not identify all policy layers used by the live host or establish that
+the live launch is permitted. The checked engine instance remained capture-only
+and in capture mode. The result is saved in
+`artifacts/native-navigation-preflight/execpolicy-check.json`.
+
 The original tool rejection is in the thread activity. The saved observation is
 `artifacts/native-navigation-preflight/launch-blocked.json`; it records the
 capture-only engine after rejection, not the policy engine's reason.
