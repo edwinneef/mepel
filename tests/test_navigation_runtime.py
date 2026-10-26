@@ -38,6 +38,7 @@ def test_start_requires_explicit_optin_and_stop_cancels_countdown(app):
         app._command("nav_start", {})
     app._command("nav_start", {"opt_in": True})
     assert app.mode == "navigation_wait" and not app.controller.enabled
+    assert nav.snapshot()["stage"] == "countdown" and nav.snapshot()["active"]
     assert app.controller.backend.events == []
     app.request("stop", {})
     assert app.mode == "capture" and not nav.agent.active

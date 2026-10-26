@@ -8,7 +8,7 @@ type Act = (operation: () => Promise<unknown>) => Promise<void>;
 export interface ToolProps {
   snapshot: Snapshot; client: EngineClient; act: Act; disabled: boolean;
   selected: () => Selection; clear: () => void;
-  runMode: 'preview' | 'live'; setRunMode: (mode: 'preview' | 'live') => void;
+  runMode: 'preview' | 'live' | 'navigation'; setRunMode: (mode: 'preview' | 'live' | 'navigation') => void;
 }
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
@@ -40,6 +40,7 @@ export function TrackingTool({ snapshot: s, client, act, selected, disabled }: T
 export function CombatTool({ snapshot: s, runMode, setRunMode }: ToolProps) {
   return <><p className="tool-intro">Preview decisions first. Use Start in the header when ready.</p>
     <Group title="Run mode"><label>Output<select value={runMode} onChange={e => setRunMode(e.target.value as 'preview' | 'live')}>
+      {runMode === 'navigation' && <option value="navigation" disabled>Navigation selected in header</option>}
       <option value="preview">Preview · no input</option><option value="live" disabled={s.capture_only}>Live combat · sends input</option>
     </select></label><p>{s.readiness[runMode === 'preview' ? 'preview' : 'combat'].reason}</p>
       {runMode === 'live' && <p className="warning-copy">Start gives you three seconds to focus the game. F8 cancels. Acknowledging an alarm never resumes combat.</p>}

@@ -8,19 +8,23 @@ import type { Tool } from './tools';
 import { useAreaEditor } from './useAreaEditor';
 import { AreaCanvas, AreaEditor } from './AreaEditor';
 import { PositionOverlay, PositionPanel } from './PositionPanel';
+import { NavigationPanel } from './NavigationPanel';
 
 export function App({ client }: { client: EngineClient }) {
   const state = useSyncExternalStore(client.subscribe, client.getState);
   const s = state.snapshot;
   const [tool, setTool] = useState<Tool | null>(null);
-  const [runMode, setRunMode] = useState<'preview' | 'live'>('preview');
+  const [runMode, setRunMode] = useState<'preview' | 'live' | 'navigation'>('preview');
+  const [navigationTab, setNavigationTab] = useState<'routes' | 'teaching'>('routes');
+  const [supervised, setSupervised] = useState(false);
+  const [routeCurrent, setRouteCurrent] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [readySince, setReadySince] = useState<number | null>(null);
   const openedSession = useRef<string | null>(null);
   useEffect(() => {
     if (s && openedSession.current !== s.session_id) {
       openedSession.current = s.session_id;
-      if (s.position?.teaching?.phase) setTool('Navigation');
+      if (s.position?.teaching?.phase) { setTool('Navigation'); setNavigationTab('teaching'); }
     }
   }, [s]);
   const view = useViewport(client, s, state.connected);
@@ -28,9 +32,12 @@ export function App({ client }: { client: EngineClient }) {
   const areaEditing = area.editing || Boolean(s?.area_editing);
   useEffect(() => client.start(), [client]);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 100); return () => clearInterval(timer); }, []);
-  useEffect(() => { setRunMode('preview'); }, [s?.session_id]);
+  useEffect(() => { setRunMode('preview'); setSupervised(false); setRouteCurrent(false); }, [s?.session_id]);
   const disabled = state.busy || !state.connected || state.needsReload || state.process !== 'running';
-  const gate = s?.readiness[runMode === 'preview' ? 'preview' : 'combat'];
+  const gate = runMode === 'navigation' ? {
+    ready: Boolean(!s?.capture_only && s?.navigation?.ready && routeCurrent && supervised),
+    reason: s?.navigation?.blocker ?? (!routeCurrent ? 'Preview the selected route first' : !supervised ? 'Confirm that you will supervise this route' : 'Navigation ready'),
+  } : s?.readiness[runMode === 'preview' ? 'preview' : 'combat'];
   const fresh = Boolean(s?.frame.available && s.frame.captured_at != null && now - s.frame.captured_at * 1000 <= 500);
   const displayFrame = s?.preview_frame ?? s?.frame;
   const displayed = Boolean(view.image && !view.frozen && (s?.preview_frame
@@ -47,7 +54,13 @@ export function App({ client }: { client: EngineClient }) {
     } catch (error) { client.fail(error); }
   };
   const showTool = (value: Tool) => setTool(previous => previous === value ? null : value);
-  const start = () => act(() => client.command(runMode === 'preview' ? 'dry_run' : 'arm'));
+  const start = () => act(() => {
+    if (runMode === 'navigation') {
+      const optIn = supervised; setSupervised(false);
+      return client.command('nav_start', { opt_in: optIn });
+    }
+    return client.command(runMode === 'preview' ? 'dry_run' : 'arm');
+  });
   const stop = (name: 'stop' | 'pause') => act(async () => {
     await client.command(name);
     client.message(name === 'pause' ? 'Paused. All gameplay input released. Press Start to run again.' : 'Stopped. All gameplay input released.');
@@ -65,10 +78,13 @@ export function App({ client }: { client: EngineClient }) {
       <span className={`session-badge ${state.connected ? '' : 'offline'}`}>{state.process !== 'running' ? state.process : !state.connected ? 'Engine disconnected' : s?.capture_only ? 'Capture only · input locked' : 'Input-capable session'}</span>
       {s?.alarm.active && <button className="danger" disabled={!alarmId} onClick={() => alarmId && void act(() => client.command('acknowledge', { incident_id: alarmId }))}>Acknowledge alarm</button>}
       <div className="run-controls" aria-label="Run controls">
-        <select aria-label="Run mode" value={runMode} disabled={disabled || areaEditing} onChange={e => setRunMode(e.target.value as 'preview' | 'live')}>
-          <option value="preview">Preview</option><option value="live" disabled={!s || s.capture_only}>Live combat</option>
+        <select aria-label="Run mode" value={runMode} disabled={disabled || areaEditing} onChange={e => {
+          setRunMode(e.target.value as 'preview' | 'live' | 'navigation');
+          if (e.target.value === 'navigation') { setTool('Navigation'); setNavigationTab('routes'); }
+        }}>
+          <option value="preview">Preview</option><option value="navigation">Navigation</option><option value="live" disabled={!s || s.capture_only}>Live combat</option>
         </select>
-        <button className="primary" disabled={!canStart} title={gate?.reason ?? 'Waiting for the engine'} onClick={() => void start()}><span aria-hidden="true">▶</span> {runMode === 'preview' ? 'Start preview' : 'Start combat'}</button>
+        <button className="primary" disabled={!canStart} title={gate?.reason ?? 'Waiting for the engine'} onClick={() => void start()}><span aria-hidden="true">▶</span> {runMode === 'preview' ? 'Start preview' : runMode === 'navigation' ? 'Start navigation' : 'Start combat'}</button>
         <button disabled={state.process !== 'running'} onClick={() => void stop('pause')}>Pause</button>
         <button className="stop-button" disabled={state.process !== 'running'} onClick={() => void stop('stop')}>Stop <kbd>F8</kbd></button>
       </div>
@@ -110,8 +126,15 @@ export function App({ client }: { client: EngineClient }) {
       </section>
       <aside hidden={!tool} className="tool-dock" aria-label={tool ? `${toolName} tool` : 'Workspace tool'}>
         <header className="dock-heading"><div><span className="eyebrow">Workspace tool</span><h2>{toolName}</h2></div><button aria-label="Close tool panel" title="Return to full-width overview" onClick={() => setTool(null)}>×</button></header>
-        <div className="dock-body"><div hidden={tool !== 'Navigation'}>{props && <PositionPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} areas={area.areas} refreshAreas={area.refresh} />}
-            <details className="advanced-editor"><summary>Advanced: draw by hand</summary><AreaEditor workspace={area} active={tool === 'Navigation'} connected={state.connected} disabled={disabled} /></details></div>
+        <div className="dock-body"><div hidden={tool !== 'Navigation'}>
+          <nav className="navigation-tabs" aria-label="Navigation pages">
+            <button aria-pressed={navigationTab === 'routes'} onClick={() => setNavigationTab('routes')}>Routes</button>
+            <button aria-pressed={navigationTab === 'teaching'} onClick={() => setNavigationTab('teaching')}>Teach map</button>
+          </nav>
+          <div hidden={navigationTab !== 'routes'}>{props && <NavigationPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled}
+            onInvalidate={() => { setRouteCurrent(false); setSupervised(false); }} onPreview={() => { setRouteCurrent(true); setRunMode('navigation'); }} supervised={supervised} onSupervised={setSupervised} />}</div>
+          <div hidden={navigationTab !== 'teaching'}>{props && <PositionPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} areas={area.areas} refreshAreas={area.refresh} />}
+            <details className="advanced-editor"><summary>Advanced: draw by hand</summary><AreaEditor workspace={area} active={tool === 'Navigation' && navigationTab === 'teaching'} connected={state.connected} disabled={disabled} /></details></div></div>
           {tool !== 'Navigation' && (!props ? <p>Waiting for the engine connection…</p> : tool === 'Tracking' ? <TrackingTool {...props} /> : tool === 'Combat' ? <CombatTool {...props} /> : tool === 'Potions' ? <PotionsTool key={s!.session_id} {...props} /> : tool === 'Settings' ? <SettingsTool key={s!.session_id} {...props} /> : tool === 'Diagnostics' ? <DiagnosticsTool {...props} /> : null)}</div>
       </aside>
     </main>

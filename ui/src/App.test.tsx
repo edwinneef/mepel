@@ -12,6 +12,26 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+it('keeps navigation Start locked in capture-only even if backend readiness is optimistic', async () => {
+  const commands: string[] = [];
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    if (String(url).startsWith('/api/v1/frame')) return new Response(new Blob(['image']));
+    if (url === '/api/v1/status') return json(snapshot({ navigation: {
+      stage: 'preview', reason: 'Preview', active: false, ready: true, blocker: null, route: null, map: null,
+    } }));
+    commands.push(JSON.parse(String(options?.body)).name); return json({ ok: true });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  render(<App client={new EngineClient('token', fetcher)} />);
+  await waitFor(() => expect(screen.getByRole('img')).toBeTruthy());
+  fireEvent.change(screen.getByRole('combobox', { name: 'Run mode' }), { target: { value: 'navigation' } });
+  const start = screen.getByRole('button', { name: /Start navigation$/ });
+  expect(start.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(start);
+  expect(commands).not.toContain('nav_start');
+  expect(screen.getByRole('button', { name: /Stop F8/ }).hasAttribute('disabled')).toBe(false);
+});
+
 it('starts in full-width overview and preview mode; a tool opens and closes without input', async () => {
   const commands: string[] = [];
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {

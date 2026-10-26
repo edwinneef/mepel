@@ -72,6 +72,7 @@ export interface Snapshot {
   stage_timing?: Record<string, number>; encoder?: Record<string, unknown>;
   recorder?: Record<string, unknown>; action_outcome?: Record<string, unknown>;
   area_editing?: boolean; position?: LivePosition | null; sustain?: string[];
+  navigation?: NavigationStatus;
 }
 export interface CommandEnvelope {
   schema_version: 1; session_id: string; command_id: string; command_epoch: number;
@@ -80,6 +81,20 @@ export interface CommandEnvelope {
 }
 export interface FrozenFrame { id: string; width: number; height: number }
 export interface Selection extends Rect { id: string }
+
+export interface NavigationRoute {
+  area_id: string; revision: number; fingerprint: string; origin: string; target: string;
+  edges: { id: string; source: string; target: string; kind: string;
+    launch: [number, number]; landing: [number, number]; evidence: string }[];
+}
+export interface NavigationStatus {
+  stage: string; reason: string; active: boolean; ready: boolean; blocker: string | null;
+  route: NavigationRoute | null; edge_index?: number; completed?: number;
+  retries?: number; replans?: number;
+  map: { area_id: string; revision: number; home: string; usable_edges: number;
+    nodes: { id: string; name: string; kind: string; excluded: boolean }[];
+    disabled_edges: Record<string, string> } | null;
+}
 
 export interface AreaPoint { x: number; y: number }
 export interface AreaView {

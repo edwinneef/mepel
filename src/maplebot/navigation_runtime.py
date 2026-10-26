@@ -204,6 +204,6 @@ class NavigationRuntime:
             "stage": "preview" if self.route else "idle", "reason": self.reason,
             "active": False, "route": self.route.snapshot() if self.route else None}
         return {**value, "map": self.graph.snapshot() if self.graph else None,
-                **({"stage": "countdown", "reason": self.reason}
+                **({"stage": "countdown", "reason": self.reason, "active": True}
                    if self.app.mode == "navigation_wait" else {}),
                 "ready": self.blocker() is None, "blocker": self.blocker()}

@@ -127,6 +127,14 @@ class Navigator:
             rope = origin in {p["id"] for p in self.graph.profile["ropes"]}
             if not rope and f.surface != origin:
                 return self.stop("Lost launch platform before takeoff")
+            if rope:
+                if not self.graph.on_surface(origin, f.feet):
+                    return self.stop("Lost rope alignment before the next movement")
+                if abs(f.feet[1] - edge.launch[1]) > 12:
+                    if self.graph.path_blocker((f.feet, edge.launch)):
+                        return self.stop("Rope approach crosses a boundary or excluded zone")
+                    self.reason = "Approaching recorded rope launch height"
+                    return Motion(vertical="up" if edge.launch[1] < f.feet[1] else "down")
             if abs(f.feet[0] - edge.launch[0]) > 12:
                 if self.graph.path_blocker((f.feet, edge.launch)):
                     return self.stop("Approach crosses a boundary or excluded zone")

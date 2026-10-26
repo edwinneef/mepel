@@ -4,7 +4,7 @@ import pytest
 from test_navigation import fixture
 
 from maplebot.decision import Action
-from maplebot.navigation import RouteMap, map_hash
+from maplebot.navigation import Edge, Route, RouteMap, map_hash
 from maplebot.navigation_executor import Feedback, Navigator
 from maplebot.scheduler import Arbiter
 
@@ -88,3 +88,21 @@ def test_rope_proximity_without_vertical_progress_cannot_confirm_grip():
     assert nav.active and nav.completed == 0
     assert nav.step(replace(f, now=1.4, motion_ok=False)).release
     assert nav.stage == "stopped"
+
+
+def test_rope_to_platform_approaches_recorded_height_before_entering_its_corridor():
+    profile, evidence = fixture()
+    graph = RouteMap(profile, evidence)
+    graph.profile["ropes"] = [{"id": "rope", "start": {"x": 150, "y": 200},
+                               "end": {"x": 150, "y": 400}}]
+    graph.nodes["rope"] = graph.profile["ropes"][0]
+    edge = Edge("off", "rope", "ledge", "climb", (150, 280), (280, 300),
+                ((150, 280), (280, 300)), "saved")
+    route = Route(profile["id"], 4, graph.fingerprint, "rope", "ledge", (edge,))
+    nav = Navigator(graph, route, 0)
+    nav.stage = "approach"
+    f = Feedback(.1, graph.fingerprint, (150, 380), None, True)
+    assert nav.step(f).vertical == "up" and nav.stage == "approach"
+    assert nav.step(replace(f, now=.2, feet=(150, 330))).vertical == "up"
+    assert nav.step(replace(f, now=.3, feet=(150, 280))).vertical == "down"
+    assert nav.stage == "flight"
