@@ -21,7 +21,12 @@ export function TeachingTerrain({ geometry, references, selected, target }: Prop
     Math.min(item.start.y, item.end.y) <= view.origin.y + view.height / view.scale;
   const view = references.find(candidate => visible(candidate, selected));
   const image = useRef<SVGSVGElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [native, setNative] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  useEffect(() => { setNative(false); }, [view?.image, selected?.id]);
+  useEffect(() => { if (expanded && !dialog.current?.open) dialog.current?.showModal(); }, [expanded, view?.image]);
   useEffect(() => {
     const element = image.current;
     if (!element) return;
@@ -37,7 +42,7 @@ export function TeachingTerrain({ geometry, references, selected, target }: Prop
       observer?.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [view?.image, selected?.id]);
+  }, [view?.image, selected?.id, native, expanded]);
   if (!view || !selected) return <div className="reference-unavailable"><p>No saved picture covers this place.</p>
     <p>Its learned coordinates remain in the map. A matching reference can be added from Advanced.</p>
     <svg className="terrain-fallback" viewBox={`${geometry.boundary?.x ?? 0} ${geometry.boundary?.y ?? 0} ${geometry.boundary?.width ?? 1} ${geometry.boundary?.height ?? 1}`} role="img" aria-label="Learned map">
@@ -59,9 +64,14 @@ export function TeachingTerrain({ geometry, references, selected, target }: Prop
   const scale = size.width && size.height ? Math.min(size.width / width, size.height / height) : 1;
   const font = 14 / scale;
   const padding = 10 / scale, labelHeight = 32 / scale;
-  return <section className="teaching-terrain" aria-label="Places in the saved game picture">
-    <div className="terrain-heading"><strong>{placeName(selected)}</strong><span>Saved reference{partial ? ' · partial coverage' : ''}</span></div>
-    <svg ref={image} className="terrain-image" viewBox={`${left} ${top} ${width} ${height}`} role="img" aria-label={`${placeName(selected)}${other ? ` and ${placeName(other)}` : ''} on actual terrain`}>
+  const controls = <div className="viewport-controls" aria-label="Terrain zoom controls">
+    <button aria-pressed={!native} onClick={() => setNative(false)}>Fit</button>
+    <button aria-pressed={native} onClick={() => setNative(true)}>100%</button>
+    {!expanded && <button onClick={() => setExpanded(true)}>Expand terrain</button>}
+  </div>;
+  const picture = <div className="terrain-scroll" tabIndex={0} aria-label="Scrollable terrain picture">
+    <svg ref={image} className={`terrain-image${native ? ' terrain-native' : ''}`} style={native ? { width, height } : undefined}
+      viewBox={`${left} ${top} ${width} ${height}`} role="img" aria-label={`${placeName(selected)}${other ? ` and ${placeName(other)}` : ''} on actual terrain`}>
       <image href={`/api/v1/area-frame?id=${encodeURIComponent(view.image)}`} width={view.width} height={view.height} />
       {shapes.map((item, index) => {
         const start = point(item.start), end = point(item.end);
@@ -80,6 +90,15 @@ export function TeachingTerrain({ geometry, references, selected, target }: Prop
         </g>;
       })}
     </svg>
+  </div>;
+  return <section className="teaching-terrain" aria-label="Places in the saved game picture">
+    <div className="terrain-heading"><strong>{placeName(selected)}</strong><span>Saved reference{partial ? ' · partial coverage' : ''}</span></div>
+    {!expanded && <>{controls}{picture}</>}
+    {expanded && <dialog ref={dialog} className="game-dialog terrain-dialog" aria-label="Expanded terrain" onClose={() => setExpanded(false)}>
+      <header><strong>{placeName(selected)} · saved terrain</strong><button onClick={() => dialog.current?.close()}>Close expanded terrain</button></header>
+      {controls}{picture}
+      <p className="terrain-caption">Saved picture · highlighted places are learned estimates.</p>
+    </dialog>}
     <p className="terrain-caption">Saved picture · highlighted places are learned estimates.</p>
   </section>;
 }

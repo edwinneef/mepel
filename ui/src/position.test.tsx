@@ -145,3 +145,28 @@ it('overlays a current marker or an explicit unknown reason', () => {
   expect(container.querySelector('circle')).toBeNull();
   expect(screen.getByText('Position unknown · Position stale: no processed frame for 700 ms')).toBeTruthy();
 });
+
+it('zooms and expands saved terrain without changing annotations, teaching or map data', () => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new Event('close')); };
+  const original = JSON.stringify(geometry);
+  const { command, container } = setup({ ...tracked, teaching: { phase: 'review', geometry, samples: 120,
+    references: [{ id: 'view', name: 'Floor', width: 1366, height: 768, origin: { x: 0, y: 0 }, scale: 1, image: 'saved' }] } });
+  const savedPicture = container.querySelector('.terrain-image')!;
+  const viewBox = savedPicture.getAttribute('viewBox');
+  const outline = savedPicture.querySelector('line')?.outerHTML;
+  fireEvent.click(screen.getByRole('button', { name: '100%' }));
+  expect(container.querySelector('.terrain-native')?.getAttribute('style')).toContain('width: 1366px');
+  fireEvent.click(screen.getByRole('button', { name: 'Expand terrain' }));
+  const dialog = screen.getByRole('dialog', { name: 'Expanded terrain' });
+  expect(dialog.querySelector('svg')?.getAttribute('viewBox')).toBe(viewBox);
+  expect(dialog.querySelector('line')?.outerHTML).toBe(outline);
+  expect(dialog.querySelector('image')?.getAttribute('href')).toBe('/api/v1/area-frame?id=saved');
+  fireEvent.click(screen.getByRole('button', { name: 'Fit' }));
+  expect(dialog.querySelector('.terrain-native')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Close expanded terrain' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Fit' }).getAttribute('aria-pressed')).toBe('true');
+  expect(JSON.stringify(geometry)).toBe(original);
+  expect(command).not.toHaveBeenCalled();
+});

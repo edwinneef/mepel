@@ -37,3 +37,5 @@
 .supervision-check input { width: auto; flex: 0 0 auto; margin-top: 3px; }
 .blocked-banner{background:#352d20;border:1px solid #8a6b3c;border-radius:8px;margin-bottom:16px;padding:13px 17px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}.blocked-banner>div{flex:1;min-width:200px}.blocked-banner .eyebrow{color:#e0bd85}.blocked-banner p{color:#f4dfbd;font-size:13px;margin-top:4px;overflow-wrap:anywhere}
 .go-bar{display:flex;flex-wrap:wrap;align-items:center;gap:9px;background:#1c2430;border:1px solid #38465a;border-radius:8px;margin-bottom:16px;padding:10px 14px}.go-bar strong{font-size:12px;color:#dce4ee}.go-bar select{width:auto;min-width:220px;font-size:12px;padding:6px}.go-bar button{font-size:12px}.go-status{font-size:12px;color:#aebdd0;flex:1;min-width:200px}
+
+.terrain-scroll{overflow:auto;max-height:440px;min-width:0;background:#101821;border-radius:6px}.terrain-scroll:focus-visible{outline:2px solid #a6c2de;outline-offset:-2px}.terrain-scroll .terrain-native{max-width:none;max-height:none}.terrain-dialog .terrain-scroll{max-height:65vh}.terrain-dialog .terrain-image:not(.terrain-native){max-height:65vh}
