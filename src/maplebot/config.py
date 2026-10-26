@@ -33,12 +33,20 @@ class PerceptionConfig:
 class AgentConfig:
     platform_tolerance: int = 18
     attack_range: int = 65
+    attack_min_range: int = 0
     movement_seconds: float = 0.12
     attack_seconds: float = 0.06
     verify_seconds: float = 0.45
     max_attack_attempts: int = 6
     skill_low_mp: float = 20.0
     skill_high_mp: float = 40.0
+
+    def __post_init__(self) -> None:
+        if (not math.isfinite(self.attack_range) or not math.isfinite(self.attack_min_range)
+                or not 0 <= self.attack_min_range < self.attack_range):
+            raise ValueError(
+                "agent.attack_min_range must be below attack_range, both finite and nonnegative"
+            )
 
 
 @dataclass(frozen=True)

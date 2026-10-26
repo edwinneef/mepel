@@ -30,6 +30,44 @@ def test_selects_nearest_same_platform_and_moves_in_short_steps():
     assert movement.action.seconds == 0.12
 
 
+def test_ranged_attack_faces_and_fires_without_melee_approach():
+    agent = Agent(AgentConfig(attack_min_range=80, attack_range=300))
+    agent.start()
+    target = scene([entity(x=350)])
+    agent.step(target, 0)
+    facing = agent.step(target, 0.1)
+    assert facing.state == State.ATTACK and facing.action.kind == "right"
+    assert agent.step(target, 0.2).action.kind == "attack"
+
+
+def test_ranged_target_enters_dead_zone_before_firing():
+    agent = Agent(AgentConfig(attack_min_range=80, attack_range=300))
+    agent.start()
+    target = scene([entity(x=190)])
+    agent.step(target, 0)
+    agent.step(target, 0.1)
+    result = agent.step(scene([entity(x=170)]), 0.2)
+    assert result.state == State.IDLE and result.action.kind == "release"
+    assert "minimum attack range" in result.reason
+
+
+def test_target_crossing_sides_requires_facing_again():
+    agent = Agent(AgentConfig())
+    agent.start()
+    target = scene([entity(x=120)])
+    agent.step(target, 0)
+    agent.step(target, 0.1)
+    result = agent.step(scene([entity(x=80)]), 0.2)
+    assert result.state == State.ATTACK and result.action.kind == "left"
+
+
+@pytest.mark.parametrize("low,high", [(-1, 65), (65, 65), (70, 65), (0, float('inf')),
+                                       (float('nan'), 65)])
+def test_rejects_invalid_attack_range(low, high):
+    with pytest.raises(ValueError, match="attack_min_range"):
+        AgentConfig(attack_min_range=low, attack_range=high)
+
+
 @pytest.mark.parametrize("x,direction", [(0, "left"), (220, "right")])
 def test_moves_towards_target(x, direction):
     agent = Agent(AgentConfig())

@@ -211,6 +211,8 @@ class Agent:
                 return self.stop("Attack limit reached without confirmed target disappearance")
             self.state = State.APPROACH
             return self._result("Target remains visible; reacquire range")
+        if abs(dx) < self.config.attack_min_range:
+            return self.stop("Target inside minimum attack range; reposition manually")
         if abs(dx) > self.config.attack_range:
             if self.last_distance is not None and self.last_distance - abs(dx) < 1.5:
                 self.stalled_steps += 1
@@ -226,10 +228,10 @@ class Agent:
                 "Short approach step, then observe again",
                 Action(direction, self.config.movement_seconds),
             )
-        if self.state == State.APPROACH:
+        if self.state == State.APPROACH or self.facing != direction:
             self.last_distance, self.stalled_steps = None, 0
             self.state = State.ATTACK
-            # Always face target once at close range, even if previous movement was opposite.
+            # Face again if the target crosses sides before the attack is dispatched.
             self.facing = direction
             return self._result(
                 "In range; face target before attack",
