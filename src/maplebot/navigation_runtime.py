@@ -173,6 +173,8 @@ class NavigationRuntime:
             return
         if app.mode == "navigation_wait":
             app.controller.enable()
+            # A new run gets its own stop record, time and clip, as probes and arming do.
+            app._clear_stop_banner()
             app.mode = "navigation"
             app._start_sustain()
             self.agent = Navigator(self.graph, self.route, now,

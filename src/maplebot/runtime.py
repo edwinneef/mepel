@@ -782,6 +782,14 @@ class Application:
         if code == "EMERGENCY_STOP" and self.alarm.snapshot()["active"]:
             self.acknowledge_stop()
             return
+        if code == "FOCUS_LOSS":
+            # The watchdog only sees a failed gate; name which one failed.
+            try:
+                detail = self._input_block_reason()
+            except Exception as error:
+                detail = str(error)
+            if detail:
+                message = f"{message}: {detail}"
         self.safe_stop(code, message)
 
     def safe_stop(

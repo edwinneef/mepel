@@ -1,5 +1,6 @@
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 from test_keyboard import controller as _controller
@@ -69,6 +70,21 @@ def test_go_refuses_an_unknown_platform_and_slightly_old_feedback_still_counts(a
                             "floor", True)
     app._command("nav_go", {"target": "ledge", "opt_in": True})
     assert app.mode == "navigation_wait"
+
+
+def test_navigation_start_clears_the_previous_stop_so_a_later_alarm_gets_its_own_record(app):
+    nav = preview(app)
+    app._command("nav_start", {"opt_in": True})
+    previous = app.stop_record
+    assert previous is not None and app.mode == "navigation_wait"
+    app.pending_at = 0
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (150, 400), "floor", True)
+    nav.tick(None, time.perf_counter())
+    assert app.mode == "navigation" and app.stop_record is None
+    app.windows.window = replace(app.windows.window, focused=False)
+    app._controller_stop("FOCUS_LOSS", "Target focus, geometry, or visibility lost")
+    assert app.stop_record.id != previous.id and app.stop_record.code == "FOCUS_LOSS"
+    assert "Click the actual game window" in app.stop_record.message
 
 def test_changed_map_or_old_feedback_cannot_start(app):
     nav = preview(app)
