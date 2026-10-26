@@ -6,6 +6,7 @@ param(
 # Restart the debugger engine in one console window. Starting run.ps1 again for each
 # restart leaves every previous -NoExit launcher window open, so this script shuts the
 # engine down through its own API and closes run.ps1 launchers that no longer host it.
+# Input-capable sessions start the elevated MapleBot task (tools/install_elevated_task.ps1).
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -32,12 +33,27 @@ $launchers = Get-CimInstance Win32_Process -Filter "Name='pwsh.exe' OR Name='pow
 foreach ($launcher in $launchers) {
     $python = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($launcher.ProcessId)" |
         Where-Object Name -eq 'python.exe'
-    if (-not $python) { Stop-Process -Id $launcher.ProcessId -Confirm:$false }
+    if (-not $python) {
+        try { Stop-Process -Id $launcher.ProcessId -Confirm:$false } catch { }
+    }
 }
 
-$arguments = @('-NoExit', '-File', "$root\run.ps1")
-if ($EnableGameplayInput) { $arguments += '-EnableGameplayInput' }
-$process = Start-Process pwsh -ArgumentList $arguments -WorkingDirectory $root -PassThru
+if ($EnableGameplayInput -and (Get-ScheduledTask -TaskName 'MapleBot' -ErrorAction SilentlyContinue)) {
+    # The elevated task window closes with its engine; wait so the new start is not ignored.
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Get-Date) -lt $deadline -and (Get-ScheduledTask -TaskName 'MapleBot').State -eq 'Running') {
+        Start-Sleep -Milliseconds 300
+    }
+    & "$root\run.ps1" -EnableGameplayInput | Out-Null
+    $process = $null
+} elseif ($EnableGameplayInput -and -not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'Run .\tools\install_elevated_task.ps1 once to register the elevated MapleBot task.'
+} else {
+    $arguments = @('-NoExit', '-File', "$root\run.ps1")
+    if ($EnableGameplayInput) { $arguments += '-EnableGameplayInput' }
+    $process = Start-Process pwsh -ArgumentList $arguments -WorkingDirectory $root -PassThru
+}
 
 $deadline = (Get-Date).AddSeconds(120)
 $status = $null
@@ -47,7 +63,7 @@ while ((Get-Date) -lt $deadline -and -not $status) {
 }
 if (-not $status) { throw "The engine did not answer on $base within 120 s; check its window" }
 [pscustomobject]@{
-    window = $process.Id
+    window = if ($process) { $process.Id } else { 'MapleBot task (elevated)' }
     capture_only = $status.capture_only
     mode = $status.mode
     url = $base

@@ -34,6 +34,24 @@ Dry runs and armed runs are recorded automatically to `data/recordings/session-*
 
 When returning to an offline or explicitly permitted automation environment, `./run.ps1 -EnableGameplayInput` starts a separate input-capable session. Capture and control verification are still required before any input. Equivalent direct commands are `python -m maplebot debug --capture-only` and `python -m maplebot debug`.
 
+### Elevated input sessions
+
+The MapleStory client runs as administrator. Windows (UIPI) silently drops keys that a
+non-elevated program sends to it, while `SendInput` still reports success, so probes appear
+to do nothing. The engine detects this and refuses probes with that reason. Register an
+elevated task once (one UAC approval):
+
+```powershell
+.\tools\install_elevated_task.ps1          # register the MapleBot task
+.\tools\install_elevated_task.ps1 -Uninstall
+```
+
+Afterwards `.\run.ps1 -EnableGameplayInput` and `tools/restart_engine.ps1 -EnableGameplayInput`
+start the `MapleBot` task, which runs the input-capable engine with highest privileges and no
+prompt. Its window closes when the engine stops. Plain `.\run.ps1` stays capture-only and
+non-elevated. The elevated engine still binds only `127.0.0.1` and requires the per-session
+token, and all input keeps the focus, calibration, probe, watchdog and F8 gates.
+
 ### Restarting the engine
 
 Restart a running engine with `tools/restart_engine.ps1` (add `-EnableGameplayInput`
@@ -107,7 +125,7 @@ Template matching was chosen as the first inspectable, training-free implementat
 
 1. Verify capture and recognition first. Keep the player on one ground platform with one nearby visible monster. Combat is required only for the attack-effect probe and combat run, not capture calibration.
 2. Click **Left** under **Verify controls**, then click inside the game window during the three-second countdown. Observe a short leftward movement. Repeat **Right**, **Attack**, and **Jump** separately. An accepted SendInput call does not prove the game responded; visually inspect each effect.
-3. If a probe has no effect, stop. Check Game-tab focus and actual bindings; adjust config and restart. No alternative injection mechanism or privileged workaround is used.
+3. If a probe has no effect, stop. Check Game-tab focus and actual bindings; adjust config and restart. No alternative injection mechanism is used; the only privilege step is the elevated task above, which matches the client's own elevation.
 4. After observing all four effects, check the acknowledgement and **Confirm controls**. This records your observation, not an automatically inferred success.
 5. Click **Arm combat**, then focus the Game view during the three-second countdown. The agent selects a confident same-platform monster, moves in short steps, faces it, attacks, releases input, and checks later screenshots. Initially stop after one visible approach/attack attempt and inspect the saved evidence. **F8** stops immediately; the debugger's **STOP** also releases keys.
 
