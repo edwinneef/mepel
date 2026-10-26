@@ -1,5 +1,8 @@
 # Reversible merged teaching review
 
+Pre-activation review found a numeric-type save blocker. Keep this draft in review;
+see [activation review](merged-draft-activation-review.md).
+
 Prepared 2026-10-26 from the two saved Over the Wall sessions. The app now loads
 the merged checkpoint in **review**, with recording and gameplay input stopped.
 The active map remains revision 3; no `teach_save` or map activation was performed.
