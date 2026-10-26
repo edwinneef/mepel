@@ -9,6 +9,7 @@ export interface ToolProps {
   snapshot: Snapshot; client: EngineClient; act: Act; disabled: boolean;
   selected: () => Selection; clear: () => void;
   runMode: 'preview' | 'live' | 'navigation'; setRunMode: (mode: 'preview' | 'live' | 'navigation') => void;
+  selectOnly?: boolean;
 }
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
@@ -52,7 +53,7 @@ export function CombatTool({ snapshot: s, runMode, setRunMode }: ToolProps) {
   </>;
 }
 
-export function PotionsTool({ snapshot: s, client, act, selected, disabled }: ToolProps) {
+export function PotionsTool({ snapshot: s, client, act, selected, disabled, selectOnly }: ToolProps) {
   const [settings, setSettings] = useState(s.autopotter.settings);
   const update = (key: keyof typeof settings, value: string) => setSettings(previous => ({ ...previous, [key]: Number(value) }));
   return <><p className="tool-intro">Read visible HP/MP bars. Preview never sends potion keys.</p>
@@ -68,9 +69,10 @@ export function PotionsTool({ snapshot: s, client, act, selected, disabled }: To
       <p>Zero disables that resource. Two low readings are required; HP takes priority.</p>
       <button disabled={disabled} onClick={() => void act(() => client.command('autopotter_settings', settings))}>Save thresholds</button>
     </Group><Group title="Potion mode"><div className="button-grid">
-      <button disabled={disabled} onClick={() => void act(() => client.command('autopotter_start'))}>Start potion preview</button>
-      <button disabled={disabled || s.capture_only || !s.readiness.potions.ready} onClick={() => void act(() => client.command('autopotter_live'))}>Start live potions</button>
-      <button disabled={disabled} onClick={() => void act(() => client.command('autopotter_stop'))}>Stop potions</button></div>
+      <button disabled={disabled} onClick={() => void act(() => client.command('autopotter_start'))}>{selectOnly ? 'Select potion preview' : 'Start potion preview'}</button>
+      <button disabled={disabled || s.capture_only || !s.readiness.potions.ready} onClick={() => void act(() => client.command('autopotter_live'))}>{selectOnly ? 'Select live potions' : 'Start live potions'}</button>
+      {!selectOnly && <button disabled={disabled} onClick={() => void act(() => client.command('autopotter_stop'))}>Stop potions</button>}</div>
+      {selectOnly && <p>Selection sends no keys. Close settings and press F6 to turn the selected mode On.</p>}
       {!s.capture_only && <p>Live potions require readable calibrated bars and verified potion controls. Focus the game during the three-second countdown.</p>}
     </Group><Group title="HUD calibration"><p>Freeze a frame with full bars. Select one complete bar including its pale border, excluding numbers.</p>
       <div className="button-grid">{(['hp', 'mp'] as const).map(resource => <button key={resource} disabled={disabled}
@@ -79,11 +81,11 @@ export function PotionsTool({ snapshot: s, client, act, selected, disabled }: To
   </>;
 }
 
-function Controls({ snapshot: s, client, act, disabled }: ToolProps) {
+function Controls({ snapshot: s, client, act, disabled, selectOnly }: ToolProps) {
   const active = s.active_probe;
   const blocker = s.capture_only || active ? '' : s.alarm?.active ? 'Acknowledge the active alarm first'
     : s.readiness.preview.ready ? '' : s.readiness.preview.reason;
-  return <Group title="Verify controls"><p>Each probe sends one bounded press after a three-second countdown. Focus the game and confirm only the observed effect. Saved confirmations remain tied to this layout and binding.</p>
+  return <Group title="Verify controls"><p>{selectOnly ? 'Select a probe, close settings and press F6 in game to test it. ' : ''}Each probe sends one bounded press after a three-second countdown. Focus the game and confirm only the observed effect. Saved confirmations remain tied to this layout and binding.</p>
     {s.capture_only && <p className="warning-copy">Capture-only session. Probes and gameplay output are locked.</p>}
     {blocker && <p className="warning-copy" role="alert">Probes blocked: {blocker}</p>}
     <div className="probe-list">{[...s.required_probes, ...s.optional_probes].map(action => <div key={action}>

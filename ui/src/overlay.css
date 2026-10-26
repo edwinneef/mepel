@@ -1,0 +1,35 @@
+html:has(.native-overlay), body:has(.native-overlay), body:has(.native-overlay) #root {
+  background: transparent; margin: 0; overflow: hidden; min-width: 0;
+}
+.native-overlay { color: #ecf1f7; font: 13px/1.4 system-ui, sans-serif; }
+.world-layer { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.overlay-hud { position: fixed; top: 14px; left: 14px; max-width: min(430px, 45vw); padding: 12px 16px;
+  background: #10171ee8; border: 1px solid #526272; border-radius: 10px; pointer-events: none; }
+.overlay-hud strong, .overlay-hud small { display: block; }
+.overlay-hud strong { font-size: 16px; letter-spacing: .04em; }
+.overlay-hud p { margin: 8px 0; }
+.status-dot { display: inline-block; width: 10px; height: 10px; background: #ffb967; border-radius: 50%; margin-right: 6px; }
+.overlay-hud.on .status-dot { background: #75e5a6; }
+.terrain-inset { position: fixed; left: 14px; bottom: 14px; width: min(340px, 38vw); padding: 12px;
+  background: #10171ee8; border: 1px solid #526272; border-radius: 10px; pointer-events: none; }
+.terrain-inset .map-sketch { width: 100%; height: 150px; }
+.terrain-inset small { display: block; }
+.overlay-panel { position: fixed; right: 14px; top: 14px; bottom: 14px; width: min(460px, calc(100vw - 28px));
+  padding: 18px; overflow: auto; background: #141c25fa; border: 1px solid #526272; border-radius: 12px;
+  box-shadow: 0 12px 40px #0008; color-scheme: dark; }
+.overlay-panel header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.overlay-panel h1 { font-size: 19px; margin: 0; }
+.overlay-panel nav { display: flex; flex-wrap: wrap; gap: 4px; margin: 16px 0; }
+.overlay-panel button { background: #263342; color: #f1f5f9; border: 1px solid #536477; border-radius: 6px; padding: 7px 10px; }
+.overlay-panel button[aria-pressed=true], .overlay-panel .primary { background: #b9e7ce; color: #10281a; }
+.overlay-panel button:disabled { opacity: .45; }
+.overlay-panel select, .overlay-panel input { background: #10171e; color: #eef3fa; border: 1px solid #526272; padding: 8px; }
+.overlay-panel label { display: block; margin: 10px 0; }
+.overlay-panel label:has(input[type=checkbox]) { display: flex; align-items: center; gap: 8px; }
+.overlay-panel input[type=checkbox] { width: auto; margin: 0; }
+.overlay-panel label select { display: block; width: 100%; }
+.overlay-panel footer { display: flex; justify-content: space-between; margin-top: 20px; }
+.overlay-panel .tool-group { padding: 12px 0; border-top: 1px solid #384655; }
+.overlay-panel .go-bar { display: flex; flex-direction: column; align-items: stretch; margin: 16px 0; }
+.overlay-panel .master-toggle { width: 100%; font-weight: 700; padding: 12px; }
+.overlay-panel .quiet-link { display: none; }

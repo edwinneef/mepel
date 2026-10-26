@@ -10,7 +10,20 @@ Dependencies are already installed in this workspace's `.venv`. From this direct
 .\run.ps1
 ```
 
-Open **http://127.0.0.1:8765** in a separate browser window, preferably on your second monitor. The launcher defaults to **capture-only**: keyboard output is locked for the entire session, control probes and combat are unavailable, and no OS keyboard backend is constructed. Screenshot capture, calibration, recognition, saving, recording and dry-run decisions remain available. To install on another machine:
+The native overlay opens over the game. **F6** toggles the selected activity On/Off,
+**F7** opens settings, **F8** stops, and **F9** toggles drawings. The overlay is
+click-through during play. Opening settings stops input; closing settings never
+resumes it. Select combat, potions, a navigation destination or a bounded probe
+in settings, then close settings and press F6 with the game focused. The indicator
+reports the engine state, including Off, Starting, On and Blocked.
+
+Live boxes show existing player/enemy detection. The separate saved-terrain inset
+shows learned geometry and fresh localization; it is not live terrain detection.
+Stale detections disappear. The engine stops if the overlay stops responding.
+Windows capture exclusion keeps the overlay out of screenshots; ordinary game
+focus, occlusion, capture and keyboard checks remain active.
+
+The launcher defaults to **capture-only**: keyboard output is locked for the entire session, control probes and combat are unavailable, and no OS keyboard backend is constructed. Screenshot capture, calibration, recognition, saving, recording and dry-run decisions remain available. Installation requires Node/npm for the React/Electron shell as well as Python. To install on another machine:
 
 ```powershell
 .\install.ps1

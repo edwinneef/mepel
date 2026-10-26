@@ -149,6 +149,23 @@ def test_completed_probe_can_be_confirmed_after_returning_to_dashboard(app, monk
     assert app.confirm_probe({"id": active.id, "generation": active.generation})["confirmed"]
 
 
+@pytest.mark.parametrize("phase", ["awaiting_confirmation", "countdown", "awaiting_effect"])
+def test_overlay_settings_preserve_only_completed_probe_results(app, phase):
+    from maplebot.overlay_session import OverlaySession
+
+    app.request_probe({"action": "left"})
+    active = replace(app.active_probe, phase=phase)
+    app.active_probe = active
+    OverlaySession(app).pause()
+    assert app.mode == "capture"
+    assert not app.controller.enabled
+    assert app.controller.backend.events == []
+    assert app.active_probe == (active if phase == "awaiting_confirmation" else None)
+    # Emergency/operator Stop must still discard even a preserved result.
+    app.safe_stop("OPERATOR_STOP", "Stop")
+    assert app.active_probe is None
+
+
 def test_potion_probe_refuses_full_bar_then_confirms_only_fresh_matching_gain(app, tmp_path):
     from test_autopotter import hud
 

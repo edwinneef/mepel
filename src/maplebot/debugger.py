@@ -8,6 +8,7 @@ from importlib.resources import files
 from urllib.parse import parse_qs, urlparse
 
 from .contracts import CommandGate
+from .overlay_session import OverlaySession
 from .runtime import Application
 
 
@@ -21,6 +22,8 @@ def serve(
     token = secrets.token_urlsafe(32)
     instance_id = secrets.token_hex(12)
     command_gate = CommandGate()
+    overlay = OverlaySession(app)
+    app.overlay = overlay
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
@@ -124,6 +127,10 @@ def serve(
                 if not 0 < length <= limit:
                     raise ValueError("Invalid request length")
                 payload = json.loads(self.rfile.read(length))
+                if self.path == "/api/overlay":
+                    result = overlay.heartbeat(payload)
+                    self.reply(200, json.dumps(result).encode(), "application/json")
+                    return
                 command = self.path.removeprefix("/api/")
                 context = None
                 versioned = self.path == "/api/v1/command"

@@ -284,6 +284,8 @@ class Application:
     def request(
         self, name: str, payload: dict, *, context: CommandContext | None = None
     ) -> Any:
+        if overlay := getattr(self, "overlay", None):
+            overlay.guard(name)
         if context is not None:
             with self.stop_lock:
                 context.validate(self.command_epoch)
@@ -751,6 +753,9 @@ class Application:
         return self._input_block_reason() is None
 
     def _input_block_reason(self) -> str | None:
+        if overlay := getattr(self, "overlay", None):
+            if reason := overlay.block_reason():
+                return reason
         if self.mode == "navigation":
             feedback = self.navigation.feedback
             if (not feedback or not feedback.motion_ok
@@ -798,6 +803,7 @@ class Application:
         message: str,
         *,
         invalidate_probes: bool | None = None,
+        preserve_completed_probe: bool = False,
     ) -> StopRecord:
         reason = STOP_REASONS.get(code)
         if reason is None:
@@ -806,7 +812,9 @@ class Application:
         self.potion_hud_missing_since = None
         self.arbiter.reset()
         self.sustain = ()
-        self._cancel_active_probe(message)
+        if not (preserve_completed_probe and self.active_probe
+                and self.active_probe.phase == "awaiting_confirmation"):
+            self._cancel_active_probe(message)
         # This must happen before any recorder, encoder, status, or audio work.
         self.controller.stop(message, code=code, notify=False)
         if hasattr(self, "navigation"):

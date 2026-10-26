@@ -99,6 +99,17 @@ class Windows:
     def pressed(self, virtual_key: int) -> bool:
         return bool(self.api.GetAsyncKeyState(virtual_key) & 0x8000)
 
+    def verify_overlay(self, hwnd: int) -> None:
+        """Require Windows capture exclusion before accepting an overlay input lease."""
+        if type(hwnd) is not int or not self.api.IsWindow(hwnd):
+            raise ValueError("Overlay window is unavailable")
+        affinity = wintypes.DWORD()
+        self.api.GetWindowDisplayAffinity.argtypes = [wintypes.HWND,
+                                                     ctypes.POINTER(wintypes.DWORD)]
+        protected = self.api.GetWindowDisplayAffinity(hwnd, ctypes.byref(affinity))
+        if not protected or affinity.value != 17:
+            raise ValueError("Overlay capture exclusion is unavailable; gameplay remains stopped")
+
     def outranks_us(self, hwnd: int) -> bool:
         """True when the window's process has a higher integrity level, e.g. runs elevated.
 
