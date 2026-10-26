@@ -40,6 +40,12 @@ class Platform:
     left: int
     right: int
     y: int
+    y_right: float | None = None  # sloped platforms: y is the left end, y_right the right
+
+    def y_at(self, x: float) -> float:
+        if self.y_right is None or self.right == self.left:
+            return self.y
+        return self.y + (self.y_right - self.y) * (x - self.left) / (self.right - self.left)
 
 
 @dataclass(frozen=True)
@@ -318,12 +324,14 @@ class MinimapTracker:
         if (abs(marker[0] * self.transform.scale_x - tag[0]) > self.agreement
                 or abs(marker[1] * self.transform.scale_y - tag[1]) > self.agreement):
             return self._unknown("Minimap marker and name tag disagree", feet, keep=True)
-        if abs(marker[1]) > 0.5 or abs(tag[1]) > 3:
+        # One marker pixel up or down while walking, with a steady name tag, is a slope.
+        slope_step = abs(marker[1]) <= 1 and abs(marker[0]) > 0.5 and abs(tag[1]) <= 24
+        if (abs(marker[1]) > 0.5 or abs(tag[1]) > 3) and not slope_step:
             return self._unknown("Moving vertically (jump, fall or climb)", feet, keep=True)
         matches = [
             platform.id for platform in self.platforms
             if platform.left <= feet[0] <= platform.right
-            and abs(feet[1] - platform.y) <= self.height
+            and abs(feet[1] - platform.y_at(feet[0])) <= self.height
         ]
         if len(matches) != 1:
             return self._unknown("No unique taught platform", feet, keep=True)

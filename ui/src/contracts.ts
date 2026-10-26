@@ -32,6 +32,7 @@ export interface WalkCalibration {
 }
 export interface TaughtGeometry {
   platforms: AreaSegment[]; ropes: AreaSegment[]; links: AreaLink[]; boundary: Rect | null;
+  problems?: { home: string | null; unreachable: string[]; stranded: string[] };
 }
 // Read-only position on a taught area. A platform is a spatial match, never proof of contact.
 export interface LivePosition {

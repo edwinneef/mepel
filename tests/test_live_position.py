@@ -1,5 +1,6 @@
 import json
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -197,6 +198,12 @@ def test_teaching_calibrates_itself_then_records_and_saves_walked_geometry(store
         assert result["teaching"]["geometry"]["platforms"]
         proposal = position.finish_teaching()
         assert position._teaching_status(30)["phase"] == "review"
+        log = Path(proposal["log"]).read_text("utf-8").splitlines()
+        assert json.loads(log[-1])["proposal"]["platforms"] == proposal["platforms"]
+        assert proposal["problems"]["home"] == proposal["platforms"][0]["id"]
+        assert position.resume_teaching()["phase"] == "recording"
+        step(position, 90, 40.0)
+        proposal = position.finish_teaching()
         saved = position.save_teaching()
         profile = saved["profile"]
         assert profile["platforms"] == proposal["platforms"] and profile["revision"] == 3

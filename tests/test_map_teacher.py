@@ -27,7 +27,7 @@ def test_walk_climb_ledge_and_drop_become_platforms_rope_and_directed_links():
     path = [(x, 40, 600) for x in range(10, 31)]
     path += [(30, y, 600 - 16 * (40 - y)) for y in range(39, 31, -1)]
     path += [(x, 32, 472) for x in range(30, 46)]
-    path += [(45 + step, 32 + step, 472 + 16 * step) for step in range(1, 9)]
+    path += [(45 + step, 32 + 2 * step, 472 + 32 * step) for step in range(1, 5)]
     path += [(x, 40, 600) for x in range(53, 61)]
     geometry = play(path)
     heights = sorted((p["start"]["y"], p["start"]["x"], p["end"]["x"])
@@ -68,3 +68,25 @@ def test_marker_loss_and_shaky_name_tag_record_nothing_as_ground():
     assert teacher.geometry()["platforms"] == []
     with pytest.raises(ValueError):
         MinimapTransform(0, 0, 0, 0)
+
+
+def test_walking_a_slope_makes_one_sloped_platform_and_reports_route_problems():
+    path = [(x, 40, 600) for x in range(10, 20)]
+    for step, x in enumerate(range(20, 30)):
+        path.append((x, 40 - (step + 1) // 2, 600))  # one marker pixel up every second step
+    path += [(x, 35, 600) for x in range(30, 40)]
+    geometry = play(path)
+    [ramp] = geometry["platforms"]
+    assert ramp["start"]["y"] > ramp["end"]["y"]  # higher on the right
+    assert geometry["problems"] == {"home": ramp["id"], "unreachable": [], "stranded": []}
+
+
+def test_problems_list_unreachable_and_stranded_surfaces():
+    from maplebot.map_teacher import problems
+
+    flat = [{"id": key, "start": {"x": 0, "y": y}, "end": {"x": width, "y": y}}
+            for key, y, width in (("floor", 600, 900), ("ledge", 400, 200), ("island", 300, 100))]
+    links = [{"id": "l1", "from": "floor", "to": "ledge", "kind": "jump"}]
+    assert problems(flat, [], links) == {
+        "home": "floor", "unreachable": ["island"], "stranded": ["ledge"],
+    }

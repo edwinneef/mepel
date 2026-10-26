@@ -61,7 +61,7 @@ PROBE_ACTIONS = REQUIRED_PROBES | OPTIONAL_PROBES
 POSITION_COMMANDS = frozenset({
     "position_start", "position_stop", "walk_calibration_begin", "walk_calibration_finish",
     "walk_calibration_cancel", "teach_new_area", "teach_begin", "teach_finish", "teach_save",
-    "teach_cancel",
+    "teach_cancel", "teach_resume",
 })
 
 # Give ordinary dragging a bounded grace period, independent of capture FPS.
@@ -1264,6 +1264,8 @@ class Application:
             return self.position.finish_teaching()
         if name == "teach_cancel":
             return self.position.cancel_teaching()
+        if name == "teach_resume":
+            return self.position.resume_teaching()
         if name == "teach_save":
             result = self.position.save_teaching()
             profile = result["profile"]

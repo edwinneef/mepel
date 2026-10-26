@@ -5,6 +5,7 @@ Walk calibration pairs the marker with name-tag feet registered against the
 reference view. Registration is slow, so it runs on one background thread.
 """
 
+import json
 import math
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -31,12 +32,12 @@ AUTO_CALIBRATION_PAIRS = 20
 
 
 def platforms(profile: dict) -> tuple[Platform, ...]:
-    return tuple(
-        Platform(item["id"], int(min(item["start"]["x"], item["end"]["x"])),
-                 int(max(item["start"]["x"], item["end"]["x"])),
-                 int(round((item["start"]["y"] + item["end"]["y"]) / 2)))
-        for item in profile["platforms"]
-    )
+    result = []
+    for item in profile["platforms"]:
+        left, right = sorted((item["start"], item["end"]), key=lambda p: p["x"])
+        result.append(Platform(item["id"], int(left["x"]), int(right["x"]), int(round(left["y"])),
+                               None if left["y"] == right["y"] else right["y"]))
+    return tuple(result)
 
 
 def _fresh(player: Detection | None) -> bool:
@@ -59,6 +60,7 @@ class LivePosition:
         self.pending: Future | None = None
         self.rejected = 0
         self.teacher: MapTeacher | None = None
+        self.finished: MapTeacher | None = None  # kept so review can resume recording
         self.teach_calibrating = False
         self.proposal: dict | None = None
         self.preview: tuple[float, dict] | None = None
@@ -155,15 +157,40 @@ class LivePosition:
         proposal = self.teacher.geometry()
         if not proposal["platforms"]:
             raise ValueError("No platform seen yet: walk along each floor and ledge")
-        self.proposal, self.teacher, self.preview = proposal, None, None
-        return proposal
+        self.proposal, self.finished = proposal, self.teacher
+        self.teacher, self.preview = None, None
+        return {**proposal, "log": self._write_log(self.finished, proposal)}
+
+    def resume_teaching(self) -> dict:
+        """Back from review to recording, keeping everything walked so far."""
+        if self.finished is None:
+            raise ValueError("Nothing to resume; start teaching first")
+        self.teacher, self.finished, self.proposal = self.finished, None, None
+        return self._teaching_status(time.perf_counter())
+
+    def _write_log(self, teacher: MapTeacher, proposal: dict) -> str | None:
+        """Keep every teaching session's raw samples so a missed link can be diagnosed."""
+        directory = self.store.directory / "teaching"
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / f"{self.profile['id']}-{time.time_ns()}.jsonl"
+            with path.open("x", encoding="utf-8") as handle:
+                for row in teacher.log:
+                    handle.write(json.dumps(row) + "\n")
+                for sample in teacher.samples:
+                    handle.write(json.dumps({"t": sample.t, "kind": sample.kind,
+                                             "sample_dot": list(sample.dot)}) + "\n")
+                handle.write(json.dumps({"proposal": proposal}) + "\n")
+            return str(path)
+        except OSError:
+            return None
 
     def save_teaching(self) -> dict:
         if self.proposal is None:
             raise ValueError("Finish teaching before saving the map")
         saved = self.store.save_geometry(self.profile["id"], self.profile["revision"],
                                          self.proposal)
-        self.proposal = None
+        self.proposal, self.finished = None, None
         self._load(self.profile["id"])
         return saved
 
@@ -171,6 +198,7 @@ class LivePosition:
         if self.teach_calibrating:
             self.cancel_calibration()
         self.teacher, self.proposal, self.preview, self.teach_calibrating = None, None, None, False
+        self.finished = None
         return self._teaching_status(time.perf_counter())
 
     def _collect(self, image: np.ndarray, fix: MinimapFix, player: Detection | None) -> None:

@@ -72,3 +72,14 @@ it('overlays the marker, or the unknown reason without a marker', () => {
   expect(container.querySelector('circle')).toBeNull();
   expect(screen.getByText('Position unknown · Position stale: no processed frame for 700 ms')).toBeTruthy();
 });
+
+it('lists route problems in review and can keep recording', () => {
+  const broken = { ...geometry, problems: { home: 'walk_p1', unreachable: [], stranded: ['walk_p2'] } };
+  const { command } = setup({ ...tracked, teaching: { phase: 'review', geometry: broken, samples: 0 } });
+  expect(screen.getByText('No way back to P1 from: P2. Jump or drop back down from them.')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Keep recording' }));
+  expect(command).toHaveBeenCalledWith('teach_resume', {});
+  cleanup();
+  setup({ ...tracked, teaching: { phase: 'review', geometry: { ...geometry, problems: { home: 'walk_p1', unreachable: [], stranded: [] } }, samples: 0 } });
+  expect(screen.getByText('Every surface is reachable from P1 and leads back to it.')).toBeTruthy();
+});
