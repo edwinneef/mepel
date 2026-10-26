@@ -45,6 +45,14 @@ reads succeeded. No minimal reproducer or individual triggering token is known.
 
 ## Maintainer questions
 
+**Additional control attempt:** One separately authorized capture-only launch
+batch, on another loopback port with isolated data and no game attachment, also
+received the same pre-PowerShell denial. No child process was created; the original
+engine/session and seven protected file hashes were preserved. No retry followed.
+The host truncated the command text in its error; the full submitted command and
+all returned error text are retained locally under
+`artifacts/capture-only-launch-20261026-082659/`. This does not isolate the rule.
+
 1. Which policy layer evaluated the rejected nested `exec_command` call?
 2. What rule, classification or unavailable-review condition produced the denial?
 3. Can its decision ID and explanation be retained in the error/logs? Outer

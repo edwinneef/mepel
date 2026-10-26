@@ -98,3 +98,21 @@ the root cause. No application code fix is justified by the generic denial.
 Do not weaken capture, focus, probe, freshness or Stop gates, change host policy,
 or repackage the rejected launch through another executor as a workaround.
 The native pilot remains pending until this external blocker is resolved.
+
+## One capture-only launch diagnostic
+
+A separately authorized, single diagnostic attempt used `debug --capture-only`,
+a free loopback port, an isolated config/data directory with no saved calibration,
+and diagnostic-only shutdown/owned-child cleanup. It would not stop or attach
+to the existing engine/game. The host rejected the whole batch before PowerShell
+started, again with `CreateProcess ... rejected: blocked by policy`.
+No child process was created and no retry followed. Original instance/session
+IDs were unchanged, capture-only/capture mode remained active, and all seven
+protected config/profile files checked retained their hashes.
+
+This establishes that this capture-only launch batch also receives a denial;
+it does not isolate a triggering token or prove why the original native launch
+was denied. The returned error itself contains a command-truncation marker.
+The complete returned tool result and full submitted command are saved in
+`artifacts/capture-only-launch-20261026-082659/tool-result.json` and
+`submitted-command.txt`, alongside setup and preservation evidence.
