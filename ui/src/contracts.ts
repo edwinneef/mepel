@@ -33,6 +33,7 @@ export interface WalkCalibration {
 export interface TaughtGeometry {
   platforms: AreaSegment[]; ropes: AreaSegment[]; links: AreaLink[]; boundary: Rect | null;
   problems?: { home: string | null; unreachable: string[]; stranded: string[] };
+  aliases?: Record<string, string>;
 }
 // Read-only position on a taught area. A platform is a spatial match, never proof of contact.
 export interface LivePosition {
@@ -40,13 +41,22 @@ export interface LivePosition {
   feet?: [number, number] | null; reason: string; map?: string; canvas?: Rect | null;
   marker?: [number, number] | null; calibrated?: boolean; stale?: boolean;
   calibration?: WalkCalibration; input_sent: false;
-  teaching?: { phase: 'calibrating' | 'recording' | 'review' | null; geometry: TaughtGeometry | null; samples: number };
+  teaching?: TeachingSession;
+}
+export interface TeachingSession {
+  phase: 'calibrating' | 'recording' | 'review' | 'interrupted' | 'conflict' | null;
+  geometry: TaughtGeometry | null; samples: number;
+  draft?: { id: string; revision: number; saved_at: number | null; saved: boolean; pending?: boolean; error: string | null };
+  map_revision?: number; map_receipt?: { revision: number; saved_at: number } | null;
+  health?: { checks: number; misses: number; last_reason: string | null };
+  references?: AreaView[]; evidence?: string[]; geometry_source?: 'draft' | 'active_map';
 }
 export interface WindowInfo { hwnd: number; title: string; client: Rect; focused: boolean; dpi: number }
 export interface Snapshot {
   schema_version: 1; session_id: string; instance_id: string; command_epoch: number;
   mode: string; state: string; reason: string; capture_only: boolean; calibrating: boolean;
   frame: Frame; preview_frame?: Frame; readiness: { preview: Gate; combat: Gate; potions: Gate };
+  health?: { camera: boolean; recognition: boolean; position: boolean; reason: string };
   calibration: { capture_verified?: boolean; controls_verified?: boolean; crop?: Rect };
   player: Detection | null; monsters?: Detection[]; target?: Detection | null;
   focused?: boolean; window?: WindowInfo | null; width?: number; height?: number;
@@ -81,7 +91,7 @@ export interface ViewAlignment {
   aligned: boolean; view_id: string | null; origin: AreaPoint | null; scale: number | null;
   agree: number; patches: number; reason: string;
 }
-export interface AreaSegment { id: string; start: AreaPoint; end: AreaPoint }
+export interface AreaSegment { id: string; start: AreaPoint; end: AreaPoint; name?: string }
 export interface AreaZone { id: string; kind: 'avoid' | 'portal'; rect: Rect }
 export interface AreaLink {
   id: string; from: string; to: string; kind: 'walk' | 'jump' | 'climb' | 'drop';

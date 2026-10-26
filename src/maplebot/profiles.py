@@ -163,7 +163,13 @@ def validate_profile(value: object) -> tuple[dict, list[str]]:
                 if kind == "ropes" and abs(start["x"] - end["x"]) > 0.001:
                     raise ValueError("Ropes must be vertical")
                 key = element(item)
-                segments.append({"id": key, "start": start, "end": end})
+                segment = {"id": key, "start": start, "end": end}
+                if "name" in item:
+                    if (not isinstance(item["name"], str) or not item["name"].strip()
+                            or len(item["name"]) > 120):
+                        raise ValueError("Invalid surface name")
+                    segment["name"] = item["name"].strip()
+                segments.append(segment)
                 nodes.append(key)
             profile[kind] = segments
         links, edges = [], set()

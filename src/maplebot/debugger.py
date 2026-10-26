@@ -74,6 +74,13 @@ def serve(
                 body = app.areas.frame(query.get("id", [""])[0])
                 self.reply(200 if body else 404, body or b"Reference image unavailable",
                            "image/png" if body else "text/plain")
+            elif parsed.path == "/api/v1/teaching-evidence":
+                name = parse_qs(parsed.query).get("id", [""])[0]
+                valid = re.fullmatch(r"[a-f0-9]{32}-miss-[0-9]+\.png", name)
+                path = app.areas.directory / "teaching" / name if valid else None
+                body = path.read_bytes() if path and path.is_file() else None
+                self.reply(200 if body else 404, body or b"Evidence unavailable",
+                           "image/png" if body else "text/plain")
             elif parsed.path == "/api/v1/preview":
                 query = parse_qs(parsed.query)
                 body = app.preview_frame(query.get("id", [""])[0])

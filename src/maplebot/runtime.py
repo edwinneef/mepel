@@ -211,6 +211,17 @@ class Application:
 
     def start(self) -> None:
         self.connect_saved_window()
+        # Restore a draft for review, never resume teaching or gameplay automatically.
+        for path in sorted((self.areas.directory / "drafts").glob("*.json"),
+                           key=lambda item: item.stat().st_mtime, reverse=True):
+            try:
+                saved = json.loads(path.read_text("utf-8"))
+                if saved.get("phase") not in {"used", "discarded"}:
+                    self._position_command("position_start", {"area_id": path.stem})
+                    self.note("Teaching draft recovered; recording and gameplay stay stopped")
+                    break
+            except (OSError, ValueError, TypeError, KeyError):
+                self.note("A teaching draft needs recovery; its original file is preserved")
         self.preview.start()
         self.start_capture_worker()
 
@@ -399,8 +410,27 @@ class Application:
                 "alarm": self.alarm.snapshot(),
                 "history": list(self.history),
             }
-            result["position"] = self._position_snapshot(result.get("position"))
+            position = result.get("position")
+            if position is None and self.position is not None:
+                position = {"area_id": self.position.profile["id"],
+                            "area_name": self.position.profile["name"], "kind": "unknown",
+                            "reason": "Waiting for capture; teaching draft preserved",
+                            "teaching": getattr(self.position, "teaching_snapshot", None),
+                            "captured_at": 0, "input_sent": False}
+            result["position"] = self._position_snapshot(position)
             result["readiness"] = readiness(result)
+            preview = result["preview_frame"]
+            camera_ok = bool(preview.get("available") and preview.get("age_ms", 1001) <= 1000)
+            recognition_ok = bool(frame and result["frame"]["age_ms"] <= 500)
+            position_ok = bool(recognition_ok and result["position"]
+                               and result["position"].get("kind") == "platform")
+            result["health"] = {
+                "camera": camera_ok, "recognition": recognition_ok, "position": position_ok,
+                "reason": "Game picture unavailable" if not camera_ok else
+                "Recognition is behind the game picture" if not recognition_ok else
+                result["position"].get("reason", "Position unavailable")
+                if result["position"] and not position_ok else "Game picture and recognition ready",
+            }
             return result
 
     def frame(self, frame_id: str, *, raw: bool = False) -> bytes | None:
@@ -1246,6 +1276,13 @@ class Application:
             if self.position is not None:
                 self.position.close()
             self.position = position
+            with self.lock:
+                self.status["position"] = {
+                    "area_id": position.profile["id"], "area_name": position.profile["name"],
+                    "kind": "unknown", "reason": "Waiting for a fresh position reading",
+                    "teaching": position._teaching_status(time.perf_counter()),
+                    "captured_at": time.time(), "input_sent": False,
+                }
             if payload.get("teach"):
                 position.begin_teaching()
             return {"tracking": True, "area_id": position.profile["id"],

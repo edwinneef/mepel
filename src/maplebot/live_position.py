@@ -75,6 +75,8 @@ class LivePosition:
         self.draft_error: str | None = None
         self.interrupted = False
         self.checkpoint_at = 0.0
+        self.checkpoint_count = 0
+        self.map_receipt: dict | None = None
         self._load(area_id)
         self._recover_draft()
 
@@ -92,6 +94,8 @@ class LivePosition:
                 raise ValueError("Saved map changed; teaching draft preserved for recovery")
             if saved.get("teacher") is not None:
                 self.finished = MapTeacher.restore(saved["teacher"])
+                self._name_context(self.finished)
+                self.checkpoint_count = len(self.finished.samples)
                 if saved["phase"] == "review":
                     self.proposal = self.finished.geometry()
                 else:
@@ -129,9 +133,16 @@ class LivePosition:
                         for row in rows if "sample_dot" in row],
             "log": [row for row in rows if "reason" in row],
         })
-        if teacher.geometry() != proposal:
+        self._name_context(teacher)
+        actual = teacher.geometry()
+        def plain(value: dict) -> dict:
+            return {**{k: value[k] for k in ("links", "boundary", "problems")},
+                    **{k: [{field: item[field] for field in ("id", "start", "end")}
+                           for item in value[k]] for k in ("platforms", "ropes")}}
+        if plain(actual) != plain(proposal):
             raise ValueError("Legacy log/calibration mismatch; original log preserved")
-        self.finished, self.proposal = teacher, proposal
+        self._name_context(teacher)
+        self.finished, self.proposal = teacher, teacher.geometry()
         self._checkpoint(force=True)
 
     def _checkpoint(self, *, force: bool = False) -> None:
@@ -152,10 +163,27 @@ class LivePosition:
                 "pairs": self.samples or [],
             }, self.draft_revision)
             self.draft_revision, self.draft_saved_at = saved["revision"], saved["saved_at"]
+            self.checkpoint_count = len(teacher.samples) if teacher else len(self.samples or [])
             self.draft_error = None
         except (OSError, ValueError, TypeError) as error:
             self.draft_error = f"Draft not saved: {error}"
         self.checkpoint_at = now
+
+    def _name_context(self, teacher: MapTeacher) -> None:
+        registry = teacher.identities
+        if self.profile["platforms"]:
+            registry.setdefault("floor_y", max(max(p["start"]["y"], p["end"]["y"])
+                                               for p in self.profile["platforms"]))
+        registry.setdefault("center_x", self.view.x + self.reference.shape[1] / self.view.scale / 2)
+
+    def _new_teacher(self) -> MapTeacher:
+        assert self.tracker is not None
+        teacher = MapTeacher(self.tracker.transform)
+        teacher.identities["surfaces"] = {
+            kind: [p for p in self.profile[kind] if p.get("name")]
+            for kind in ("platforms", "ropes")}
+        self._name_context(teacher)
+        return teacher
 
     def _load(self, area_id: str) -> None:
         profile = self.store.load(area_id)["profile"]
@@ -221,7 +249,7 @@ class LivePosition:
                 return  # keep walking until the marker has moved far enough
             self.teach_calibrating = False
             assert self.tracker is not None
-            self.teacher = MapTeacher(self.tracker.transform)
+            self.teacher = self._new_teacher()
         if self.teacher is not None:
             self.teacher.add(fix, player, shift, now)
         self._checkpoint()
@@ -234,12 +262,26 @@ class LivePosition:
         if self.teacher is not None and (self.preview is None or now - self.preview[0] >= 1):
             self.preview = (now, self.teacher.geometry())
         geometry = self.proposal or (self.preview[1] if self.preview and self.teacher else None)
-        return {"phase": phase, "geometry": geometry,
+        teacher = self.teacher or self.finished
+        log = teacher.log if teacher else []
+        misses = sum(row.get("dot") is None for row in log)
+        evidence = sorted((self.store.directory / "teaching").glob(
+            f"{self.profile['id']}-miss-*.png"), key=lambda p: p.stat().st_mtime)[-5:]
+        status = {"phase": phase, "geometry": geometry,
                 "samples": len(self.teacher.samples) if self.teacher else 0,
                 "draft": {"id": self.draft_id, "revision": self.draft_revision,
                           "saved_at": self.draft_saved_at, "error": self.draft_error,
+                          "pending": bool(teacher and
+                                          len(teacher.samples) != self.checkpoint_count),
                           "saved": self.draft_saved_at is not None and not self.draft_error},
-                "map_revision": self.profile["revision"]}
+                "map_revision": self.profile["revision"], "map_receipt": self.map_receipt,
+                "health": {"checks": len(log), "misses": misses,
+                           "last_reason": log[-1].get("reason") if log else None},
+                "references": self.profile["views"],
+                "evidence": [path.name for path in evidence],
+                "geometry_source": "draft" if geometry else "active_map"}
+        self.teaching_snapshot = status
+        return status
 
     def begin_teaching(self) -> dict:
         """Record the operator's play; calibrate first when the area has no calibration."""
@@ -253,7 +295,7 @@ class LivePosition:
             self.begin_calibration()
             self.teach_calibrating, self.teacher = True, None
         else:
-            self.teach_calibrating, self.teacher = False, MapTeacher(self.tracker.transform)
+            self.teach_calibrating, self.teacher = False, self._new_teacher()
         self._checkpoint(force=True)
         return self._teaching_status(time.perf_counter())
 
@@ -322,6 +364,8 @@ class LivePosition:
         self.draft_revision, self.draft_saved_at = retired["revision"], None
         self.proposal, self.finished = None, None
         self._load(self.profile["id"])
+        self.map_receipt = {"revision": self.profile["revision"], "saved_at": time.time()}
+        saved["receipt"] = self.map_receipt
         return saved
 
     def cancel_teaching(self) -> dict:

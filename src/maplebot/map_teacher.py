@@ -14,6 +14,7 @@ import numpy as np
 from .localization import MinimapTransform
 from .minimap_reader import MinimapFix
 from .perception import Detection
+from .surface_names import stabilize
 
 MAX_GAP_SECONDS = 1.0  # longer gaps break motion runs
 LINK_SECONDS = 6.0  # a move between two surfaces, long drops included, must finish in time
@@ -42,10 +43,12 @@ class MapTeacher:
         self.log: list[dict] = []
         self.last: tuple[float, tuple[float, float], tuple[float, float] | None] | None = None
         self.climb_run = 0
+        self.identities: dict = {}
 
     def checkpoint(self) -> dict:
         return {"transform": asdict(self.transform),
-                "samples": [asdict(sample) for sample in self.samples], "log": self.log}
+                "samples": [asdict(sample) for sample in self.samples], "log": self.log,
+                "identities": self.identities}
 
     @classmethod
     def restore(cls, value: dict) -> "MapTeacher":
@@ -78,6 +81,9 @@ class MapTeacher:
             teacher.samples = [replace(sample, t=sample.t + offset)
                                for sample in teacher.samples]
         teacher.log = log
+        teacher.identities = value.get("identities", {})
+        if not isinstance(teacher.identities, dict):
+            raise ValueError("Invalid surface identities")
         return teacher
 
     def add(self, fix: MinimapFix, player: Detection | None,
@@ -133,8 +139,9 @@ class MapTeacher:
             boundary = {"x": round(left, 1), "y": round(top, 1),
                         "width": round(max(x for x, _ in points) + 40 - left, 1),
                         "height": round(max(y for _, y in points) + 40 - top, 1)}
-        return {"platforms": platforms, "ropes": ropes, "links": links, "boundary": boundary,
-                "problems": problems(platforms, ropes, links)}
+        return stabilize({"platforms": platforms, "ropes": ropes, "links": links,
+                          "boundary": boundary, "problems": problems(platforms, ropes, links)},
+                         self.identities)
 
     def _walks(self) -> list[list[_Sample]]:
         """Stretches walked without leaving the ground; slope steps keep a walk going."""
