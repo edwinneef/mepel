@@ -24,13 +24,13 @@ it('starts in full-width overview and preview mode; a tool opens and closes with
   render(<App client={new EngineClient('token', fetcher)} />);
   await waitFor(() => expect(screen.getByRole('img')).toBeTruthy());
   expect(screen.getByRole('combobox', { name: 'Run mode' }).getAttribute('value') ?? (screen.getByRole('combobox', { name: 'Run mode' }) as HTMLSelectElement).value).toBe('preview');
-  expect(screen.queryByLabelText('Tracking tool')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Tracking' }));
-  expect(screen.getByLabelText('Tracking tool')).toBeTruthy();
+  expect(screen.queryByLabelText('Recognition tool')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Recognition' }));
+  expect(screen.getByLabelText('Recognition tool')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Close tool panel' }));
-  expect(screen.queryByLabelText('Tracking tool')).toBeNull();
-  await waitFor(() => expect(screen.getByRole('button', { name: /Start$/ }).hasAttribute('disabled')).toBe(false), { timeout: 2000 });
-  fireEvent.click(screen.getByRole('button', { name: /Start$/ }));
+  expect(screen.queryByLabelText('Recognition tool')).toBeNull();
+  await waitFor(() => expect(screen.getByRole('button', { name: /Start preview$/ }).hasAttribute('disabled')).toBe(false), { timeout: 2000 });
+  fireEvent.click(screen.getByRole('button', { name: /Start preview$/ }));
   await waitFor(() => expect(commands).toContain('dry_run'));
   expect(commands).not.toContain('arm');
   fireEvent.click(screen.getByRole('button', { name: 'Screenshot' }));
@@ -51,7 +51,7 @@ it('blocks Start when a once-fresh displayed frame ages while status remains unc
       captured_at: refreshing ? Date.now() / 1000 : current.frame.captured_at } }));
   vi.stubGlobal('fetch', fetcher);
   render(<App client={new EngineClient('token', fetcher)} />);
-  const start = screen.getByRole('button', { name: /Start$/ });
+  const start = screen.getByRole('button', { name: /Start preview$/ });
   await waitFor(() => expect(start.hasAttribute('disabled')).toBe(false), { timeout: 2000 });
   refreshing = false;
   await waitFor(() => expect(start.hasAttribute('disabled')).toBe(true), { timeout: 1200 });
@@ -65,7 +65,7 @@ it('keeps the last frame mounted during same-source capture loss while blocking 
     ? new Response(new Blob(['image'])) : json({ ...current, frame: { ...current.frame, captured_at: Date.now() / 1000 } }));
   vi.stubGlobal('fetch', fetcher);
   render(<App client={new EngineClient('token', fetcher)} />);
-  const start = screen.getByRole('button', { name: /Start$/ });
+  const start = screen.getByRole('button', { name: /Start preview$/ });
   await waitFor(() => expect(start.hasAttribute('disabled')).toBe(false), { timeout: 2000 });
   const image = screen.getByRole('img');
   current = snapshot({ frame: { ...current.frame, id: null, captured_at: null, width: 0, height: 0, available: false } });
@@ -92,11 +92,11 @@ it('keeps preview steady through slow recognition and enables Start only after s
   });
   vi.stubGlobal('fetch', fetcher);
   render(<App client={new EngineClient('token', fetcher)} />);
-  const start = screen.getByRole('button', { name: /Start$/ });
+  const start = screen.getByRole('button', { name: /Start preview$/ });
   for (let i = 0; i < 16; i++) {
     await act(async () => { await vi.advanceTimersByTimeAsync(250); });
     expect(start.hasAttribute('disabled')).toBe(true);
-    expect(screen.getByText('Live preview')).toBeTruthy();
+    expect(screen.getByText('Live picture')).toBeTruthy();
   }
   steady = true;
   await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
@@ -127,7 +127,7 @@ it('shows the reload recovery above the game view when a restarted engine disabl
   await waitFor(() => expect(screen.getByRole('img')).toBeTruthy());
   sessionId = 'replacement-session';
   await act(async () => { await client.readStatus(); });
-  expect(screen.getByRole('button', { name: /Start$/ }).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByRole('button', { name: /Start preview$/ }).hasAttribute('disabled')).toBe(true);
   const recovery = screen.getByRole('region', { name: 'Reconnect workspace' });
   expect(within(recovery).getByRole('button', { name: 'Reload workspace' }).hasAttribute('disabled')).toBe(false);
   expect(recovery.compareDocumentPosition(screen.getByLabelText('Live game workspace')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

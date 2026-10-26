@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { LivePosition, Snapshot, TaughtGeometry } from './contracts';
 import type { EngineClient } from './client';
+import { placeName, TeachingTerrain } from './TeachingTerrain';
 
 type Act = (operation: () => Promise<unknown>) => Promise<void>;
 interface PanelProps {
@@ -13,7 +14,7 @@ export function positionLabel(position: LivePosition): string {
   return `Position unknown · ${position.reason}`;
 }
 
-export function PositionOverlay({ position }: { position: LivePosition | null | undefined }) {
+export function PositionOverlay({ position, showText = true }: { position: LivePosition | null | undefined; showText?: boolean }) {
   if (!position) return null;
   const canvas = position.canvas;
   const marker = canvas && position.marker ? { x: canvas.x + position.marker[0], y: canvas.y + position.marker[1] } : null;
@@ -21,7 +22,7 @@ export function PositionOverlay({ position }: { position: LivePosition | null | 
   return <g className={`position-overlay ${position.kind}`} aria-label="Live position">
     {canvas && <rect x={canvas.x} y={canvas.y} width={canvas.width} height={canvas.height} className="position-canvas" />}
     {marker && <circle cx={marker.x} cy={marker.y} r="7" className="position-marker" />}
-    <text x={at.x} y={at.y}>{positionLabel(position)}</text>
+    {showText && <text x={at.x} y={at.y}>{positionLabel(position)}</text>}
   </g>;
 }
 
@@ -35,8 +36,8 @@ function problemText(geometry: TaughtGeometry): string[] {
   const problems = geometry.problems;
   if (!problems?.home) return [];
   const lines = [];
-  if (problems.unreachable.length) lines.push(`Can't reach from ${label(problems.home)}: ${problems.unreachable.map(label).join(', ')}. Walk there from a connected ledge.`);
-  if (problems.stranded.length) lines.push(`No way back to ${label(problems.home)} from: ${problems.stranded.map(label).join(', ')}. Jump or drop back down from them.`);
+  if (problems.unreachable.length) lines.push(`No journey recorded from ${label(problems.home)} to: ${problems.unreachable.map(label).join(', ')}.`);
+  if (problems.stranded.length) lines.push(`No return journey recorded to ${label(problems.home)} from: ${problems.stranded.map(label).join(', ')}.`);
   return lines;
 }
 
@@ -64,51 +65,133 @@ export function MapSketch({ geometry, feet }: { geometry: TaughtGeometry; feet?:
 }
 
 export function PositionPanel({ snapshot: s, client, act, disabled, areas, refreshAreas }: PanelProps) {
-  const [areaId, setAreaId] = useState('');
+  const [chosenArea, setChosenArea] = useState('');
   const [name, setName] = useState('');
+  const [selected, setSelected] = useState('');
+  const [confirmation, setConfirmation] = useState<{ platforms_before?: number; platforms_after?: number; zones_removed?: number } | null>(null);
+  const [discard, setDiscard] = useState(false);
+  const [report, setReport] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const position = s.position;
   const teaching = position?.teaching;
+  const phase = teaching?.phase;
   const geometry = teaching?.geometry;
-  const walk = position?.calibration;
-  const saved = walk?.saved;
-  const command = (name: string, payload: Record<string, unknown> = {}) => act(() => client.command(name, payload));
-  const counts = geometry ? `${geometry.platforms.length} platforms · ${geometry.ropes.length} ropes · ${geometry.links.length} links` : 'nothing yet';
-  return <section className="tool-group map-panel"><h3>Map</h3>
-    <label>Saved map<select value={areaId} onChange={event => setAreaId(event.target.value)}>
-      <option value="">Choose a map…</option>{areas.map(area => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
-    <div className="button-grid"><button disabled={disabled || !areaId} onClick={() => void command('position_start', { area_id: areaId })}>Track position</button>
-      <button disabled={disabled || !position} onClick={() => void command('position_stop')}>Stop tracking</button></div>
-    <details><summary>New map from this screen</summary>
-      <p>Stand on the map with the full minimap open. The current screen becomes the map's reference.</p>
-      <label>Map name<input value={name} onChange={event => setName(event.target.value)} placeholder="e.g. Blue Mushroom Forest" /></label>
-      <button disabled={disabled} onClick={() => void act(async () => { const result = await client.command('teach_new_area', { name }); await refreshAreas(); return result; })}>Teach a new map</button>
-    </details>
-    {position && <>
-      <p className="reading">{position.area_name ? `${position.area_name} · ` : ''}{positionLabel(position)}</p>
-      {!teaching?.phase && <><p>Teach by playing: walk every floor and ledge end to end, and make each jump, drop and climb the bot may use. Takes one to three minutes. The bot sends no keys.</p>
-        <button className="primary" disabled={disabled} onClick={() => void command('teach_begin')}>Teach this map</button></>}
-      {teaching?.phase === 'calibrating' && <><p className="reading">Step 1 of 2 · Walk left and right along one floor · {walk?.pairs ?? 0} / 20</p>
-        <button disabled={disabled} onClick={() => void command('teach_cancel')}>Cancel</button></>}
-      {teaching?.phase === 'recording' && <><p className="reading">Step 2 of 2 · Recording: {counts}</p>
-        <p>Visit each ledge and come back down, then press Finish.</p>
-        {geometry && problemText(geometry).map(line => <p key={line} className="warning-copy">{line}</p>)}
-        <div className="button-grid"><button className="primary" disabled={disabled} onClick={() => void command('teach_finish')}>Finish</button>
-          <button disabled={disabled} onClick={() => void command('teach_cancel')}>Cancel</button></div></>}
-      {teaching?.phase === 'review' && <><p className="reading">Learned {counts}.</p>
-        {geometry && (problemText(geometry).length ? problemText(geometry).map(line => <p key={line} className="warning-copy">{line}</p>)
-          : <p>Every surface is reachable from {label(geometry.problems?.home ?? '')} and leads back to it.</p>)}
-        <div className="button-grid"><button className="primary" disabled={disabled} onClick={() => void act(async () => { const result = await client.command('teach_save'); await refreshAreas(); return result; })}>Save map</button>
-          <button disabled={disabled} onClick={() => void command('teach_resume')}>Keep recording</button>
-          <button disabled={disabled} onClick={() => void command('teach_cancel')}>Discard</button></div></>}
-      {geometry && <MapSketch geometry={geometry} feet={position.feet} />}
-      <details><summary>Walk calibration</summary>
-        <p>{saved ? `${saved.pairs} pairs · p95 x ${saved.residual_px.x.p95.toFixed(1)} / y ${saved.residual_px.y.p95.toFixed(1)} px` : 'Not calibrated. Teaching calibrates automatically.'}</p>
-        {walk?.active && !teaching?.phase && <p>{walk.pairs} pairs collected · {walk.rejected} frames without registration</p>}
-        <div className="button-grid">{walk?.active && !teaching?.phase ? <>
-          <button disabled={disabled || walk.pairs < 10} onClick={() => void command('walk_calibration_finish')}>Finish and save</button>
-          <button disabled={disabled} onClick={() => void command('walk_calibration_cancel')}>Cancel calibration</button></>
-          : <button disabled={disabled || Boolean(teaching?.phase)} onClick={() => void command('walk_calibration_begin')}>Recalibrate</button>}</div>
-      </details>
+  const draft = teaching?.draft;
+  const mapId = chosenArea || position?.area_id || '';
+  const nodes = geometry ? [...geometry.platforms, ...geometry.ropes] : [];
+  const issues = geometry?.problems;
+  const missing = [...(issues?.unreachable ?? []), ...(issues?.stranded ?? [])];
+  let selection = selected || missing[0] || nodes[0]?.id;
+  for (let i = 0; selection && geometry?.aliases?.[selection] && i < 20; i++) selection = geometry.aliases[selection];
+  const place = nodes.find(item => item.id === selection) ?? nodes.find(item => item.id === missing[0]) ?? nodes[0];
+  const home = nodes.find(item => item.id === issues?.home);
+  const stranded = Boolean(place && issues?.stranded.includes(place.id));
+  const unreachable = Boolean(place && issues?.unreachable.includes(place.id));
+  const target = stranded ? home : unreachable ? home : undefined;
+  const health = teaching?.health;
+  const lost = Boolean(missing.length && health?.misses);
+  const command = (action: string, payload: Record<string, unknown> = {}) => act(() => client.command(action, payload));
+  const activate = (confirm = false) => act(async () => {
+    setSaveError('');
+    let result: { requires_confirmation?: boolean; platforms_before?: number; platforms_after?: number; zones_removed?: number };
+    try { result = await client.command('teach_save', confirm ? { confirm_partial: true } : {}); }
+    catch (error) { setSaveError(error instanceof Error ? error.message : String(error)); return; }
+    if (result.requires_confirmation) setConfirmation(result);
+    else { setConfirmation(null); await refreshAreas(); }
+    return result;
+  });
+  const copyReport = async () => {
+    const text = JSON.stringify({ area: position?.area_name, draft, health,
+      currentHealth: s.health, issue: issues, evidence: teaching?.evidence }, null, 2);
+    try { await navigator.clipboard.writeText(text); setCopied(true); setReport(''); }
+    catch { setReport(text); setCopied(false); }
+  };
+  let title = 'Choose a map to teach';
+  let instruction = 'Track a saved map, or create one from the current game picture. Teaching sends no game keys.';
+  let action = 'Track position';
+  let run = () => command('position_start', { area_id: mapId });
+  let blocked = disabled || !mapId;
+  if (position) {
+    blocked = disabled;
+    title = teaching?.map_receipt ? 'Map saved' : 'Ready to teach';
+    instruction = teaching?.map_receipt ? `Saved map revision ${teaching.map_receipt.revision}. Gameplay stays stopped.` : 'Walk the places you want the bot to learn. Your teaching draft is saved separately from the map in use.';
+    action = 'Teach this map'; run = () => command('teach_begin');
+  }
+  if (phase === 'calibrating') {
+    title = 'Learning how the map scrolls';
+    instruction = `Walk left and right on one floor · ${position?.calibration?.pairs ?? 0} of 20 samples. You can pause safely.`;
+    action = 'Pause teaching'; run = () => command('teach_pause');
+  } else if (phase === 'recording') {
+    title = 'Teaching in progress';
+    instruction = `${geometry?.platforms.length ?? 0} platforms learned. Finish to review the draft; the saved map will stay unchanged.`;
+    action = 'Finish teaching'; run = () => command('teach_finish');
+  } else if (phase === 'interrupted') {
+    title = 'Teaching paused · draft recovered';
+    instruction = 'Your saved samples are preserved. Resume only when you are ready; nothing restarted automatically.';
+    action = 'Resume teaching'; run = () => command('teach_resume');
+  } else if (phase === 'review') {
+    title = missing.length ? 'Some journeys are missing from the recording' : 'Recorded paths connect';
+    instruction = lost ? `Your position was unreadable in ${health?.misses} of ${health?.checks} checks. Keep this draft and report the tracking problem before repeating the walk.`
+      : missing.length ? 'The missing connections are highlighted below. This does not mean the move is impossible.'
+      : `${geometry?.platforms.length ?? 0} learned platforms. Review them before replacing the saved map.`;
+    action = lost ? copied ? 'Report copied' : 'Copy tracking report' : missing.length ? 'Continue teaching' : 'Use this map';
+    run = lost ? copyReport : missing.length ? () => command('teach_resume') : () => activate();
+  }
+  if (draft?.error) {
+    title = phase === 'conflict' ? 'Draft needs recovery' : 'Recent changes could not be saved';
+    instruction = draft.error;
+    action = phase === 'conflict' ? 'Download preserved draft' : 'Retry saving draft';
+    run = phase === 'conflict' ? async () => {
+      const response = await fetch(`/api/v1/teaching-draft?area_id=${encodeURIComponent(position?.area_id ?? '')}`);
+      if (!response.ok) throw new Error('The preserved draft could not be downloaded');
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a'); link.href = url; link.download = 'teaching-draft.json'; link.click(); URL.revokeObjectURL(url);
+    } : () => command('teach_checkpoint');
+  }
+  if (position && !phase && s.mode !== 'capture') {
+    title = 'Stop the current run before teaching';
+    instruction = 'Teaching sends no game keys. Stop the preview or combat run, then start teaching.';
+    action = 'Stop run'; run = () => command('stop');
+  }
+  return <section className="teaching-panel" aria-label="Map teaching">
+    <div className="teaching-summary">
+      <span className="eyebrow">{position?.area_name ?? 'Map teaching'}</span><h3>{title}</h3><p>{instruction}</p>
+      <div className="teaching-primary"><button className="primary" disabled={blocked || Boolean(confirmation) || discard || (lost && copied && !draft?.error)} onClick={() => void act(run)}>{action}</button>
+        <span className={draft?.error ? 'draft-error' : 'draft-status'} role="status">{draft?.error ? 'Draft save needs attention' : draft?.pending ? 'Saving recent changes…' : draft?.saved && phase ? `Draft checkpoint saved · ${draft.saved_at ? new Date(draft.saved_at * 1000).toLocaleTimeString() : ''}` : phase ? 'Waiting for a saved checkpoint' : teaching?.map_receipt ? `Map revision ${teaching.map_receipt.revision} saved` : teaching?.map_revision ? `Saved map revision ${teaching.map_revision}` : ''}</span>
+      </div>
+      {position && <p className="saved-map-note">Saved map{teaching?.map_revision ? ` · revision ${teaching.map_revision}` : ''}{phase ? ' stays unchanged until you choose Use this map.' : ' is separate from a teaching draft.'}</p>}
+      {confirmation && <div role="alertdialog" aria-label="Confirm map replacement" className="teaching-confirm"><h3>Replace the saved map?</h3>
+        <p>{confirmation.platforms_before} saved platforms → {confirmation.platforms_after} learned platforms. Missing routes or removed places may make this map incomplete.{confirmation.zones_removed ? ` ${confirmation.zones_removed} zones outside the new boundary will be removed.` : ''} A backup of the previous map is retained.</p>
+        <button disabled={disabled} className="primary" onClick={() => void activate(true)}>Replace with this draft</button><button onClick={() => setConfirmation(null)}>Keep reviewing</button></div>}
+      {discard && <div role="alertdialog" aria-label="Confirm draft discard" className="teaching-confirm"><p>Discard this teaching draft? The saved map stays unchanged and a recovery copy is kept.</p><button disabled={disabled} onClick={() => void act(async () => { const result = await client.command('teach_cancel'); setDiscard(false); return result; })}>Discard teaching draft</button><button onClick={() => setDiscard(false)}>Keep draft</button></div>}
+      {report && <label>Tracking report — copy this for repair<textarea readOnly rows={5} value={report} onFocus={event => event.target.select()} /></label>}
+      {copied && <p role="status">Tracking report copied. Keep this draft while the reader is investigated.</p>}
+      {saveError && <p role="alert" className="draft-error">Map not replaced: {saveError}. Your teaching draft is kept.</p>}
+    </div>
+    {geometry && nodes.length > 0 && <>
+      <label className="place-picker">Place<select value={place?.id ?? ''} onChange={event => setSelected(event.target.value)}>{nodes.map(item => <option key={item.id} value={item.id}>{placeName(item)} · {label(item.id)}</option>)}</select></label>
+      <TeachingTerrain geometry={geometry} references={teaching?.references ?? []} selected={place} target={target} />
+      {stranded && <p className="route-explanation">No return journey was recorded from <strong>{placeName(place)}</strong> to <strong>{placeName(home)}</strong>. The recording may have missed it.</p>}
+      {unreachable && <p className="route-explanation">No journey was recorded from <strong>{placeName(home)}</strong> to <strong>{placeName(place)}</strong>.</p>}
+      {missing.length > 0 && <div className="issue-places" aria-label="Places needing review">{missing.map(id => <button key={id} aria-pressed={place?.id === id} onClick={() => setSelected(id)}>{placeName(nodes.find(item => item.id === id))} · {label(id)}</button>)}</div>}
     </>}
+    <details className="teaching-options"><summary>Other map actions</summary>
+      <label>Saved map<select value={mapId} onChange={event => setChosenArea(event.target.value)}><option value="">Choose a map…</option>{areas.map(area => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
+      <div className="button-grid"><button disabled={disabled || !mapId} onClick={() => void command('position_start', { area_id: mapId })}>{position ? 'Switch / reconnect map' : 'Track selected map'}</button><button disabled={disabled || !position} onClick={() => void command('position_stop')}>Stop tracking</button></div>
+      <label>Map name<input value={name} onChange={event => setName(event.target.value)} placeholder="e.g. Ant Tunnel" /></label>
+      <button disabled={disabled} onClick={() => void act(async () => { const result = await client.command('teach_new_area', { name }); await refreshAreas(); return result; })}>Teach a new map</button>
+      {phase && <div className="button-grid">{phase === 'review' && <><button disabled={disabled} onClick={() => void command('teach_resume')}>Continue teaching anyway</button><button disabled={disabled} onClick={() => void activate()}>Use this map…</button></>}
+        {phase === 'recording' && <button disabled={disabled} onClick={() => void command('teach_pause')}>Pause teaching</button>}
+        <button disabled={disabled} onClick={() => setDiscard(true)}>Discard draft…</button></div>}
+    </details>
+    <details className="teaching-options"><summary>Tracking evidence and calibration</summary>
+      <p>{s.health?.reason ?? position?.reason ?? 'Track a map to see position status.'}</p>
+      {health && <p>{health.misses} of {health.checks} position checks were unreadable.</p>}
+      {(teaching?.evidence ?? []).map(file => <a className="evidence-link" key={file} href={`/api/v1/teaching-evidence?id=${encodeURIComponent(file)}`} target="_blank" rel="noreferrer"><img src={`/api/v1/teaching-evidence?id=${encodeURIComponent(file)}`} alt="Saved failed position reading" loading="lazy" />Open failed reading</a>)}
+      {geometry && <>{problemText(geometry).map(line => <p key={line}>{line}</p>)}<MapSketch geometry={geometry} feet={position?.feet} /></>}
+      <p>{position?.calibration?.saved ? `${position.calibration.saved.pairs} saved calibration samples` : 'Teaching calibrates the map automatically.'}</p>
+      <button disabled={disabled || Boolean(phase)} onClick={() => void command('walk_calibration_begin')}>Recalibrate</button>
+    </details>
   </section>;
 }

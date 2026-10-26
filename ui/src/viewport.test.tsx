@@ -26,6 +26,25 @@ it('maps a CSS-scaled drag to clamped original screenshot pixels', () => {
   expect(selected).toHaveBeenLastCalledWith({ x: 200, y: 100, width: 400, height: 300 });
 });
 
+it('keeps native selection coordinates at 200 percent and in expanded view', () => {
+  const selected = vi.fn();
+  const selection = { x: 200, y: 100, width: 400, height: 300 };
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new Event('close')); };
+  render(<GameViewport image={{ url: 'blob:test', width: 1024, height: 768, key: 'test' }} frozen selection={selection} onSelection={selected} />);
+  fireEvent.click(screen.getByRole('button', { name: '200%' }));
+  const image = screen.getByRole('img');
+  vi.spyOn(image, 'getBoundingClientRect').mockReturnValue(new DOMRect(20, 30, 2048, 1536));
+  fireEvent.pointerDown(image.parentElement!, { clientX: 420, clientY: 230, pointerId: 1 });
+  fireEvent.pointerUp(image.parentElement!, { clientX: 1220, clientY: 830, pointerId: 1 });
+  expect(selected).toHaveBeenLastCalledWith(selection);
+  fireEvent.click(screen.getByRole('button', { name: 'Expand game' }));
+  const expanded = screen.getByRole('dialog', { name: 'Expanded game' });
+  expect(expanded.querySelector('.selection-layer rect')?.getAttribute('x')).toBe('200');
+  fireEvent.click(screen.getByRole('button', { name: 'Close expanded game' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
 it('an old live fetch cannot replace a newer frozen selection frame', async () => {
   const old = deferred<Response>();
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {

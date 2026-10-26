@@ -167,6 +167,7 @@ export class EngineClient {
 export function resultMessage(value: unknown): string {
   if (value && typeof value === 'object') {
     const result = value as Record<string, unknown>;
+    if (result.receipt && typeof result.receipt === 'object' && 'revision' in result.receipt) return `Map saved · revision ${result.receipt.revision}. Gameplay stays stopped.`;
     if (typeof result.instruction === 'string') return result.instruction;
     if (typeof result.reason === 'string') return result.reason;
     if (typeof result.path === 'string') return `Saved: ${result.path}`;

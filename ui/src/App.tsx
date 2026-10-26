@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { EngineClient, resultMessage } from './client';
 import { useViewport } from './useViewport';
 import { GameViewport } from './GameViewport';
@@ -16,6 +16,13 @@ export function App({ client }: { client: EngineClient }) {
   const [runMode, setRunMode] = useState<'preview' | 'live'>('preview');
   const [now, setNow] = useState(Date.now());
   const [readySince, setReadySince] = useState<number | null>(null);
+  const openedSession = useRef<string | null>(null);
+  useEffect(() => {
+    if (s && openedSession.current !== s.session_id) {
+      openedSession.current = s.session_id;
+      if (s.position?.teaching?.phase) setTool('Navigation');
+    }
+  }, [s]);
   const view = useViewport(client, s, state.connected);
   const area = useAreaEditor(client, s?.session_id, s?.area_editing, s?.command_epoch);
   const areaEditing = area.editing || Boolean(s?.area_editing);
@@ -50,6 +57,7 @@ export function App({ client }: { client: EngineClient }) {
     runMode, setRunMode,
   } : null;
   const alarmId = s?.alarm.incident_id ?? s?.stop?.id;
+  const toolName = tool === 'Tracking' ? 'Recognition' : tool;
 
   return <div className="app-shell">
     <header className="app-header">
@@ -60,14 +68,15 @@ export function App({ client }: { client: EngineClient }) {
         <select aria-label="Run mode" value={runMode} disabled={disabled || areaEditing} onChange={e => setRunMode(e.target.value as 'preview' | 'live')}>
           <option value="preview">Preview</option><option value="live" disabled={!s || s.capture_only}>Live combat</option>
         </select>
-        <button className="primary" disabled={!canStart} title={gate?.reason ?? 'Waiting for the engine'} onClick={() => void start()}><span aria-hidden="true">▶</span> Start</button>
+        <button className="primary" disabled={!canStart} title={gate?.reason ?? 'Waiting for the engine'} onClick={() => void start()}><span aria-hidden="true">▶</span> {runMode === 'preview' ? 'Start preview' : 'Start combat'}</button>
         <button disabled={state.process !== 'running'} onClick={() => void stop('pause')}>Pause</button>
         <button className="stop-button" disabled={state.process !== 'running'} onClick={() => void stop('stop')}>Stop <kbd>F8</kbd></button>
       </div>
+      {!canStart && state.connected && <p className="run-blocker">{gate?.ready ? 'Waiting for steady fresh recognition' : gate?.reason}</p>}
     </header>
     <nav className="workspace-nav" aria-label="Workspace tools">
       <button aria-pressed={!tool} onClick={() => setTool(null)}>Overview</button>
-      {(['Tracking', 'Combat', 'Navigation', 'Potions'] as const).map(name => <button key={name} aria-pressed={tool === name} onClick={() => showTool(name)}>{name}</button>)}
+      {(['Tracking', 'Combat', 'Navigation', 'Potions'] as const).map(name => <button key={name} aria-pressed={tool === name} onClick={() => showTool(name)}>{name === 'Tracking' ? 'Recognition' : name}</button>)}
       <div className="nav-spacer" /><button aria-pressed={tool === 'Settings'} onClick={() => showTool('Settings')}>Settings</button>
       <button className="quiet" aria-pressed={tool === 'Diagnostics'} onClick={() => showTool('Diagnostics')}>Diagnostics</button>
     </nav>
@@ -76,13 +85,13 @@ export function App({ client }: { client: EngineClient }) {
       <button onClick={() => location.reload()}>Reload workspace</button>
     </section>}
     {s && <AlarmBanner snapshot={s} onAcknowledge={id => void act(() => client.command('acknowledge', { incident_id: id }))} />}
-    <main className={`workspace ${tool ? 'with-dock' : ''}`}>
+    <main className={`workspace ${tool ? 'with-dock' : ''} ${tool === 'Navigation' ? 'navigation-workspace' : ''}`}>
       <section className="preview-panel" aria-label="Live game workspace">
         <div className="preview-heading"><div><span className="eyebrow">{area.editing ? 'Area reference' : view.frozen ? 'Frozen frame' : 'Game view'}</span>
           <span className="map-name">{area.editing ? area.draft?.name ?? 'Area teaching' : s?.catalog?.active_map || s?.window?.title || 'Waiting for connection'}</span></div>
-          <span className={`view-badge ${!liveFrame || area.editing ? 'stale' : ''}`}>{area.editing ? 'Editing · input stopped' : view.frozen ? 'Selection mode' : liveFrame ? s?.preview_frame ? 'Live preview' : 'Live' : !state.connected ? 'Disconnected · last frame' : view.image ? 'Last frame · waiting for capture' : 'Waiting for fresh frame'}</span></div>
+          <span className={`view-badge ${!liveFrame || area.editing ? 'stale' : ''}`}>{area.editing ? 'Editing · input stopped' : view.frozen ? 'Selection mode' : liveFrame ? 'Live picture' : !state.connected ? 'Disconnected · last frame' : view.image ? 'Last frame · waiting for capture' : 'Waiting for fresh frame'}</span></div>
         {area.editing ? <AreaCanvas workspace={area} disabled={disabled || area.working} /> : <GameViewport image={view.image} frozen={Boolean(view.frozen)} stale={!liveFrame} selection={view.selection} onSelection={view.setSelection}
-          overlay={!liveFrame ? null : <PositionOverlay position={s?.position} />} />}
+          overlay={!liveFrame ? null : <PositionOverlay position={s?.position} showText={tool !== 'Navigation'} />} />}
         {area.editing ? <div className="preview-toolbar"><span className="area-reference-note">{area.view?.name ?? 'Capture a reference from Navigation'} · fixed image</span>
           <div className="nav-spacer" /><button disabled={disabled || area.working} onClick={() => void area.end()}>Exit area editing</button></div> : <>
         <div className="preview-toolbar" aria-label="Capture tools">
@@ -93,14 +102,14 @@ export function App({ client }: { client: EngineClient }) {
         </div>
         {view.frozen && <p className="selection-hint">{view.selection ? `${view.selection.x}, ${view.selection.y} · ${view.selection.width} × ${view.selection.height} native pixels` : 'Drag over the preview to select native game pixels.'}</p>}
         </>}
-        <footer className="preview-status"><div><span className="status-label">Player</span><strong>{!s?.player ? 'Not recognized' : s.player.tracked ? 'Tracked · awaiting confirmation' : 'Confirmed'}</strong></div>
+        <footer className="preview-status"><div><span className="status-label">Player</span><strong>{s?.health && !s.health.recognition ? 'Waiting for recognition' : !s?.player ? 'Not recognized' : s.player.tracked ? 'Tracked · awaiting confirmation' : 'Confirmed'}</strong></div>
           <div><span className="status-label">Action</span><strong>{state.process !== 'running' ? state.process : s?.mode?.replaceAll('_', ' ') ?? 'Stopped'}</strong></div>
-          <p>{s?.reason || 'Connect the game from Settings. Keyboard output stays off until explicitly enabled.'}</p>
+          <p>{s?.mode === 'capture' ? s.health?.reason ?? 'Viewing only · no game keys sent' : s?.reason || 'Connect the game from Settings. Keyboard output stays off until explicitly enabled.'}</p>
         </footer>
       </section>
-      <aside hidden={!tool} className="tool-dock" aria-label={tool ? `${tool} tool` : 'Workspace tool'}>
-        <header className="dock-heading"><div><span className="eyebrow">Workspace tool</span><h2>{tool}</h2></div><button aria-label="Close tool panel" title="Return to full-width overview" onClick={() => setTool(null)}>×</button></header>
-        <div className="dock-body"><div hidden={tool !== 'Navigation'}>{props && <PositionPanel snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} areas={area.areas} refreshAreas={area.refresh} />}
+      <aside hidden={!tool} className="tool-dock" aria-label={tool ? `${toolName} tool` : 'Workspace tool'}>
+        <header className="dock-heading"><div><span className="eyebrow">Workspace tool</span><h2>{toolName}</h2></div><button aria-label="Close tool panel" title="Return to full-width overview" onClick={() => setTool(null)}>×</button></header>
+        <div className="dock-body"><div hidden={tool !== 'Navigation'}>{props && <PositionPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} areas={area.areas} refreshAreas={area.refresh} />}
             <details className="advanced-editor"><summary>Advanced: draw by hand</summary><AreaEditor workspace={area} active={tool === 'Navigation'} connected={state.connected} disabled={disabled} /></details></div>
           {tool !== 'Navigation' && (!props ? <p>Waiting for the engine connection…</p> : tool === 'Tracking' ? <TrackingTool {...props} /> : tool === 'Combat' ? <CombatTool {...props} /> : tool === 'Potions' ? <PotionsTool key={s!.session_id} {...props} /> : tool === 'Settings' ? <SettingsTool key={s!.session_id} {...props} /> : tool === 'Diagnostics' ? <DiagnosticsTool {...props} /> : null)}</div>
       </aside>

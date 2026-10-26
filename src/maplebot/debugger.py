@@ -81,6 +81,13 @@ def serve(
                 body = path.read_bytes() if path and path.is_file() else None
                 self.reply(200 if body else 404, body or b"Evidence unavailable",
                            "image/png" if body else "text/plain")
+            elif parsed.path == "/api/v1/teaching-draft":
+                area_id = parse_qs(parsed.query).get("area_id", [""])[0]
+                valid = re.fullmatch(r"[a-f0-9]{32}", area_id)
+                path = app.areas.directory / "drafts" / f"{area_id}.json" if valid else None
+                body = path.read_bytes() if path and path.is_file() else None
+                self.reply(200 if body else 404, body or b"Draft unavailable",
+                           "application/json" if body else "text/plain")
             elif parsed.path == "/api/v1/preview":
                 query = parse_qs(parsed.query)
                 body = app.preview_frame(query.get("id", [""])[0])

@@ -8,7 +8,8 @@ import { snapshot } from './test-fixtures';
 afterEach(() => cleanup());
 
 const geometry: TaughtGeometry = {
-  platforms: [{ id: 'walk_p1', start: { x: 30, y: 593 }, end: { x: 1308, y: 593 } }, { id: 'walk_p2', start: { x: 400, y: 445 }, end: { x: 700, y: 445 } }],
+  platforms: [{ id: 'walk_p1', name: 'Ground floor', start: { x: 30, y: 593 }, end: { x: 1308, y: 593 } },
+    { id: 'walk_p2', name: 'Left ledge', start: { x: 400, y: 445 }, end: { x: 700, y: 445 } }],
   ropes: [], links: [{ id: 'walk_l1', from: 'walk_p1', to: 'walk_p2', kind: 'jump' }],
   boundary: { x: -10, y: 345, width: 1360, height: 290 },
 };
@@ -24,13 +25,14 @@ function setup(position: LivePosition | null) {
   const client = new EngineClient('token', vi.fn());
   const command = vi.spyOn(client, 'command').mockResolvedValue({ ok: true });
   const refreshAreas = vi.fn(async () => {});
-  render(<PositionPanel snapshot={snapshot({ position })} client={client} act={async operation => { await operation(); }}
-    disabled={false} areas={[{ id: 'a'.repeat(32), name: 'Floor', revision: 2 }]} refreshAreas={refreshAreas} />);
-  return { command, refreshAreas };
+  const props = { snapshot: snapshot({ position }), client, act: async (operation: () => Promise<unknown>) => { await operation(); },
+    disabled: false, areas: [{ id: 'a'.repeat(32), name: 'Floor', revision: 2 }], refreshAreas };
+  return { command, refreshAreas, props, ...render(<PositionPanel {...props} />) };
 }
 
-it('tracks a saved map or starts a new one from this screen', async () => {
+it('tracks a saved map or creates a new map without starting gameplay', async () => {
   const { command, refreshAreas } = setup(null);
+  fireEvent.click(screen.getByText('Other map actions'));
   fireEvent.change(screen.getByLabelText('Saved map'), { target: { value: 'a'.repeat(32) } });
   fireEvent.click(screen.getByRole('button', { name: 'Track position' }));
   expect(command).toHaveBeenCalledWith('position_start', { area_id: 'a'.repeat(32) });
@@ -40,46 +42,106 @@ it('tracks a saved map or starts a new one from this screen', async () => {
   expect(command).toHaveBeenCalledWith('teach_new_area', { name: 'Ant Tunnel' });
 });
 
-it('walks through teaching: start, record, finish, save', async () => {
+it('keeps finishing a draft separate from using the map', async () => {
   const { command } = setup(tracked);
-  expect(screen.getByText(/On floor · contact not verified/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Teach this map' }));
   expect(command).toHaveBeenCalledWith('teach_begin', {});
   cleanup();
   const recording = setup({ ...tracked, teaching: { phase: 'recording', geometry, samples: 120 } });
-  expect(screen.getByText('Step 2 of 2 · Recording: 2 platforms · 0 ropes · 1 links')).toBeTruthy();
-  expect(screen.getByRole('img', { name: 'Learned map' })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Finish' }));
+  expect(screen.getByText(/2 platforms learned/)).toBeTruthy();
+  const finish = screen.getByRole('button', { name: 'Finish teaching' });
+  expect(finish.compareDocumentPosition(screen.getAllByRole('img', { name: 'Learned map' })[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(finish);
   expect(recording.command).toHaveBeenCalledWith('teach_finish', {});
   cleanup();
-  const review = setup({ ...tracked, teaching: { phase: 'review', geometry, samples: 0 } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save map' }));
-  await waitFor(() => expect(review.command).toHaveBeenCalledWith('teach_save'));
+  const review = setup({ ...tracked, teaching: { phase: 'review', geometry, samples: 120, map_revision: 2 } });
+  expect(screen.getByText(/stays unchanged until you choose Use this map/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Use this map' }));
+  await waitFor(() => expect(review.command).toHaveBeenCalledWith('teach_save', {}));
 });
 
-it('shows calibration progress while teaching an uncalibrated map', () => {
-  setup({ ...tracked, calibration: { active: true, pairs: 7, rejected: 0, saved: null }, teaching: { phase: 'calibrating', geometry: null, samples: 0 } });
-  expect(screen.getByText('Step 1 of 2 · Walk left and right along one floor · 7 / 20')).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Recalibrate' }).hasAttribute('disabled')).toBe(true);
+it('shows calibration progress and offers a safe pause', () => {
+  const { command } = setup({ ...tracked, calibration: { active: true, pairs: 7, rejected: 0, saved: null },
+    teaching: { phase: 'calibrating', geometry: null, samples: 0 } });
+  expect(screen.getByText(/7 of 20 samples/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Pause teaching' }));
+  expect(command).toHaveBeenCalledWith('teach_pause', {});
 });
 
-it('overlays the marker, or the unknown reason without a marker', () => {
+it('does not resume a recovered draft until explicitly requested', () => {
+  const { command } = setup({ ...tracked, teaching: { phase: 'interrupted', geometry, samples: 120,
+    draft: { id: 'draft', revision: 4, saved_at: 1, saved: true, error: null } } });
+  expect(command).not.toHaveBeenCalled();
+  expect(screen.getByText(/Draft checkpoint saved/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Resume teaching' }));
+  expect(command).toHaveBeenCalledWith('teach_resume', {});
+});
+
+it('explains recorded route gaps without claiming a move is impossible', () => {
+  const broken = { ...geometry, problems: { home: 'walk_p1', unreachable: [], stranded: ['walk_p2'] } };
+  const { command, container } = setup({ ...tracked, teaching: { phase: 'review', geometry: broken, samples: 0 } });
+  expect(container.querySelector('.route-explanation')?.textContent).toContain('No return journey was recorded from Left ledge to Ground floor');
+  expect(screen.queryByText(/Jump or drop back down/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue teaching' }));
+  expect(command).toHaveBeenCalledWith('teach_resume', {});
+});
+
+it('prepares a report from a failed recording instead of asking for another walk', async () => {
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+  const broken = { ...geometry, problems: { home: 'walk_p1', unreachable: [], stranded: ['walk_p2'] } };
+  const { command } = setup({ ...tracked, teaching: { phase: 'review', geometry: broken, samples: 0,
+    health: { checks: 913, misses: 373, last_reason: 'Minimap unreadable' } } });
+  fireEvent.click(screen.getByRole('button', { name: 'Copy tracking report' }));
+  const report = await screen.findByRole('textbox', { name: /Tracking report/ });
+  expect((report as HTMLTextAreaElement).value).toContain('373');
+  expect(command).not.toHaveBeenCalled();
+});
+
+it('requires a separate confirmation before replacing a smaller or incomplete map', async () => {
+  const { command } = setup({ ...tracked, teaching: { phase: 'review', geometry, samples: 120 } });
+  command.mockResolvedValueOnce({ requires_confirmation: true, platforms_before: 12, platforms_after: 3, zones_removed: 1 });
+  fireEvent.click(screen.getByRole('button', { name: 'Use this map' }));
+  const confirm = await screen.findByRole('alertdialog', { name: 'Confirm map replacement' });
+  expect(confirm.textContent).toContain('12 saved platforms → 3 learned platforms');
+  expect(command).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Replace with this draft' }));
+  await waitFor(() => expect(command).toHaveBeenLastCalledWith('teach_save', { confirm_partial: true }));
+});
+
+it('offers retry after a failed checkpoint and preserves the draft', () => {
+  const { command } = setup({ ...tracked, teaching: { phase: 'review', geometry, samples: 20,
+    draft: { id: 'draft', revision: 1, saved_at: 1, saved: false, error: 'Disk unavailable' } } });
+  expect(screen.getByText('Disk unavailable')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry saving draft' }));
+  expect(command).toHaveBeenCalledWith('teach_checkpoint', {});
+});
+
+it('shows activation failure beside the action and keeps the review', async () => {
+  const { command } = setup({ ...tracked, teaching: { phase: 'review', geometry, samples: 20 } });
+  command.mockRejectedValueOnce(new Error('Saved map changed elsewhere'));
+  fireEvent.click(screen.getByRole('button', { name: 'Use this map' }));
+  expect((await screen.findByRole('alert')).textContent).toContain('Your teaching draft is kept');
+  expect(screen.getByLabelText('Place')).toBeTruthy();
+});
+
+it('keeps selection when a merged surface aliases the old identity', () => {
+  const broken = { ...geometry, problems: { home: 'walk_p1', unreachable: [], stranded: ['walk_p2'] } };
+  const { rerender, props } = setup({ ...tracked, teaching: { phase: 'review', geometry: broken, samples: 20 } });
+  fireEvent.change(screen.getByLabelText('Place'), { target: { value: 'walk_p2' } });
+  const changed = { ...broken, platforms: [geometry.platforms[0], { ...geometry.platforms[1], id: 'walk_p3' }],
+    aliases: { walk_p2: 'walk_p3' }, problems: { ...broken.problems, stranded: ['walk_p3'] } };
+  rerender(<PositionPanel {...props} snapshot={snapshot({ position: { ...tracked,
+    teaching: { phase: 'review', geometry: changed, samples: 20 } } })} />);
+  expect((screen.getByLabelText('Place') as HTMLSelectElement).value).toBe('walk_p3');
+});
+
+it('overlays a current marker or an explicit unknown reason', () => {
   const { container, rerender } = render(<svg><PositionOverlay position={tracked} /></svg>);
   const marker = container.querySelector('circle.position-marker');
   expect(marker?.getAttribute('cx')).toBe('75.5');
   expect(marker?.getAttribute('cy')).toBe('94.5');
-  rerender(<svg><PositionOverlay position={{ ...tracked, kind: 'unknown', surface_id: null, marker: null, canvas: null, reason: 'Position stale: no processed frame for 700 ms', stale: true }} /></svg>);
+  rerender(<svg><PositionOverlay position={{ ...tracked, kind: 'unknown', surface_id: null, marker: null,
+    reason: 'Position stale: no processed frame for 700 ms', stale: true }} /></svg>);
   expect(container.querySelector('circle')).toBeNull();
   expect(screen.getByText('Position unknown · Position stale: no processed frame for 700 ms')).toBeTruthy();
-});
-
-it('lists route problems in review and can keep recording', () => {
-  const broken = { ...geometry, problems: { home: 'walk_p1', unreachable: [], stranded: ['walk_p2'] } };
-  const { command } = setup({ ...tracked, teaching: { phase: 'review', geometry: broken, samples: 0 } });
-  expect(screen.getByText('No way back to P1 from: P2. Jump or drop back down from them.')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Keep recording' }));
-  expect(command).toHaveBeenCalledWith('teach_resume', {});
-  cleanup();
-  setup({ ...tracked, teaching: { phase: 'review', geometry: { ...geometry, problems: { home: 'walk_p1', unreachable: [], stranded: [] } }, samples: 0 } });
-  expect(screen.getByText('Every surface is reachable from P1 and leads back to it.')).toBeTruthy();
 });

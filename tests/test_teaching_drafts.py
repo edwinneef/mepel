@@ -95,3 +95,38 @@ def test_stale_draft_writer_cannot_replace_a_newer_checkpoint(store):
         position.drafts.save(saved, saved["revision"] - 1)
     assert position.drafts.load() == saved
     position.close()
+
+
+def test_partial_activation_requires_confirmation_and_returns_actual_saved_revision(store):
+    profile = store.load(AREA)["profile"]
+    profile["platforms"].append({"id": "ledge", "start": {"x": 100, "y": 400},
+                                  "end": {"x": 200, "y": 400}})
+    store.save(profile)
+    position = recording(store)
+    position.finish_teaching()
+    before = store.load(AREA)["profile"]
+    refusal = position.save_teaching()
+    assert refusal["requires_confirmation"] is True
+    assert store.load(AREA)["profile"] == before
+    saved = position.save_teaching(confirm_partial=True)
+    assert saved["receipt"]["revision"] == before["revision"] + 1
+    assert position._teaching_status(0)["phase"] is None
+    position.close()
+
+
+def test_pausing_and_resuming_calibration_preserves_the_pairs(store):
+    position = LivePosition(store, AREA)
+    position.begin_teaching()
+    for index, x in enumerate(range(10, 60, 8)):
+        step(position, x, index * .3)
+    count = len(position.samples)
+    position.pause_teaching()
+    position.close()
+    recovered = LivePosition(store, AREA)
+    try:
+        assert recovered._teaching_status(0)["phase"] == "interrupted"
+        assert len(recovered.samples) == count
+        recovered.resume_teaching()
+        assert recovered.teach_calibrating
+    finally:
+        recovered.close()

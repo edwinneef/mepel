@@ -23,10 +23,10 @@ from .localization import (
     ViewTransform,
     register_view,
 )
-from .map_teacher import MapTeacher
+from .map_teacher import MapTeacher, problems
 from .minimap_reader import AreaMinimap, MinimapFix
 from .perception import Detection, Observation
-from .profiles import AreaStore
+from .profiles import AreaStore, contains
 from .teaching_drafts import TeachingDrafts, basis
 
 STALE_SECONDS = 0.5
@@ -76,6 +76,8 @@ class LivePosition:
         self.interrupted = False
         self.checkpoint_at = 0.0
         self.checkpoint_count = 0
+        self.checkpoint_log_count = 0
+        self.checkpoint_marker: tuple | None = None
         self.map_receipt: dict | None = None
         self._load(area_id)
         self._recover_draft()
@@ -96,6 +98,7 @@ class LivePosition:
                 self.finished = MapTeacher.restore(saved["teacher"])
                 self._name_context(self.finished)
                 self.checkpoint_count = len(self.finished.samples)
+                self.checkpoint_log_count = len(self.finished.log)
                 if saved["phase"] == "review":
                     self.proposal = self.finished.geometry()
                 else:
@@ -147,9 +150,13 @@ class LivePosition:
 
     def _checkpoint(self, *, force: bool = False) -> None:
         teacher = self.teacher or self.finished
-        if teacher is None and not self.teach_calibrating:
+        if teacher is None and not self.teach_calibrating and not self.interrupted:
             return
         now = time.perf_counter()
+        marker = (len(teacher.samples), len(teacher.log), bool(self.proposal), self.interrupted
+                  ) if teacher else (len(self.samples or []), self.interrupted)
+        if not force and marker == self.checkpoint_marker:
+            return
         if not force and now - self.checkpoint_at < 1:
             return
         try:
@@ -164,7 +171,9 @@ class LivePosition:
             }, self.draft_revision)
             self.draft_revision, self.draft_saved_at = saved["revision"], saved["saved_at"]
             self.checkpoint_count = len(teacher.samples) if teacher else len(self.samples or [])
+            self.checkpoint_log_count = len(teacher.log) if teacher else 0
             self.draft_error = None
+            self.checkpoint_marker = marker
         except (OSError, ValueError, TypeError) as error:
             self.draft_error = f"Draft not saved: {error}"
         self.checkpoint_at = now
@@ -174,7 +183,8 @@ class LivePosition:
         if self.profile["platforms"]:
             registry.setdefault("floor_y", max(max(p["start"]["y"], p["end"]["y"])
                                                for p in self.profile["platforms"]))
-        registry.setdefault("center_x", self.view.x + self.reference.shape[1] / self.view.scale / 2)
+        registry.setdefault("center_x", self.profile["boundary"]["x"]
+                            + self.profile["boundary"]["width"] / 2)
 
     def _new_teacher(self) -> MapTeacher:
         assert self.tracker is not None
@@ -262,24 +272,31 @@ class LivePosition:
         if self.teacher is not None and (self.preview is None or now - self.preview[0] >= 1):
             self.preview = (now, self.teacher.geometry())
         geometry = self.proposal or (self.preview[1] if self.preview and self.teacher else None)
+        if geometry is None and self.interrupted and self.finished is not None:
+            geometry = self.finished.geometry()
+        draft_geometry = geometry is not None
+        if geometry is None and phase is None:
+            geometry = {key: self.profile[key] for key in
+                        ("platforms", "ropes", "links", "boundary")}
         teacher = self.teacher or self.finished
         log = teacher.log if teacher else []
         misses = sum(row.get("dot") is None for row in log)
         evidence = sorted((self.store.directory / "teaching").glob(
             f"{self.profile['id']}-miss-*.png"), key=lambda p: p.stat().st_mtime)[-5:]
         status = {"phase": phase, "geometry": geometry,
-                "samples": len(self.teacher.samples) if self.teacher else 0,
+                "samples": len(teacher.samples) if teacher else 0,
                 "draft": {"id": self.draft_id, "revision": self.draft_revision,
                           "saved_at": self.draft_saved_at, "error": self.draft_error,
-                          "pending": bool(teacher and
-                                          len(teacher.samples) != self.checkpoint_count),
+                          "pending": (len(teacher.samples) != self.checkpoint_count
+                                      or len(teacher.log) != self.checkpoint_log_count)
+                          if teacher else len(self.samples or []) != self.checkpoint_count,
                           "saved": self.draft_saved_at is not None and not self.draft_error},
                 "map_revision": self.profile["revision"], "map_receipt": self.map_receipt,
                 "health": {"checks": len(log), "misses": misses,
                            "last_reason": log[-1].get("reason") if log else None},
                 "references": self.profile["views"],
                 "evidence": [path.name for path in evidence],
-                "geometry_source": "draft" if geometry else "active_map"}
+                "geometry_source": "draft" if draft_geometry else "active_map"}
         self.teaching_snapshot = status
         return status
 
@@ -328,6 +345,17 @@ class LivePosition:
         self._checkpoint(force=True)
         return self._teaching_status(time.perf_counter())
 
+    def pause_teaching(self) -> dict:
+        if self.teacher is not None:
+            self.finished, self.teacher = self.teacher, None
+        self.interrupted, self.teach_calibrating, self.preview = True, False, None
+        self._checkpoint(force=True)
+        return self._teaching_status(time.perf_counter())
+
+    def checkpoint_teaching(self) -> dict:
+        self._checkpoint(force=True)
+        return self._teaching_status(time.perf_counter())
+
     def _save_miss(self, image: np.ndarray) -> None:
         """Keep a few frames where the minimap was unreadable, for diagnosis."""
         self.missed += 1
@@ -355,17 +383,34 @@ class LivePosition:
         except OSError:
             return None
 
-    def save_teaching(self) -> dict:
+    def save_teaching(self, *, confirm_partial: bool = False) -> dict:
         if self.proposal is None:
             raise ValueError("Finish teaching before saving the map")
+        geometry = self.proposal
+        issue = problems(geometry["platforms"], geometry["ropes"], geometry["links"])
+        boundary = geometry["boundary"]
+        removed = sum(not (contains(boundary, zone["rect"]) and contains(boundary, {
+            "x": zone["rect"]["x"] + zone["rect"]["width"],
+            "y": zone["rect"]["y"] + zone["rect"]["height"]}))
+            for zone in self.profile["zones"])
+        if not confirm_partial and (issue["unreachable"] or issue["stranded"] or removed
+                                    or len(geometry["platforms"]) < len(self.profile["platforms"])):
+            return {"requires_confirmation": True,
+                    "reason": "This replaces the saved map with an incomplete or smaller map",
+                    "platforms_before": len(self.profile["platforms"]),
+                    "platforms_after": len(geometry["platforms"]), "zones_removed": removed}
         saved = self.store.save_geometry(self.profile["id"], self.profile["revision"],
                                          self.proposal)
-        retired = self.drafts.retire("used", self.draft_revision)
-        self.draft_revision, self.draft_saved_at = retired["revision"], None
         self.proposal, self.finished = None, None
         self._load(self.profile["id"])
         self.map_receipt = {"revision": self.profile["revision"], "saved_at": time.time()}
         saved["receipt"] = self.map_receipt
+        try:
+            retired = self.drafts.retire("used", self.draft_revision)
+            self.draft_revision = retired["revision"]
+        except (OSError, ValueError) as error:
+            saved["warnings"].append(f"Map saved; old draft recovery copy retained: {error}")
+        self.draft_saved_at = None
         return saved
 
     def cancel_teaching(self) -> dict:

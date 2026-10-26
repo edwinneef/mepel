@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent, ReactNode } from 'react';
 import type { Rect } from './contracts';
 import type { ViewImage } from './useViewport';
@@ -14,7 +14,7 @@ interface Props {
   overlay?: ReactNode;
 }
 
-export function GameViewport({ image, frozen, stale = false, selection, onSelection, overlay }: Props) {
+function GameSurface({ image, frozen, stale = false, selection, onSelection, overlay }: Props) {
   const imageRef = useRef<HTMLImageElement>(null);
   const origin = useRef<Point | null>(null);
   const point = (event: PointerEvent): Point => nativePoint(
@@ -50,4 +50,28 @@ export function GameViewport({ image, frozen, stale = false, selection, onSelect
       <h2>Your game, in view.</h2><p>Open Settings to connect a visible game window.<br />Capture and recognition work without keyboard output.</p>
     </div>}
   </div>;
+}
+
+export function GameViewport(props: Props) {
+  const [zoom, setZoom] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { setZoom(0); }, [props.image?.sourceId]);
+  useEffect(() => { if (expanded) dialog.current?.showModal(); }, [expanded]);
+  const content = <div className="game-scroll" tabIndex={0} aria-label="Scrollable game picture">
+    <div style={{ width: zoom && props.image ? props.image.width * zoom : '100%' }}><GameSurface {...props} /></div>
+  </div>;
+  return <>
+    <div className="viewport-controls" aria-label="Game zoom controls">
+      <button disabled={!props.image} aria-pressed={zoom === 0} onClick={() => setZoom(0)}>Fit</button>
+      <button disabled={!props.image} aria-pressed={zoom === 1} onClick={() => setZoom(1)}>100%</button>
+      <button disabled={!props.image} aria-pressed={zoom === 2} onClick={() => setZoom(2)}>200%</button>
+      <button disabled={!props.image} onClick={() => setExpanded(true)}>Expand game</button>
+    </div>
+    {content}
+    {expanded && <dialog ref={dialog} className="game-dialog" aria-label="Expanded game" onClose={() => setExpanded(false)}>
+      <header><strong>Game picture</strong><button onClick={() => dialog.current?.close()}>Close expanded game</button></header>
+      {content}
+    </dialog>}
+  </>;
 }

@@ -17,7 +17,7 @@ COMMANDS = frozenset({
     "area_list", "area_load", "area_begin", "area_capture", "area_save", "area_end",
     "position_start", "position_stop", "walk_calibration_begin", "walk_calibration_finish",
     "walk_calibration_cancel", "teach_new_area", "teach_begin", "teach_finish", "teach_save",
-    "teach_cancel", "teach_resume",
+    "teach_cancel", "teach_resume", "teach_pause", "teach_checkpoint",
 })
 FRESH_FRAME_COMMANDS = frozenset({"dry_run", "arm", "probe", "autopotter_live"})
 URGENT_COMMANDS = frozenset({"stop", "pause"})

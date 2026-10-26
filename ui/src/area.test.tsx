@@ -139,7 +139,7 @@ it('draws scaled geometry, keeps a closed-tool draft, adds a link and saves with
   await waitFor(() => expect(screen.getByRole('button', { name: 'New area' }).hasAttribute('disabled')).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: 'New area' }));
   await waitFor(() => expect(screen.getByLabelText('Area name')).toBeTruthy());
-  expect(screen.getByRole('button', { name: /Start$/ }).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByRole('button', { name: /Start preview$/ }).hasAttribute('disabled')).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Capture reference view' }));
   await waitFor(() => expect(screen.getByRole('img', { name: 'Area reference: View 1' })).toBeTruthy());
   const image = screen.getByRole('img', { name: 'Area reference: View 1' });
