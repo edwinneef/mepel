@@ -34,6 +34,15 @@ Dry runs and armed runs are recorded automatically to `data/recordings/session-*
 
 When returning to an offline or explicitly permitted automation environment, `./run.ps1 -EnableGameplayInput` starts a separate input-capable session. Capture and control verification are still required before any input. Equivalent direct commands are `python -m maplebot debug --capture-only` and `python -m maplebot debug`.
 
+### Restarting the engine
+
+Restart a running engine with `tools/restart_engine.ps1` (add `-EnableGameplayInput`
+for an input-capable session). It stops the engine through its own API, waits for the
+port to close, closes `run.ps1` windows that no longer host it, and opens one new
+window. Do not restart by starting `run.ps1` again from a script: each launcher window
+stays open (`-NoExit`) after its engine stops, so repeated restarts pile up empty
+terminals.
+
 ## Prepare MapleUnity
 
 The public [MapleUnity README](https://github.com/ilia810/MapleUnity#run-the-local-scene) documents Unity **2023.2.20f1**, **MapleUnity → Play Hunting Ground**, and a **Scale 1x** Game view. MapleUnity documents 1024 × 768; this bot is set up for **1366 × 768** at 1x. Use the existing, locally configured game project. An executable build is unnecessary.
