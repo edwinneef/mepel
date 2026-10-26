@@ -185,6 +185,30 @@ def test_emergency_during_countdown_latches_and_never_sends_input(app):
     assert app.controller.backend.events == []
 
 
+
+def test_slow_frame_defers_a_due_probe_and_only_cancels_after_the_grace(app):
+    assert app._command("probe", {"action": "left"})["mode"] == "probe_wait"
+    started = time.perf_counter()
+    app.pending_at = started - 1
+    app._process(app.image, started - 0.8)
+    assert app.mode == "probe_wait"
+    assert app.alarm.snapshot()["active"] is False
+    assert app.controller.backend.events == []
+    app.pending_at = started - 3
+    app._process(app.image, started - 0.8)
+    assert app.mode == "capture"
+    assert app.probe_results["left"]["status"] == "cancelled"
+    assert app.controller.backend.events == []
+
+
+def test_slow_frame_while_awaiting_probe_confirmation_keeps_the_probe(app):
+    app._command("probe", {"action": "left"})
+    app.active_probe = replace(app.active_probe, phase="awaiting_confirmation")
+    app.mode = "probe_confirm"
+    app._process(app.image, time.perf_counter() - 0.8)
+    assert app.mode == "probe_confirm"
+    assert app.active_probe is not None
+
 def test_uncertain_detection_cancels_live_mode_without_key_down(app):
     app.controller.enable()
     app.agent.start()

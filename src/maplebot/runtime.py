@@ -65,6 +65,7 @@ class StopRecord:
 REQUIRED_PROBES = frozenset({"left", "right", "attack", "jump", "skill"})
 OPTIONAL_PROBES = frozenset({"up", "down", "hp_potion", "mp_potion"})
 PROBE_ACTIONS = REQUIRED_PROBES | OPTIONAL_PROBES
+PENDING_SLOW_GRACE_SECONDS = 2.0
 POSITION_COMMANDS = frozenset({
     "position_start", "position_stop", "walk_calibration_begin", "walk_calibration_finish",
     "walk_calibration_cancel", "teach_new_area", "teach_begin", "teach_finish", "teach_save",
@@ -1508,15 +1509,24 @@ class Application:
             self.mode != "capture" or self.potter.enabled
         ):
             self._stop("EMERGENCY_STOP", "Emergency stop hotkey")
-        if self.mode in {"live", "pending_arm", "probe_wait", "probe_confirm", "probe_effect",
-                         "navigation", "navigation_wait"}:
-            if time.perf_counter() - now > 0.5:
-                self._stop(
-                    "PLAYER_UNCERTAIN", "Observation processing exceeded 500 ms; no input sent"
-                )
+        slow = time.perf_counter() - now > 0.5
+        # Waiting for the operator or a potion effect sends nothing, so a slow frame is harmless.
+        if slow and self.mode in {"live", "navigation", "navigation_wait"}:
+            self._stop("PLAYER_UNCERTAIN", "Observation processing exceeded 500 ms; no input sent")
         if self.mode in {"pending_arm", "probe_wait"}:
             if self.windows.pressed(KEYS[self.config.input.emergency_key]):
                 self._stop("EMERGENCY_STOP", "Emergency hotkey canceled pending input")
+            elif slow and now >= self.pending_at + PENDING_SLOW_GRACE_SECONDS:
+                if self.active_probe is not None:
+                    self._finish_probe(
+                        self.active_probe, "cancelled", "Recognition stayed slower than 500 ms"
+                    )
+                self._stop(
+                    "PLAYER_UNCERTAIN",
+                    "Recognition stayed slower than 500 ms per frame; pending input canceled",
+                )
+            elif slow:
+                pass  # Never press on a stale frame; wait for the next timely one.
             elif now >= self.pending_at:
                 if (
                     observation.player is None
