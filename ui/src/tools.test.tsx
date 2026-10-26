@@ -82,6 +82,16 @@ it('confirmation and rejection carry the displayed probe identity and generation
   expect(command).toHaveBeenCalledWith('reject_probe', { id: 7, generation: 12 });
 });
 
+it('names the blocker and disables probes while recognition lags', () => {
+  const { command, props } = setup();
+  props.snapshot.readiness.preview = { ready: false, reason: 'Recognition is 4.2 s behind the game picture (limit 1.5 s)' };
+  render(<SettingsTool {...props} />);
+  expect(screen.getByText(/Probes blocked: Recognition is 4.2 s behind/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'left' }));
+  expect(screen.getByRole('button', { name: 'left' }).hasAttribute('disabled')).toBe(true);
+  expect(command).not.toHaveBeenCalledWith('probe', { action: 'left' });
+});
+
 it('capture-only keeps probe buttons disabled and diagnostics retain worker recovery', async () => {
   const { props } = setup({ snapshot: snapshot() });
   const { unmount } = render(<SettingsTool {...props} />);

@@ -600,6 +600,10 @@ class TemplateDetector:
         now = time.monotonic() if now is None else now
         floor = max(0.5, self.config.confidence - 0.15)
         allowed = self.map_filter.select(image, self.taught_map)
+        # Searching every catalog species costs seconds per frame; wait for a readable map.
+        paused = allowed is None and bool(self.map_filter.profiles)
+        if paused:
+            allowed = set()
         templates = (
             self.templates
             if allowed is None
@@ -616,6 +620,7 @@ class TemplateDetector:
         )
         self.catalog_info["map_filter_held"] = held
         self.catalog_info["map_filter_error"] = self.map_filter.error
+        self.catalog_info["catalog_paused"] = paused
         self.catalog_info["active_variants"] = len(templates)
         player, monsters, failures, tag_confidence = self._observe_window(
             image, now, templates, floor

@@ -81,10 +81,13 @@ export function PotionsTool({ snapshot: s, client, act, selected, disabled }: To
 
 function Controls({ snapshot: s, client, act, disabled }: ToolProps) {
   const active = s.active_probe;
+  const blocker = s.capture_only || active ? '' : s.alarm?.active ? 'Acknowledge the active alarm first'
+    : s.readiness.preview.ready ? '' : s.readiness.preview.reason;
   return <Group title="Verify controls"><p>Each probe sends one bounded press after a three-second countdown. Focus the game and confirm only the observed effect. Saved confirmations remain tied to this layout and binding.</p>
     {s.capture_only && <p className="warning-copy">Capture-only session. Probes and gameplay output are locked.</p>}
+    {blocker && <p className="warning-copy" role="alert">Probes blocked: {blocker}</p>}
     <div className="probe-list">{[...s.required_probes, ...s.optional_probes].map(action => <div key={action}>
-      <button disabled={disabled || s.capture_only || Boolean(active)} onClick={() => void act(() => client.command('probe', { action }))}>{action.replaceAll('_', ' ')}</button>
+      <button disabled={disabled || s.capture_only || Boolean(active) || Boolean(blocker)} onClick={() => void act(() => client.command('probe', { action }))}>{action.replaceAll('_', ' ')}</button>
       <span>{s.probes[action]?.confirmed ? 'Verified' : s.required_probes.includes(action) ? 'Required' : 'Optional'}</span>
     </div>)}</div>
     {active && <div className="probe-active"><strong>{active.action.replaceAll('_', ' ')} · {active.phase.replaceAll('_', ' ')}</strong><p>{active.instruction}</p>

@@ -101,6 +101,10 @@ export function App({ client }: { client: EngineClient }) {
       <button onClick={() => location.reload()}>Reload workspace</button>
     </section>}
     {s && <AlarmBanner snapshot={s} onAcknowledge={id => void act(() => client.command('acknowledge', { incident_id: id }))} />}
+    {state.error && <section className="blocked-banner" role="alert" aria-label="Action blocked">
+      <div><span className="eyebrow">Action blocked · no keys sent</span><p>{state.error}</p></div>
+      <button onClick={() => client.message('')}>Dismiss</button>
+    </section>}
     <main className={`workspace ${tool ? 'with-dock' : ''} ${tool === 'Navigation' ? 'navigation-workspace' : ''}`}>
       <section className="preview-panel" aria-label="Live game workspace">
         <div className="preview-heading"><div><span className="eyebrow">{area.editing ? 'Area reference' : view.frozen ? 'Frozen frame' : 'Game view'}</span>
@@ -122,6 +126,7 @@ export function App({ client }: { client: EngineClient }) {
         <footer className="preview-status"><div><span className="status-label">Player</span><strong>{s?.health && !s.health.recognition ? 'Waiting for recognition' : !s?.player ? 'Not recognized' : s.player.tracked ? 'Tracked · awaiting confirmation' : 'Confirmed'}</strong></div>
           <div><span className="status-label">Action</span><strong>{state.process !== 'running' ? state.process : s?.mode?.replaceAll('_', ' ') ?? 'Stopped'}</strong></div>
           <p>{s?.mode === 'capture' ? s.health?.reason ?? 'Viewing only · no game keys sent' : s?.reason || 'Connect the game from Settings. Keyboard output stays off until explicitly enabled.'}</p>
+          {s?.health?.warning && <p className="warning-copy" role="alert">{s.health.warning}</p>}
         </footer>
       </section>
       <aside hidden={!tool} className="tool-dock" aria-label={tool ? `${toolName} tool` : 'Workspace tool'}>
@@ -138,7 +143,7 @@ export function App({ client }: { client: EngineClient }) {
           {tool !== 'Navigation' && (!props ? <p>Waiting for the engine connection…</p> : tool === 'Tracking' ? <TrackingTool {...props} /> : tool === 'Combat' ? <CombatTool {...props} /> : tool === 'Potions' ? <PotionsTool key={s!.session_id} {...props} /> : tool === 'Settings' ? <SettingsTool key={s!.session_id} {...props} /> : tool === 'Diagnostics' ? <DiagnosticsTool {...props} /> : null)}</div>
       </aside>
     </main>
-    <div className={`feedback ${state.error ? 'error' : ''}`} role="status" aria-live="polite">{state.error || state.notice || (state.connected ? 'Ready when you are. Preview sends no keyboard input.' : 'Connecting to the local engine…')}
+    <div className="feedback" role="status" aria-live="polite">{state.notice || (state.connected ? 'Ready when you are. Preview sends no keyboard input.' : 'Connecting to the local engine…')}
       </div>
     <footer className="app-footer"><span>Screenshot in · bounded keyboard out</span><span>{s?.capture_only ? 'Capture-only session' : 'Supervised session'} · No automatic resume</span></footer>
   </div>;

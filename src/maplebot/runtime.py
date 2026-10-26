@@ -17,7 +17,13 @@ from .alarm import AlarmManager
 from .autopotter import BarReading, PotionMonitor
 from .capture import Calibration, Capture, CaptureMovedError, Image
 from .config import Config
-from .contracts import FRESH_FRAME_COMMANDS, FRESH_FRAME_SECONDS, CommandContext, readiness
+from .contracts import (
+    FRESH_FRAME_COMMANDS,
+    FRESH_FRAME_SECONDS,
+    CommandContext,
+    catalog_warning,
+    readiness,
+)
 from .decision import Action, Agent, Decision, PolicyInput
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
@@ -430,15 +436,18 @@ class Application:
             result["readiness"] = readiness(result)
             preview = result["preview_frame"]
             camera_ok = bool(preview.get("available") and preview.get("age_ms", 1001) <= 1000)
-            recognition_ok = bool(frame and result["frame"]["age_ms"] <= 500)
+            lag_ms = result["frame"]["age_ms"] if frame else None
+            recognition_ok = bool(lag_ms is not None and lag_ms <= FRESH_FRAME_SECONDS * 1000)
             position_ok = bool(recognition_ok and result["position"]
                                and result["position"].get("kind") == "platform")
             result["health"] = {
                 "camera": camera_ok, "recognition": recognition_ok, "position": position_ok,
                 "reason": "Game picture unavailable" if not camera_ok else
-                "Recognition is behind the game picture" if not recognition_ok else
+                (f"Recognition is {lag_ms / 1000:.1f} s behind the game picture"
+                 if lag_ms is not None else "Waiting for recognition") if not recognition_ok else
                 result["position"].get("reason", "Position unavailable")
                 if result["position"] and not position_ok else "Game picture and recognition ready",
+                "warning": catalog_warning(result.get("catalog") or {}),
             }
             return result
 

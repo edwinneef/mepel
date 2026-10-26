@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from maplebot.contracts import CommandContext, CommandGate, readiness
+from maplebot.contracts import CommandContext, CommandGate, catalog_warning, readiness
 
 
 def snapshot():
@@ -101,3 +101,15 @@ def test_readiness_separates_capture_only_preview_from_combat():
     assert not gates["combat"]["ready"]
     status["frame"]["age_ms"] = 1501
     assert not readiness(status)["preview"]["ready"]
+
+
+def test_blocked_reasons_name_the_lag_and_the_paused_catalog():
+    status = snapshot()
+    status["frame"]["age_ms"] = 4200
+    assert readiness(status)["preview"]["reason"] == (
+        "Recognition is 4.2 s behind the game picture (limit 1.5 s)"
+    )
+    assert catalog_warning({"catalog_paused": False}) is None
+    assert "minimap visible" in catalog_warning({"catalog_paused": True})
+    failed = {"catalog_paused": True, "map_filter_error": "OCR missing"}
+    assert "OCR missing" in catalog_warning(failed)

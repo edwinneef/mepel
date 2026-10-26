@@ -56,7 +56,7 @@ export interface Snapshot {
   schema_version: 1; session_id: string; instance_id: string; command_epoch: number;
   mode: string; state: string; reason: string; capture_only: boolean; calibrating: boolean;
   frame: Frame; preview_frame?: Frame; readiness: { preview: Gate; combat: Gate; potions: Gate };
-  health?: { camera: boolean; recognition: boolean; position: boolean; reason: string };
+  health?: { camera: boolean; recognition: boolean; position: boolean; reason: string; warning?: string | null };
   calibration: { capture_verified?: boolean; controls_verified?: boolean; crop?: Rect };
   player: Detection | null; monsters?: Detection[]; target?: Detection | null;
   focused?: boolean; window?: WindowInfo | null; width?: number; height?: number;

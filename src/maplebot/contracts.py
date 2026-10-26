@@ -81,6 +81,16 @@ class CommandGate:
 
 
 
+def catalog_warning(catalog: dict) -> str | None:
+    """Explain catalog states that silently change what recognition can see."""
+    if catalog.get("map_filter_error"):
+        return f"Map name reader failed ({catalog['map_filter_error']}); monster catalog paused"
+    if catalog.get("catalog_paused"):
+        return ("Map name unreadable: monster catalog paused. "
+                "Keep the minimap visible and uncovered by game windows")
+    return None
+
+
 def _recent_frame_ids(frame_id: str) -> set[str]:
     """Accept the frame the operator saw or the one published after it."""
     prefix, _, sequence = frame_id.rpartition(":")
@@ -99,7 +109,11 @@ def readiness(status: dict) -> dict[str, dict[str, bool | str]]:
         not frame["available"] or frame["age_ms"] is None
         or frame["age_ms"] > FRESH_FRAME_SECONDS * 1000
     ):
-        reason = "Waiting for a fresh game frame"
+        reason = (
+            "Waiting for a game frame" if not frame["available"] or frame["age_ms"] is None
+            else f"Recognition is {frame['age_ms'] / 1000:.1f} s behind the game picture "
+            f"(limit {FRESH_FRAME_SECONDS:g} s)"
+        )
     elif status.get("calibrating"):
         reason = "Return to live view first"
     elif not status.get("calibration", {}).get("capture_verified"):

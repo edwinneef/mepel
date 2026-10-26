@@ -193,6 +193,32 @@ def test_catalog_detects_offline_without_requesting_any_network(monkeypatch, tmp
     assert any(item.confidence >= 0.9 and "Test Mob" in item.template for item in result.monsters)
 
 
+
+def test_unknown_map_pauses_catalog_search_until_the_title_is_read(monkeypatch, tmp_path):
+    payload = animated_sprite()
+    import_catalog(
+        tmp_path, [100100],
+        fetch=lambda url: b'{"name":"Test Mob"}' if url.endswith("/name") else payload,
+    )
+    (tmp_path / "catalog" / "maps.json").write_text(json.dumps([{
+        "id": 1, "streetName": "Victoria Road", "name": "Henesys", "monsters": [100100],
+    }]))
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    frame = np.full((160, 220, 3), 70, dtype=np.uint8)
+    reference = cv2.imread(
+        str(next((tmp_path / "catalog" / "monster").glob("*.png"))), cv2.IMREAD_UNCHANGED
+    )
+    height, width = reference.shape[:2]
+    target = frame[60 : 60 + height, 100 : 100 + width]
+    target[reference[:, :, 3] == 255] = reference[:, :, :3][reference[:, :, 3] == 255]
+    monkeypatch.setattr(detector.map_filter, "select", lambda image, taught=False: None)
+    assert not detector.detect(frame).monsters
+    assert detector.catalog_info["catalog_paused"] is True
+    assert detector.catalog_info["active_variants"] == 0
+    monkeypatch.setattr(detector.map_filter, "select", lambda image, taught=False: {"Test Mob"})
+    assert any("Test Mob" in item.template for item in detector.detect(frame).monsters)
+    assert detector.catalog_info["catalog_paused"] is False
+
 def test_catalog_hash_mismatch_is_rejected(tmp_path):
     payload = animated_sprite()
 

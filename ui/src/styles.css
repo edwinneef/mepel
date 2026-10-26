@@ -35,3 +35,4 @@
 .route-preview-note, .warning-copy { color: #f0cf91; }
 .route-panel .supervision-check { display: flex; align-items: flex-start; gap: 8px; }
 .supervision-check input { width: auto; flex: 0 0 auto; margin-top: 3px; }
+.blocked-banner{background:#352d20;border:1px solid #8a6b3c;border-radius:8px;margin-bottom:16px;padding:13px 17px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}.blocked-banner>div{flex:1;min-width:200px}.blocked-banner .eyebrow{color:#e0bd85}.blocked-banner p{color:#f4dfbd;font-size:13px;margin-top:4px;overflow-wrap:anywhere}
