@@ -138,7 +138,8 @@ def diagnose(areas: Path, area_id: str) -> dict:
                if hashlib.sha256(Path(path).read_bytes()).hexdigest() != digest]
     if changed:
         raise RuntimeError(f"Source changed during diagnosis: {changed}")
-    return {"sessions": sessions, "candidate": geometry, "return_paths": paths,
+    return {"sessions": sessions, "candidate": geometry,
+            "teacher_checkpoint": combined.checkpoint(), "return_paths": paths,
             "source_sha256": hashes, "input_sent": False,
             "limits": "Candidate only: changed geometry and an unreachable fragment need review. "
                       "Derived sample links do not establish physical contact or native traversal."}
