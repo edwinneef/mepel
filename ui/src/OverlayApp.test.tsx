@@ -86,3 +86,39 @@ it('handles F6 with settings open and shows an immediate engine stop reason', as
   await waitFor(() => expect(screen.getByText('F6 · focus the game to turn On; F8 always stops')).toBeTruthy());
   expect(commands.filter(name => name === 'dry_run')).toHaveLength(1);
 });
+
+it('selects Bowman probes directly without input and preserves confirmation identity', async () => {
+  const commands: { name: string; payload: Record<string, unknown> }[] = [];
+  let current = snapshot({ capture_only: false, bindings: { attack: 'space', skill: 'ctrl' },
+    attack_setup: { minimum_px: 0, maximum_px: 90, measured: false, reason: 'Unmeasured' },
+    probes: { left: { confirmed: true }, hp_potion: { confirmed: true } } });
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    if (String(url).startsWith('/api/v1/frame')) return new Response(new Blob(['image']));
+    if (url === '/api/v1/status') return json(current);
+    const command = JSON.parse(String(options?.body)); commands.push(command);
+    return json(command.name === 'area_list' ? { areas: [] } : { ok: true });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:frame') });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), subscribe: () => () => {} };
+  const client = new OverlayClient('token', fetcher);
+  render(<OverlayApp client={client} />);
+  await screen.findByRole('button', { name: 'attack' });
+  expect(screen.getByText('Engine-loaded range: 0–90 px')).toBeTruthy();
+  expect(screen.getByText('Hit range not yet verified')).toBeTruthy();
+  expect(screen.getByText('Movement and potion controls · 2 verified')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'attack' }));
+  expect(screen.getByRole('option', { name: 'Test attack' })).toBeTruthy();
+  expect(commands.some(c => c.name === 'probe')).toBe(false);
+  current = { ...current, active_probe: { id: 7, generation: 3, action: 'attack', phase: 'countdown', instruction: 'Focus the game' } };
+  await act(async () => { await client.readStatus(); });
+  expect(screen.queryByRole('button', { name: 'Confirm observed effect' })).toBeNull();
+  current = { ...current, active_probe: { ...current.active_probe!, phase: 'awaiting_confirmation' } };
+  await act(async () => { await client.readStatus(); });
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm observed effect' }));
+  await waitFor(() => expect(commands).toContainEqual(expect.objectContaining({ name: 'confirm_probe', payload: { id: 7, generation: 3 } })));
+  expect(screen.getByText('Movement and potion controls · 2 verified')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Reject probe' }));
+  await waitFor(() => expect(commands).toContainEqual(expect.objectContaining({ name: 'reject_probe', payload: { id: 7, generation: 3 } })));
+});

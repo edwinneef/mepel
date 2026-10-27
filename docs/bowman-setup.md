@@ -28,12 +28,20 @@ templates or recognition changes were needed. Evidence is in
 
 ## Two attack checks before the combat run
 
+The Bot page now contains **Bowman on one platform**, shared engine readiness,
+direct **attack** and **skill** probes, and the engine-loaded range. **Movement
+and potion controls** retains all other probes and their saved confirmations.
+Connection still offers the same controls. Selection never sends a key: F6
+starts the existing countdown. Readiness describes preparation; focus and all
+other live guards are checked again before input. Unmeasured range remains
+explicitly unverified even when controls are confirmed.
+
 Combat effects are required for these two checks. No new full recording is needed.
 Allow about 30–60 seconds of active testing after positioning; travel/setup is
 separate. Keep F8 available, equip the bow and ammunition, and face one visible
 monster from a clear position on the same platform, away from an edge.
 
-1. F7 → **Connection → Verify controls → attack**. Close settings with F7,
+1. F7 → **Bot → Verify controls → attack**. Close settings with F7,
    focus the game and press F6. After the three-second countdown, observe the
    single Space press. Reopen F7 and choose **Confirm observed effect** only if
    the basic attack actually occurred. A projectile alone confirms the key effect,

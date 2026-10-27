@@ -11,6 +11,7 @@ import { GoBar } from './GoBar';
 import { NavigationPanel } from './NavigationPanel';
 import { AlarmBanner } from './AlarmBanner';
 import { SavedTerrainOverlay } from './SavedTerrainOverlay';
+import { BowmanSetup } from './BowmanSetup';
 import './overlay.css';
 
 export function OverlayApp({ client }: { client: OverlayClient }) {
@@ -40,6 +41,9 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
   const drawing = s?.live_detections === undefined ? s : s.live_detections;
   const drawingFresh = freshDetections(drawing, state.connected, Math.max(now, Date.now()));
   const disabled = !state.connected || state.busy || state.needsReload;
+  const readinessKey = action.name === 'probe' ? `probe:${action.payload.action}`
+    : action.name === 'arm' ? 'combat' : action.name === 'autopotter_live' ? 'potions' : 'preview';
+  const selectedGate = s?.readiness[readinessKey];
   const act = async (fn: () => Promise<unknown>) => { try { await fn(); } catch (e) { client.fail(e); } };
   useEffect(() => {
     const previous = wasRunning.current;
@@ -91,6 +95,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
     }
     if (!panel && !s?.focused) { client.message('F6 · focus the game to turn On; F8 always stops'); return; }
     if (disabled || !fresh) { client.message('OFF · waiting for fresh recognition and an engine connection'); return; }
+    if (selectedGate?.ready === false) { client.message(selectedGate.reason); return; }
     client.message(`F6 · starting ${action.label}${action.name === 'dry_run' ? ' (no gameplay keys)' : ''}`);
     startRef.current = true; setStarting(true);
     try {
@@ -152,12 +157,14 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
       {state.notice && <p role="status">{state.notice}</p>}
       {s && <AlarmBanner snapshot={s} onAcknowledge={id => void act(() => client.command('acknowledge', { incident_id: id }))} />}
       {tab === 'Bot' && <>
+        {toolProps && <BowmanSetup {...toolProps} onSetup={setTab} />}
         <label>Activity<select value={['dry_run', 'arm', 'autopotter_live'].includes(action.name) ? action.name : 'custom'} onChange={e => choose(e.target.value, e.target.selectedOptions[0].text)}>
           <option value="dry_run">Decision preview</option><option value="arm" disabled={s?.capture_only}>Combat + configured potions</option>
           <option value="autopotter_live" disabled={s?.capture_only}>Potions only</option>
           {!['dry_run', 'arm', 'autopotter_live'].includes(action.name) && <option value="custom">{action.label}</option>}
         </select></label>
-        <button className="primary master-toggle" disabled={disabled} onClick={() => void toggle()}>Turn {running || starting ? 'Off' : 'On'} · F6</button>
+        <p>{selectedGate?.reason}</p>
+        <button className="primary master-toggle" disabled={disabled || (!running && !starting && selectedGate?.ready === false)} onClick={() => void toggle()}>Turn {running || starting ? 'Off' : 'On'} · F6</button>
         <p>On closes settings and starts the existing countdown. Focus the game. F8 always stops. Combat and navigation retain configured potion priority.</p>
         {s && <GoBar snapshot={s} client={client} act={act} disabled={disabled} availableAreas={areas} selectOnly />}
         <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /> Show detection layers</label>

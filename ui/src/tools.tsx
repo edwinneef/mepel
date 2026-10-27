@@ -81,17 +81,28 @@ export function PotionsTool({ snapshot: s, client, act, selected, disabled, sele
   </>;
 }
 
-function Controls({ snapshot: s, client, act, disabled, selectOnly }: ToolProps) {
+export function Controls({ snapshot: s, client, act, disabled, selectOnly, bowman = false }: ToolProps & { bowman?: boolean }) {
   const active = s.active_probe;
   const blocker = s.capture_only || active ? '' : s.alarm?.active ? 'Acknowledge the active alarm first'
     : s.readiness.preview.ready ? '' : s.readiness.preview.reason;
+  const actions = [...s.required_probes, ...s.optional_probes];
+  const probe = (action: string) => {
+    const gate = s.readiness[`probe:${action}`];
+    return <div key={action}>
+      <button disabled={disabled || s.capture_only || Boolean(active) || Boolean(blocker) || gate?.ready === false}
+        onClick={() => void act(() => client.command('probe', { action }))}>{action.replaceAll('_', ' ')}</button>
+      <span>{s.bindings[action]} · {s.probes[action]?.confirmed ? 'Verified' : s.required_probes.includes(action) ? 'Required' : 'Optional'}</span>
+      {gate?.ready === false && !active && <small>{gate.reason}</small>}
+    </div>;
+  };
   return <Group title="Verify controls"><p>{selectOnly ? 'Select a probe, close settings and press F6 in game to test it. ' : ''}Each probe sends one bounded press after a three-second countdown. Focus the game and confirm only the observed effect. Saved confirmations remain tied to this layout and binding.</p>
     {s.capture_only && <p className="warning-copy">Capture-only session. Probes and gameplay output are locked.</p>}
     {blocker && <p className="warning-copy" role="alert">Probes blocked: {blocker}</p>}
-    <div className="probe-list">{[...s.required_probes, ...s.optional_probes].map(action => <div key={action}>
-      <button disabled={disabled || s.capture_only || Boolean(active) || Boolean(blocker)} onClick={() => void act(() => client.command('probe', { action }))}>{action.replaceAll('_', ' ')}</button>
-      <span>{s.probes[action]?.confirmed ? 'Verified' : s.required_probes.includes(action) ? 'Required' : 'Optional'}</span>
-    </div>)}</div>
+    <div className="probe-list">{actions.filter(action => !bowman || ['attack', 'skill'].includes(action)).map(probe)}</div>
+    {bowman && <details><summary>Movement and potion controls · {actions.filter(action => s.probes[action]?.confirmed).length} verified</summary>
+      <div className="probe-list">{actions.filter(action => !['attack', 'skill'].includes(action)).map(probe)}</div>
+      <p>Keep valid confirmations. Repeat only a changed or failed control.</p>
+    </details>}
     {active && <div className="probe-active"><strong>{active.action.replaceAll('_', ' ')} · {active.phase.replaceAll('_', ' ')}</strong><p>{active.instruction}</p>
       {active.phase === 'awaiting_confirmation' && <button disabled={disabled} onClick={() => void act(() => client.command('confirm_probe', { id: active.id, generation: active.generation }))}>Confirm observed effect</button>}
       <button disabled={disabled} onClick={() => void act(() => client.command('reject_probe', { id: active.id, generation: active.generation }))}>Reject probe</button></div>}
