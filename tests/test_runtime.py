@@ -1402,3 +1402,31 @@ def test_observation_frame_does_not_cut_an_inflight_potion_or_attack(app, monkey
     for lane in ("hp", "mp", "combat"):
         app.arbiter.in_flight = {1: lane}
         assert app._arbitrate(Action(), None) == "release"
+
+
+def test_completed_approach_dispatches_skill_without_an_extra_facing_frame(potion_app, monkeypatch):
+    from test_autopotter import hud
+
+    from maplebot.decision import State
+    from maplebot.perception import Detection, Observation
+
+    app = potion_app
+    player = Detection("player", Rect(622, 498, 44, 64), 1.0)
+    enemy = Detection("monster", Rect(524, 505, 65, 73), .957566)
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: Observation(player, [enemy]))
+    monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
+    app.agent.config = replace(app.agent.config, attack_range=90)
+    app.agent.state = State.APPROACH
+    app.agent.target = Detection("monster", Rect(501, 504, 62, 74), 1.0)
+    app.agent.facing = "left"
+    app.policy_outcome = {"status": "completed", "action": "left", "result": "left completed"}
+    app.mode = "live"
+    app.stop_requested.clear()
+    app.controller.enable()
+    _, status = app._process(hud(), time.perf_counter())
+    assert status["decision"]["action"]["kind"] == "skill"
+    deadline = time.perf_counter() + 1
+    while ("a", False) not in app.controller.backend.events:
+        assert time.perf_counter() < deadline
+        time.sleep(.005)
+    assert app.controller.backend.events == [("a", True), ("a", False)]

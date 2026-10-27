@@ -77,6 +77,35 @@ def test_moves_towards_target(x, direction):
     assert agent.step(observation, 0.1).action.kind == direction
 
 
+@pytest.mark.parametrize("direction,far_x,near_x", [("left", 0, 50), ("right", 220, 150)])
+def test_completed_approach_attacks_on_first_clear_in_range_frame(direction, far_x, near_x):
+    agent = Agent(AgentConfig())
+    agent.start()
+    agent.step(scene([entity(x=far_x)]), 0)
+    assert agent.step(scene([entity(x=far_x)]), .1).action.kind == direction
+    outcome = {"status": "completed", "action": direction, "result": f"{direction} completed"}
+    decision = agent.step_input(PolicyInput(scene([entity(x=near_x)]), .3, outcome, 100))
+    assert decision.action.kind == "skill" and decision.state == State.VERIFY
+    assert agent.attempts == 1
+
+
+@pytest.mark.parametrize("outcome", [
+    {"status": "pending", "ticket": 1},
+    {"status": "not_sent"},
+    {"status": "completed", "action": "left", "result": "left interrupted"},
+    {"status": "completed", "action": "right", "result": "right completed"},
+    {"status": "completed", "action": "hp_potion", "result": "hp_potion completed"},
+])
+def test_unconfirmed_or_wrong_direction_approach_still_faces_before_attack(outcome):
+    agent = Agent(AgentConfig())
+    agent.start()
+    agent.step(scene([entity(x=0)]), 0)
+    agent.step(scene([entity(x=0)]), .1)
+    decision = agent.step_input(PolicyInput(scene([entity(x=50)]), .3, outcome, 100))
+    assert decision.action.kind == "left" and decision.state == State.ATTACK
+    assert agent.attempts == 0
+
+
 def test_attack_is_followed_by_observation_and_no_kill_claim():
     agent = Agent(AgentConfig())
     agent.start()

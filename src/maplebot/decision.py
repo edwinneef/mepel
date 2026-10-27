@@ -235,7 +235,15 @@ class Agent:
                 "Short approach step, then observe again",
                 Action(direction, self.config.movement_seconds),
             )
-        if self.state == State.APPROACH or self.facing != direction:
+        outcome = policy_input.last_outcome
+        approached_facing_target = (
+            self.facing == direction
+            and outcome.get("status") == "completed"
+            and outcome.get("action") == direction
+            and outcome.get("result") == f"{direction} completed"
+        )
+        if (self.state == State.APPROACH and not approached_facing_target
+                or self.facing != direction):
             self.last_distance, self.stalled_steps = None, 0
             self.state = State.ATTACK
             # Face again if the target crosses sides before the attack is dispatched.
