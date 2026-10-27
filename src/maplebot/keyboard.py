@@ -177,6 +177,7 @@ class KeyboardController:
         self.leases: dict[int, VerticalLease] = {}
         self.next_lease_id = 1
         self.held: dict[str, float] = {}
+        self.movement_key: str | None = None
         self.planner = TimingPlanner(config, timing or TimingConfig())
         self.execution_started = time.perf_counter()
         self.last_timing: dict = {"schedule": None, "events": [], "outcome": "none"}
@@ -336,6 +337,43 @@ class KeyboardController:
         with self.lock:
             self._release_keys(list(self.held))
 
+    def refresh_movement(self, action: str, seconds: float) -> str:
+        """Hold a distant approach only until its next fresh-frame renewal deadline."""
+        if action not in {"left", "right"} or not 0 < seconds <= self.config.max_action_seconds:
+            raise ValueError("Movement renewal exceeds the bounded action duration")
+        with self.lock:
+            if self.replay or not self.enabled or self.stopped.is_set():
+                return "blocked: input disabled"
+            if self.emergency() or not self.safe():
+                self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
+                return "blocked: unsafe movement"
+            if self.active is not None or not self.queue.empty() or self.leases:
+                self.release_movement()
+                return "deferred: movement waits for the current key"
+            key = getattr(self.config, action)
+            if self.movement_key != key:
+                self.release_movement()
+            now = time.perf_counter()
+            if key in self.held and now >= self.held[key]:
+                self._release_keys([key])
+            if key not in self.held:
+                self.execution_started = now
+                self.last_timing = {"schedule": None, "events": [], "outcome": "held"}
+                self.movement_key = key
+                self.held[key] = now + seconds
+                try:
+                    self._send(key, True)
+                except Exception:
+                    self.stop("Keyboard backend failure", code="INPUT_BACKEND_FAILURE")
+                    raise
+            self.held[key] = now + seconds
+            return f"held: {action}"
+
+    def release_movement(self) -> None:
+        with self.lock:
+            if self.movement_key is not None:
+                self._release_keys([self.movement_key])
+
     def release(self, action: str) -> None:
         """Release one currently held logical action, without releasing compatible keys."""
         if action not in ACTIONS:
@@ -418,6 +456,9 @@ class KeyboardController:
             try:
                 self._send(key, False)
                 del self.held[key]
+                if key == self.movement_key:
+                    self.movement_key = None
+                    self.last_timing["outcome"] = "released"
                 for lease_id, lease in tuple(self.leases.items()):
                     if lease.key == key:
                         del self.leases[lease_id]

@@ -41,6 +41,62 @@ def test_disabled_input_and_replay_send_no_keys(controller):
     assert backend.events == []
 
 
+def test_movement_renewal_keeps_one_keydown_and_expires_without_another_frame(controller):
+    control, backend, _ = controller
+    control.enable()
+    assert control.refresh_movement("right", .2) == "held: right"
+    first_deadline = control.held[control.config.right]
+    time.sleep(.05)
+    assert control.refresh_movement("right", .2) == "held: right"
+    assert control.held[control.config.right] > first_deadline
+    assert backend.events == [(control.config.right, True)]
+    assert backend.released.wait(.5)
+    assert backend.events == [(control.config.right, True), (control.config.right, False)]
+    assert not control.held and control.movement_key is None
+
+
+def test_expired_movement_is_released_before_a_new_hold(controller):
+    control, backend, _ = controller
+    control.enable()
+    with control.lock:
+        control.refresh_movement("right", .25)
+        control.held[control.config.right] = time.perf_counter() - 1
+        control.refresh_movement("right", .25)
+        assert backend.events == [("right", True), ("right", False), ("right", True)]
+
+
+def test_movement_direction_change_releases_before_pressing_and_stop_cannot_renew(controller):
+    control, backend, _ = controller
+    control.enable()
+    control.refresh_movement("left", .25)
+    control.refresh_movement("right", .25)
+    control.stop("F8", notify=False)
+    assert control.refresh_movement("right", .25).startswith("blocked")
+    assert backend.events == [("left", True), ("left", False),
+                              ("right", True), ("right", False)]
+
+
+@pytest.mark.parametrize("flag", ["focus", "emergency"])
+def test_movement_refresh_rechecks_focus_and_emergency(controller, flag):
+    control, backend, flags = controller
+    control.enable()
+    control.refresh_movement("left", .25)
+    flags[flag] = flag == "emergency"
+    assert control.refresh_movement("left", .25).startswith("blocked")
+    assert backend.released.wait(.5)
+    assert not control.enabled
+
+
+@pytest.mark.parametrize("action,seconds", [("attack", .2), ("left", .251),
+                                           ("left", float("nan")), ("left", 0)])
+def test_movement_refresh_preserves_action_and_duration_limits(controller, action, seconds):
+    control, backend, _ = controller
+    control.enable()
+    with pytest.raises(ValueError, match="bounded"):
+        control.refresh_movement(action, seconds)
+    assert backend.events == []
+
+
 def test_alt_jump_is_supported_and_released():
     backend = Backend()
     control = KeyboardController(

@@ -44,6 +44,8 @@ class Arbiter:
             return Choice(None, combat, PRIORITY_COMBAT, "No combat key")
         if any(lane in SUSTAIN for lane in self.in_flight.values()):
             return Choice(None, None, PRIORITY_COMBAT, "Combat waits for the potion key")
+        if "combat" in self.in_flight.values():
+            return Choice(None, None, PRIORITY_COMBAT, "Combat waits for the current key")
         return Choice("combat", combat, PRIORITY_COMBAT, "Combat key")
 
     def submitted(self, ticket: int, lane: str) -> None:

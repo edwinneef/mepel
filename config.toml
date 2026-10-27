@@ -43,14 +43,14 @@ skill_high_mp = 40.0
 [input]
 left = "left"
 right = "right"
-attack = "ctrl"
+attack = "space"
 jump = "alt"
 up = "up"
 down = "down"
 hp_potion = "insert"
 mp_potion = "delete"
 pet_food = "home"
-skill = "a"
+skill = "ctrl"
 max_action_seconds = 0.25
 vertical_lease_seconds = 1.0
 vertical_lease_max_seconds = 8.0

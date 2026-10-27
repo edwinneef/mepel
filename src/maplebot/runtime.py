@@ -1294,11 +1294,16 @@ class Application:
             self.potter.start(live=True)
             self.note("Live combat sustain: " + ", ".join(r.upper() for r in self.sustain))
 
-    def _arbitrate(self, combat: Action, suggestion: str | None) -> int | str:
+    def _arbitrate(
+        self, combat: Action, suggestion: str | None, *, renew_movement: bool = False,
+    ) -> int | str:
         """Queue the arbiter's choice; return the combat ticket or why combat was not sent."""
         choice = self.arbiter.choose(
             sustain=suggestion if suggestion in self.sustain else None, combat=combat
         )
+        if choice.lane == "combat" and renew_movement:
+            return self.controller.refresh_movement(combat.kind, combat.seconds)
+        self.controller.release_movement()
         if choice.lane in SUSTAIN:
             assert choice.action is not None and choice.lane is not None
             submitted = self.controller.submit(choice.action, priority=choice.priority)
@@ -1722,13 +1727,35 @@ class Application:
                     for ticket, lane in tuple(self.arbiter.in_flight.items()):
                         if lane == "combat":
                             self.controller.cancel_ticket(ticket)
-                submitted = self._arbitrate(decision.action, potter["suggestion"])
+                renew_movement = False
+                if (decision.state == "APPROACH" and decision.action.kind in {"left", "right"}
+                        and decision.target is not None and observation.player is not None):
+                    gap = abs(decision.target.box.center[0] - observation.player.box.center[0])
+                    # Use short steps near attack range; bridge frame gaps only well outside it.
+                    margin = max(self.config.agent.attack_range, observation.player.box.width * 2)
+                    renew_movement = gap - self.config.agent.attack_range > margin
+                    if renew_movement:
+                        decision = replace(decision, action=Action(
+                            decision.action.kind, self.config.input.max_action_seconds,
+                        ))
+                submitted = self._arbitrate(
+                    decision.action, potter["suggestion"], renew_movement=renew_movement,
+                )
+                held = submitted == f"held: {decision.action.kind}"
+                if (self.mode == "live" and decision.action.kind != "release"
+                        and not isinstance(submitted, int) and not held):
+                    self.agent.defer_action(policy_before)
+                    decision = Decision(self.agent.state, decision.action,
+                                        f"{decision.action.kind.capitalize()} {submitted}",
+                                        decision.target)
                 self.last_action = (
                     f"{decision.action.kind} queued ({submitted})"
                     if isinstance(submitted, int)
                     else submitted
                 )
                 self.policy_outcome = (
+                    {"status": "held", "action": decision.action.kind,
+                     "result": f"{decision.action.kind} held"} if held else
                     {"status": "pending", "ticket": submitted}
                     if isinstance(submitted, int)
                     else {"status": "not_sent", "result": submitted}

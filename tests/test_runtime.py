@@ -1305,7 +1305,9 @@ def test_live_combat_queues_hp_potion_ahead_of_combat(potion_app, monkeypatch):
     assert app.mode == "live" and app.controller.enabled
     assert "hp" not in app.arbiter.in_flight.values()
     _, status = app._process(hud(), time.perf_counter())
-    assert status["last_action"].startswith("right queued")
+    assert (status["last_action"].startswith("right queued")
+            or status["last_action"] == "deferred: Combat waits for the current key")
+    assert list(app.arbiter.in_flight.values()).count("combat") == 1
     app._stop("OPERATOR_STOP", "test stop")
     assert app.sustain == () and not app.arbiter.in_flight
 
@@ -1372,7 +1374,11 @@ def test_target_loss_cancels_held_and_queued_combat_then_reacquires(app, monkeyp
     app._process(app.image, time.perf_counter())  # Acquire, without moving.
     tickets = [app._arbitrate(Action("right", .25), None)]
     assert down.wait(1)
-    tickets += [app._arbitrate(Action(kind, .05), None) for kind in ("attack", "skill")]
+    for kind in ("attack", "skill"):
+        ticket = app.controller.submit(Action(kind, .05))
+        assert isinstance(ticket, int)
+        app.arbiter.submitted(ticket, "combat")
+        tickets.append(ticket)
     observation = Observation(player, [])
     _, status = app._process(app.image, time.perf_counter())
     assert status["state"] == "SEARCH" and app.mode == "live"
@@ -1430,3 +1436,113 @@ def test_completed_approach_dispatches_skill_without_an_extra_facing_frame(potio
         assert time.perf_counter() < deadline
         time.sleep(.005)
     assert app.controller.backend.events == [("a", True), ("a", False)]
+
+
+@pytest.mark.parametrize("target_returns", [True, False])
+def test_potion_deferred_attack_does_not_advance_and_rechecks_target(potion_app, monkeypatch,
+                                                                  target_returns):
+    from test_autopotter import hud
+
+    from maplebot.decision import State
+    from maplebot.perception import Detection, Observation
+
+    app = potion_app
+    player = Detection("player", Rect(100, 40, 24, 28), 1.0)
+    enemy = Detection("monster", Rect(140, 40, 24, 28), 1.0)
+    observation = Observation(player, [enemy])
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
+    app.controller.planner.config = replace(app.controller.planner.config, enabled=False)
+    app.mode = "live"
+    app.stop_requested.clear()
+    app.controller.enable()
+    app._start_sustain()
+    app.agent.state, app.agent.target, app.agent.facing = State.ATTACK, enemy, "right"
+    app.agent.attempts = 2
+    low = hud(20, 100)
+    app.potter.observe(low, time.perf_counter(), safe=True)
+    _, status = app._process(low, time.perf_counter())
+    assert status["last_action"].startswith("deferred: hp_potion queued")
+    assert app.agent.state == State.ATTACK and app.agent.attempts == 2
+    assert app.agent.verify_until == 0
+    if not target_returns:
+        observation = Observation(player, [])
+    finish_live_potion(app, low)
+    if target_returns:
+        deadline = time.perf_counter() + 1
+        while ("a", False) not in app.controller.backend.events:
+            assert time.perf_counter() < deadline
+            app._process(low, time.perf_counter())
+            time.sleep(.005)
+        assert [key for key, down in app.controller.backend.events if down] == ["insert", "a"]
+        assert app.agent.attempts == 3
+    else:
+        assert app.agent.state == State.SEARCH and app.agent.target is None
+        assert [key for key, down in app.controller.backend.events if down] == ["insert"]
+
+
+def test_distant_approach_renews_without_repeat_keydown_and_loss_releases(app, monkeypatch):
+    from maplebot.perception import Detection, Observation
+
+    player = Detection("player", Rect(100, 100, 24, 28), 1.0)
+    enemy = Detection("monster", Rect(400, 100, 24, 28), 1.0)
+    observation = Observation(player, [enemy])
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
+    app.mode = "live"
+    app.stop_requested.clear()
+    app.controller.enable()
+    app.agent.start()
+    for _ in range(3):
+        _, status = app._process(app.image, time.perf_counter())
+    assert status["last_action"] == "held: right"
+    assert status["decision"]["action"]["seconds"] == app.config.input.max_action_seconds
+    assert app.controller.backend.events == [("right", True)]
+    assert app.controller.queue.empty() and not app.arbiter.in_flight
+    observation = Observation(player, [])
+    app._process(app.image, time.perf_counter())
+    assert app.controller.backend.events == [("right", True), ("right", False)]
+    assert app.mode == "live" and not app.controller.held
+
+
+def test_renewed_approach_releases_before_an_in_range_attack(app, monkeypatch):
+    from maplebot.perception import Detection, Observation
+
+    observation = Observation(Detection("player", Rect(100, 100, 24, 28), 1.0),
+                              [Detection("monster", Rect(400, 100, 24, 28), 1.0)])
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
+    app.mode = "live"
+    app.stop_requested.clear()
+    app.controller.enable()
+    app.agent.start()
+    app._process(app.image, time.perf_counter())
+    app._process(app.image, time.perf_counter())
+    observation = Observation(Detection("player", Rect(300, 100, 24, 28), 1.0),
+                              [Detection("monster", Rect(350, 100, 24, 28), 1.0)])
+    _, status = app._process(app.image, time.perf_counter())
+    assert status["decision"]["action"]["kind"] == "attack"
+    deadline = time.perf_counter() + 1
+    while ("z", False) not in app.controller.backend.events:
+        assert time.perf_counter() < deadline
+        time.sleep(.005)
+    assert app.controller.backend.events == [("right", True), ("right", False),
+                                              ("z", True), ("z", False)]
+
+
+def test_potion_preempts_renewed_movement_before_its_keypress(potion_app):
+    from maplebot.decision import Action
+
+    app = potion_app
+    app.stop_requested.clear()
+    app.controller.enable()
+    app._start_sustain()
+    assert app._arbitrate(Action("right", .25), None, renew_movement=True) == "held: right"
+    assert app._arbitrate(Action("skill", .06), "hp").startswith("deferred: hp_potion")
+    assert app.controller.movement_key is None
+    deadline = time.perf_counter() + 1
+    while ("insert", False) not in app.controller.backend.events:
+        assert time.perf_counter() < deadline
+        time.sleep(.005)
+    assert app.controller.backend.events == [("right", True), ("right", False),
+                                              ("insert", True), ("insert", False)]

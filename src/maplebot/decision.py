@@ -115,6 +115,13 @@ class Agent:
         self.state = State.SEARCH
         return self._result(reason)
 
+    def defer_action(self, before: dict[str, Any]) -> None:
+        """Undo action-dependent progress, retaining this frame's target observation."""
+        self.state = State(before["state"])
+        for name in ("facing", "verify_until", "attempts", "last_distance", "stalled_steps",
+                     "skill_ready"):
+            setattr(self, name, before[name])
+
     def _result(self, reason: str, action: Action | None = None) -> Decision:
         return Decision(self.state, action or Action(), reason, self.target)
 
@@ -238,9 +245,9 @@ class Agent:
         outcome = policy_input.last_outcome
         approached_facing_target = (
             self.facing == direction
-            and outcome.get("status") == "completed"
+            and outcome.get("status") in {"completed", "held"}
             and outcome.get("action") == direction
-            and outcome.get("result") == f"{direction} completed"
+            and outcome.get("result") == f"{direction} {outcome.get('status')}"
         )
         if (self.state == State.APPROACH and not approached_facing_target
                 or self.facing != direction):

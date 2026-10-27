@@ -138,6 +138,8 @@ The first detector combines color template similarity and grayscale structural c
 
 Thresholds, attack range, platform tolerance, short movement durations and capture FPS are in `config.toml`. The configured capture FPS is an upper bound; processing may reduce actual FPS. Keep confidence conservative. Save troublesome frames and improve examples before lowering it.
 
+Distant approaches renew a horizontal hold on each fresh confident target observation, avoiding repeated key presses between frames. Each renewal expires after `max_action_seconds` (250 ms by default); the total hold can span multiple observations. Near attack range, movement uses short steps. Target loss, potions and attacks release the approach hold. Combat commands do not accumulate behind an active combat key. When a potion defers an attack, the policy retains its attack attempt and checks the target again on the next observation before retrying.
+
 Template matching was chosen as the first inspectable, training-free implementation. GrabCut foreground segmentation is used to derive the player mask once when templates load; no game assets are read. Segmentation can still fail when sprite/background colors blend or the player is off-center in a loose selection; feature matching is often weak on tiny animated pixel sprites. No neural model is included. Replace the `Detector` protocol implementation to experiment later.
 
 ## Verify keyboard control, then combat
