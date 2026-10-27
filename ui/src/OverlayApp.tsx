@@ -12,6 +12,7 @@ import { NavigationPanel } from './NavigationPanel';
 import { AlarmBanner } from './AlarmBanner';
 import { SavedTerrainOverlay } from './SavedTerrainOverlay';
 import { BowmanSetup } from './BowmanSetup';
+import { CombatResults } from './CombatResults';
 import './overlay.css';
 
 export function OverlayApp({ client }: { client: OverlayClient }) {
@@ -166,6 +167,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
         <p>{selectedGate?.reason}</p>
         <button className="primary master-toggle" disabled={disabled || (!running && !starting && selectedGate?.ready === false)} onClick={() => void toggle()}>Turn {running || starting ? 'Off' : 'On'} · F6</button>
         <p>On closes settings and starts the existing countdown. Focus the game. F8 always stops. Combat and navigation retain configured potion priority.</p>
+        <CombatResults evidence={s?.combat_evidence} />
         {s && <GoBar snapshot={s} client={client} act={act} disabled={disabled} availableAreas={areas} selectOnly />}
         <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /> Show detection layers</label>
         <label><input type="checkbox" checked={terrain} onChange={e => setTerrain(e.target.checked)} /> Show saved terrain and position</label>

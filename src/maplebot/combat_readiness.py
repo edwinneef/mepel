@@ -53,6 +53,10 @@ def summarize(status: dict, config: Config, now: float) -> dict:
         "same_platform_targets": sorted(targets, key=lambda target: target["distance_px"]),
         "range_from_config_file": [config.agent.attack_min_range, config.agent.attack_range],
         "range_note": "File settings, not measured hit limits or proof of engine-loaded tuning",
+        "engine_attack_setup": status.get("attack_setup"),
+        "combat_evidence": status.get("combat_evidence"),
+        "readiness": status.get("readiness"),
+        "potion_readings": status.get("autopotter", {}).get("readings", {}),
         "hit_confirmed": None,
     }
 

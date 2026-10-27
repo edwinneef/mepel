@@ -73,6 +73,13 @@ def test_status_exposes_loaded_range_without_claiming_measurement(app):
     assert not setup["measured"]
 
 
+def test_closed_window_does_not_break_status_or_hide_setup_blocker(app, monkeypatch):
+    def closed(hwnd):
+        raise RuntimeError("Target window is closed or minimized")
+    monkeypatch.setattr(app.windows, "get", closed)
+    assert app.snapshot()["input_setup_blocker"] == "Game window unavailable; reconnect the game"
+
+
 def test_area_editing_bypasses_capture_queue_releases_keys_and_never_resumes(app):
     app.mode = "live"
     with app.controller.lock:

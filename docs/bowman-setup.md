@@ -36,6 +36,22 @@ starts the existing countdown. Readiness describes preparation; focus and all
 other live guards are checked again before input. Unmeasured range remains
 explicitly unverified even when controls are confirmed.
 
+**Bot → What happened** retains the last run after Stop, including queued keys,
+controller results, manually confirmed probe effects, observed potion-probe bar
+gains and the stop reason. **Save run evidence** downloads that run as JSON.
+Save each probe before selecting the next run: the log keeps 64 recent events
+for the latest run in this engine session. Frame distances are observations
+collected alongside events, not proof of the exact keypress or hit distance.
+The read-only observer also includes this evidence and engine-loaded tuning.
+
+The demo UI and evidence collection are installed; native acceptance remains
+pending. On 27 October the current town view had the crafting window covering
+the minimap and no recognized enemy. Close that game window and manually move
+to a clear single platform with a freshly boxed enemy before the two checks.
+Keep the existing seven valid confirmations. Save each probe's run evidence
+before starting the next. Do not enable moving combat until hit-range evidence
+has supported and verified replacement of the inherited 0–90 px tuning.
+
 Combat effects are required for these two checks. No new full recording is needed.
 Allow about 30–60 seconds of active testing after positioning; travel/setup is
 separate. Keep F8 available, equip the bow and ammunition, and face one visible

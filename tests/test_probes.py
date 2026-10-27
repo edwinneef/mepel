@@ -68,6 +68,9 @@ def test_up_probe_is_guarded_generation_bound_and_manual(app):
         "action": "up",
     }
     assert "up" in app.probed
+    evidence = app.snapshot()["combat_evidence"]
+    assert evidence["hit_confirmed"] is None
+    assert any(event["kind"] == "observed_effect" for event in evidence["events"])
     repeated = app.confirm_probe({"id": active.id, "generation": active.generation})
     assert repeated["confirmed"] is False
     assert app.controller.backend.events == []

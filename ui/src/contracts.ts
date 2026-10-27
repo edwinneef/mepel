@@ -8,6 +8,13 @@ export interface Frame {
   age_ms: number | null; width: number; height: number; available: boolean;
 }
 export interface Gate { ready: boolean; reason: string }
+export interface CombatEvidence {
+  session_id: string; run: number; activity: string; started_at: number;
+  stop_reason: string | null; hit_confirmed: null;
+  events: { time: number; kind: string; detail: string; before?: number; after?: number;
+    observation: { frame_id?: string; captured_at?: number;
+      same_platform_targets?: { distance_px: number; direction: string; template?: string }[] } }[];
+}
 export interface Probe {
   confirmed: boolean; status?: string; reason?: string;
   [key: string]: unknown;
@@ -65,6 +72,7 @@ export interface Snapshot {
   mode: string; state: string; reason: string; capture_only: boolean; calibrating: boolean;
   frame: Frame; preview_frame?: Frame; readiness: { preview: Gate; combat: Gate; potions: Gate; [activity: string]: Gate };
   attack_setup?: { minimum_px: number; maximum_px: number; measured: boolean; reason: string };
+  combat_evidence?: CombatEvidence | null;
   live_detections?: LiveDetections | null;
   health?: { camera: boolean; recognition: boolean; position: boolean; reason: string; warning?: string | null };
   calibration: { capture_verified?: boolean; controls_verified?: boolean; crop?: Rect };

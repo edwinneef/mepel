@@ -16,6 +16,8 @@ import cv2
 from .alarm import AlarmManager
 from .autopotter import BarReading, PotionMonitor
 from .capture import Calibration, Capture, CaptureMovedError, Image
+from .combat_evidence import CombatEvidence
+from .combat_readiness import summarize
 from .config import Config
 from .contracts import (
     FRESH_FRAME_COMMANDS,
@@ -135,6 +137,7 @@ class Application:
     ) -> None:
         self.config = config
         self.session_id = uuid.uuid4().hex
+        self.combat_evidence = CombatEvidence(self.session_id)
         self.command_epoch = 0
         self.view_generation = 0
         self.source_generation = 0
@@ -436,6 +439,7 @@ class Application:
                 "capture_only": self.capture_only,
                 "input_setup_blocker": self._input_setup_block_reason(),
                 "bindings": asdict(self.config.input),
+                "combat_evidence": self.combat_evidence.snapshot(),
                 "attack_setup": {
                     "minimum_px": self.config.agent.attack_min_range,
                     "maximum_px": self.config.agent.attack_range,
@@ -675,6 +679,7 @@ class Application:
         )
         self.mode = "probe_wait"
         self.pending_at = time.perf_counter() + 3
+        self.combat_evidence.start(f"probe:{action}")
         return {
             "mode": self.mode,
             "id": probe_id,
@@ -694,6 +699,8 @@ class Application:
             return {"confirmed": False, "reason": "Probe is not awaiting manual confirmation"}
         self.probed.add(active.action)
         self._save_probes()
+        self.combat_evidence.record("observed_effect", f"Operator confirmed {active.action}",
+                                    probe_id=active.id, generation=active.generation)
         self._finish_probe(active, "confirmed", "Operator confirmed the observed probe effect")
         self.safe_stop("PROBE_COMPLETE", "Control probe confirmed")
         return {"confirmed": True, "action": active.action}
@@ -760,6 +767,11 @@ class Application:
             return
         assert active.baseline_percent is not None
         if reading.percent - active.baseline_percent >= self.config.probe.potion_min_gain_percent:
+            self.combat_evidence.record(
+                "observed_bar_gain", f"{active.resource.upper()} probe gain",
+                before=active.baseline_percent, after=reading.percent,
+                probe_id=active.id, generation=active.generation,
+            )
             self.probed.add(active.action)
             self._save_probes()
             self._finish_probe(active, "confirmed", "Fresh matching potion-bar gain confirmed")
@@ -801,7 +813,10 @@ class Application:
             return "Select and crop the game window before input"
         if not self.calibration.capture_verified:
             return "Confirm capture before issuing gameplay input"
-        window = self.windows.get(self.hwnd)
+        try:
+            window = self.windows.get(self.hwnd)
+        except (OSError, RuntimeError):
+            return "Game window unavailable; reconnect the game"
         if self.config.capture.window_title.casefold() not in window.title.casefold():
             return "Input is restricted to the configured game window title"
         if not self.calibration.valid_for(window):
@@ -844,6 +859,7 @@ class Application:
             self._cancel_active_probe(message)
         # This must happen before any recorder, encoder, status, or audio work.
         self.controller.stop(message, code=code, notify=False)
+        self.combat_evidence.stop(message)
         if hasattr(self, "navigation"):
             self.navigation.cancel(message)
         with self.stop_lock:
@@ -1084,6 +1100,7 @@ class Application:
                 self.stop_requested.clear()
                 self.mode = "potion_wait"
                 self.pending_at = time.perf_counter() + 3
+                self.combat_evidence.start("potions")
             return {"mode": self.mode}
         if name == "autopotter_start":
             if self.calibrating or self.image is None:
@@ -1152,6 +1169,7 @@ class Application:
                 self.agent.start()
                 self.mode = "dry_run"
                 self._clear_stop_banner()
+                self.combat_evidence.start("preview")
             if self.config.recording.auto:
                 self.recorder.start("dry-run")
             return {"mode": self.mode}
@@ -1187,6 +1205,7 @@ class Application:
                 self._clear_stop_banner()
                 self.mode = "pending_arm"
                 self.pending_at = time.perf_counter() + 3
+                self.combat_evidence.start("combat")
             return {"mode": self.mode, "instruction": "Click the game window now; F8 cancels"}
         if name == "frozen_png":
             return png(self.frozen[payload["id"]][0])
@@ -1338,6 +1357,7 @@ class Application:
                 return submitted
             self.arbiter.submitted(submitted, choice.lane)
             self.live_potion_ticket = submitted
+            self.combat_evidence.record("queued", choice.action.kind, ticket=submitted)
             return f"deferred: {choice.action.kind} queued ({submitted})"
         if choice.action is None:
             return f"deferred: {choice.reason}"
@@ -1542,6 +1562,17 @@ class Application:
         perception_began = time.perf_counter()
         observation = self.detector.detect(image, now)
         perception_ms = (time.perf_counter() - perception_began) * 1000
+        evidence = summarize({
+            "frame": {"id": f"{self.session_id}:{self.sequence:08d}", "available": True,
+                      "captured_at": captured_at},
+            "player": asdict(observation.player) if observation.player else None,
+            "monsters": [asdict(item) for item in observation.monsters],
+        }, self.config, time.time())
+        self.combat_evidence.observe({
+            "frame_id": evidence["frame_id"], "captured_at": captured_at,
+            "same_platform_targets": evidence["same_platform_targets"],
+            "note": "Observation at collection, not proof of the keypress frame or a hit",
+        })
         position = None
         if self.position is not None and fix is not None:
             try:
@@ -1589,6 +1620,7 @@ class Application:
                     self._restore_probes(clear_results=False)
                     self.note("Game view verified by confident player or HUD recognition")
         for outcome in self.controller.poll_outcomes():
+            self.combat_evidence.record("input_outcome", outcome.result, **asdict(outcome))
             self.arbiter.finished(outcome.ticket)
             self.last_action = outcome.result
             self.policy_outcome = {"status": "completed", **asdict(outcome)}
@@ -1678,6 +1710,7 @@ class Application:
                     submitted = self.controller.submit(Action(action, duration), disable_after=True)
                     self.last_action = f"probe {submitted} queued"
                     if isinstance(submitted, int):
+                        self.combat_evidence.record("queued", action, ticket=submitted)
                         self.active_probe = replace(active, phase="queued", ticket=submitted)
                         self.mode = "probe_queued"
                     else:
@@ -1779,6 +1812,9 @@ class Application:
                     if isinstance(submitted, int)
                     else submitted
                 )
+                if decision.action.kind != "release":
+                    self.combat_evidence.record("decision", self.last_action,
+                                                action=decision.action.kind)
                 self.policy_outcome = (
                     {"status": "held", "action": decision.action.kind,
                      "result": f"{decision.action.kind} held"} if held else
@@ -1843,6 +1879,8 @@ class Application:
                             if not isinstance(submitted, int):
                                 raise RuntimeError(str(submitted))
                             self.live_potion_ticket = submitted
+                            self.combat_evidence.record("queued", f"{potter['suggestion']}_potion",
+                                                        ticket=submitted)
                         except (RuntimeError, OSError) as error:
                             self._stop("INPUT_BACKEND_FAILURE", f"Live potion stopped: {error}")
             potter.update(self.potter.snapshot())

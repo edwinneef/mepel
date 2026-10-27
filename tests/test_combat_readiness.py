@@ -66,3 +66,12 @@ def test_distance_bands_match_policy_boundaries_without_claiming_hits():
     ]
     assert result["unconfirmed_controls"] == []
     assert result["hit_confirmed"] is None
+
+
+def test_observer_separates_loaded_tuning_and_completed_input_from_hits():
+    status = snapshot() | {"attack_setup": {"minimum_px": 80, "maximum_px": 200},
+                           "combat_evidence": {"events": [{"detail": "attack completed"}]}}
+    result = summarize(status, Config(), 10.1)
+    assert result["engine_attack_setup"] == status["attack_setup"]
+    assert result["combat_evidence"] == status["combat_evidence"]
+    assert result["hit_confirmed"] is None
