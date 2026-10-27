@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "status": "review_only",
+  "area_id": "98a20c69939d450fb46e5e9342b83734",
+  "base_revision": 4,
+  "base_sha256": "9826e92b7d38eb1e370afef812418034fc3b07ff4ac2e55b18878cec58cdc4e8",
+  "platform": {
+    "id": "draft_middle_ledge",
+    "name": "Middle ledge coverage draft",
+    "start": {"x": 584.0, "y": 397.7},
+    "end": {"x": 676.0, "y": 397.7}
+  },
+  "links_added": [],
+  "reference": {
+    "path": "data/areas/frames/1a55195804af47b54d0f365ced78a9ebb9a40dd325ef32040d0ff690328fa14e.png",
+    "sha256": "1a55195804af47b54d0f365ced78a9ebb9a40dd325ef32040d0ff690328fa14e",
+    "inspection_crop": [540, 365, 200, 105],
+    "visible_surface_approximate": {"left": 568, "right": 689, "top": 397, "bottom": 405}
+  },
+  "witnesses": [
+    {
+      "path": "data/recordings/session-1793054706422588800-dry-run/00003606.png",
+      "sha256": "7db709099ae66aabe317c3932a2d22ecf68b9a7fce08f7d51be69547a6cee8f1",
+      "sequence": 3606,
+      "expected_offset": [9, -142],
+      "expected_marker": [46.5, 40.5]
+    },
+    {
+      "path": "data/recordings/session-1793054894360389300-dry-run/00004507.png",
+      "sha256": "079069a3c5cc59ef0788589bfe2676f0aab14591adb5c5061a3e1cafcc9588e9",
+      "sequence": 4507,
+      "expected_offset": [9, -142],
+      "expected_marker": [46.5, 40.5]
+    }
+  ],
+  "replay_manifest": "artifacts/over-the-wall-readiness-20261027/source-hashes.json",
+  "height_basis": "Saved minimap transform maps marker y40.5 to area y397.6667; rounded to 397.7 without refitting.",
+  "width_basis": "Manually inspected reference pixels, confirmed by registered retained views. The candidate excludes the visible edges; it is an interior coverage span, not measured collision bounds or walked width.",
+  "limitations": "Stationary witnesses do not establish contact, endpoints, full platform width, ladder usability or any movement link. Do not activate automatically. Existing P5/P16 exclusions remain."
+}
