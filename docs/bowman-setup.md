@@ -35,6 +35,42 @@ templates or recognition changes were needed. Evidence is in
 
 ## Remaining hit-range measurement
 
+### Two separately labelled manual checks
+
+The mixed-key recording now supplies visible damage (140 on Dark Stump, 48 and
+168 on Slime), but does not identify which key produced each hit. See
+`artifacts/bowman-visible-hits-20261027.json`. The 111 px slime observation is
+not an exact firing distance. Keep the range unchanged until evidence supports it.
+
+Use `tools/bowman_hit_check.ps1` for **one Space attempt and one Ctrl attempt**.
+This GET-only helper saves frame-matched pictures, enemy detections and distances
+in separate `artifacts/bowman-hit-space-*` / `bowman-hit-ctrl-*` folders. It sends
+no input and never changes confirmations. Do not use Verify controls for these
+checks: starting an existing probe clears that action's previous confirmation.
+
+Keep the engine/overlay running and Bot activity **Off**. Equip bow/ammo, close
+game chat, face one freshly boxed enemy on the same flat platform, and stand still.
+In PowerShell from `D:\projects\maple-external-bot`, run the commands separately:
+
+```powershell
+.\tools\bowman_hit_check.ps1 -Key Space
+.\tools\bowman_hit_check.ps1 -Key Ctrl
+```
+
+Each command waits for Enter. Then focus the game, wait three seconds, and press
+**only the named key once**. Watch for a damage number over that enemy; stop after
+the attempt, or skip it if recognition is lost. Capture ends automatically after
+10 seconds. Finish the first command before starting the second. This is at most
+20 seconds of capture plus two three-second countdowns; positioning is separate.
+Keep gameplay Off afterward and report each result as hit / miss / unclear.
+There is no extra recording or download to manage; the agent can inspect these folders.
+
+Labels record the intended manual key, not keyboard telemetry. Pictures and
+observations require review to associate the hit with the correct enemy; a missing
+or superseded picture is explicit. These checks establish working sample distances,
+not the full minimum/maximum range. `-Check` runs a one-second installation check
+without requesting a manual attack and labels that evidence accordingly.
+
 The Bot page now contains **Bowman on one platform**, shared engine readiness,
 direct **attack** and **skill** probes, and the engine-loaded range. **Movement
 and potion controls** retains all other probes and their saved confirmations.
