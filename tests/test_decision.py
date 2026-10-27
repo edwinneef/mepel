@@ -115,17 +115,19 @@ def test_uncertainty_stops_and_releases(observation):
 
 @pytest.mark.parametrize("observation", [scene([entity(confidence=0.826133)]),
                                         scene([]), scene([entity(y=30)])])
-def test_startup_waits_without_movement_then_stops_at_deadline(observation):
+def test_no_target_waits_without_movement_until_a_fresh_target_or_explicit_stop(observation):
     agent = Agent(AgentConfig())
     agent.start()
-    for now in (10, 10.5, 11.99):
+    for now in (10, 10.5, 11.99, 100):
         decision = agent.step(observation, now)
         assert decision.state == State.SEARCH
         assert decision.action.kind == "release"
     restored = Agent(AgentConfig())
     restored.restore(agent.snapshot())
-    assert restored.step(observation, 12).state == State.IDLE
-    assert restored.step(scene(), 12.1).state == State.IDLE
+    assert restored.step(observation, 101).state == State.SEARCH
+    assert restored.step(scene(), 102).state == State.APPROACH
+    restored.stop("F8")
+    assert restored.step(scene(), 103).state == State.IDLE
 
 
 def test_startup_acquires_only_when_confidence_recovers_and_stop_resets_wait():
@@ -136,19 +138,28 @@ def test_startup_acquires_only_when_confidence_recovers_and_stop_resets_wait():
     assert acquired.state == State.APPROACH
     assert acquired.action.kind == "release"
     assert agent.step(scene(), 10.6).action.kind == "right"
-    assert agent.step(scene([]), 10.7).state == State.IDLE
+    assert agent.step(scene([]), 10.7).state == State.SEARCH
     agent.start()
     assert agent.step(scene([]), 20).state == State.SEARCH
     assert agent.step(Observation(None, []), 20.1).state == State.IDLE
 
 
-def test_missing_target_stops_approach():
+def test_missing_target_releases_and_discards_target_before_reacquiring():
     agent = Agent(AgentConfig())
     agent.start()
     agent.step(scene(), 0)
     decision = agent.step(scene([]), 0.1)
-    assert decision.state == State.IDLE
+    assert decision.state == State.SEARCH
+    assert decision.action.kind == "release"
+    assert decision.target is None and agent.facing is None
     assert "missing" in decision.reason
+    stale = Detection("monster", Rect(140, 100, 24, 28), 1.0, tracked=True)
+    assert agent.step(scene([stale]), 0.2).state == State.SEARCH
+    assert agent.step(scene([entity(confidence=0.89)]), 0.3).state == State.SEARCH
+    acquired = agent.step(scene([entity(x=140)]), 0.4)
+    assert acquired.state == State.APPROACH and acquired.action.kind == "release"
+    assert agent.step(scene([entity(x=140)]), 0.5).state == State.ATTACK
+    assert agent.step(scene([entity(x=140)]), 0.6).action.kind == "attack"
 
 
 def test_target_association_compensates_camera_translation():

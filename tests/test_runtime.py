@@ -1342,3 +1342,63 @@ def test_live_combat_stops_when_sustain_hud_stays_unreadable(potion_app, monkeyp
     app._process(blank, began + 5.1)
     assert app.mode == "capture"
     assert app.stop_reason == "HUD unreadable for 5 seconds; combat stopped"
+
+
+def test_target_loss_cancels_held_and_queued_combat_then_reacquires(app, monkeypatch):
+    from threading import Event
+
+    from maplebot.decision import Action
+    from maplebot.perception import Detection, Observation
+
+    player = Detection("player", Rect(100, 100, 24, 28), 1.0)
+    enemy = Detection("monster", Rect(140, 100, 24, 28), 1.0)
+    observation = Observation(player, [enemy])
+    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
+    app.controller.planner.config = replace(app.controller.planner.config, enabled=False)
+    down = Event()
+    send = app.controller.backend.send
+
+    def record(key, pressed):
+        send(key, pressed)
+        if key == "right" and pressed:
+            down.set()
+
+    monkeypatch.setattr(app.controller.backend, "send", record)
+    app.mode = "live"
+    app.stop_requested.clear()
+    app.controller.enable()
+    app.agent.start()
+    app._process(app.image, time.perf_counter())  # Acquire, without moving.
+    tickets = [app._arbitrate(Action("right", .25), None)]
+    assert down.wait(1)
+    tickets += [app._arbitrate(Action(kind, .05), None) for kind in ("attack", "skill")]
+    observation = Observation(player, [])
+    _, status = app._process(app.image, time.perf_counter())
+    assert status["state"] == "SEARCH" and app.mode == "live"
+    assert app.controller.enabled and not app.controller.held
+    assert ("right", False) in app.controller.backend.events
+    deadline = time.perf_counter() + 1
+    while any(ticket in app.arbiter.in_flight for ticket in tickets):
+        assert time.perf_counter() < deadline
+        app._process(app.image, time.perf_counter())
+        time.sleep(.005)
+    assert app.controller.backend.events == [("right", True), ("right", False)]
+    observation = Observation(player, [enemy])
+    _, status = app._process(app.image, time.perf_counter())
+    assert status["state"] == "APPROACH" and status["decision"]["action"]["kind"] == "release"
+    app._stop("EMERGENCY_STOP", "F8")
+    app._process(app.image, time.perf_counter())
+    assert app.mode == "capture" and not app.controller.enabled
+
+
+def test_observation_frame_does_not_cut_an_inflight_potion_or_attack(app, monkeypatch):
+    from maplebot.decision import Action
+
+    def unexpected_submit(*args, **kwargs):
+        pytest.fail("An observation-only frame must not submit a release that cuts the active key")
+
+    monkeypatch.setattr(app.controller, "submit", unexpected_submit)
+    for lane in ("hp", "mp", "combat"):
+        app.arbiter.in_flight = {1: lane}
+        assert app._arbitrate(Action(), None) == "release"

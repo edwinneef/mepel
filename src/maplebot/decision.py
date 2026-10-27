@@ -98,19 +98,22 @@ class Agent:
         self.last_distance: float | None = None
         self.stalled_steps = 0
         self.skill_ready = False
-        self.startup_wait_until: float | None = None
 
     def stop(self, reason: str) -> Decision:
         self.state, self.target, self.facing = State.IDLE, None, None
         self.attempts, self.missing_frames = 0, 0
         self.last_distance, self.stalled_steps = None, 0
         self.skill_ready = False
-        self.startup_wait_until = None
         return Decision(self.state, Action(), reason)
 
     def start(self) -> None:
         self.stop("Starting")
         self.state = State.SEARCH
+
+    def _search(self, reason: str) -> Decision:
+        self.stop(reason)
+        self.state = State.SEARCH
+        return self._result(reason)
 
     def _result(self, reason: str, action: Action | None = None) -> Decision:
         return Decision(self.state, action or Action(), reason, self.target)
@@ -131,7 +134,6 @@ class Agent:
             "last_distance": self.last_distance,
             "stalled_steps": self.stalled_steps,
             "skill_ready": self.skill_ready,
-            "startup_wait_until": self.startup_wait_until,
         }
 
     def restore(self, snapshot: dict[str, Any]) -> None:
@@ -159,7 +161,6 @@ class Agent:
             self.last_distance = snapshot["last_distance"]
             self.stalled_steps = int(snapshot["stalled_steps"])
             self.skill_ready = bool(snapshot.get("skill_ready", False))
-            self.startup_wait_until = snapshot.get("startup_wait_until")
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError(f"Invalid policy snapshot: {error}") from error
 
@@ -174,19 +175,14 @@ class Agent:
             monster
             for monster in observation.monsters
             if monster.confidence >= self.confidence
+            and not monster.tracked
             and abs(monster.box.feet - player.box.feet) <= self.config.platform_tolerance
         ]
         if self.state == State.SEARCH:
             if not candidates:
-                if self.startup_wait_until is None:
-                    self.startup_wait_until = now + 2.0
-                if now < self.startup_wait_until:
-                    return self._result(
-                        "Waiting up to 2 seconds for a confident same-platform target"
-                    )
-                return self.stop("No confident same-platform targets; stopped")
-            # Only startup gets a grace period; losing targets later still stops.
-            self.startup_wait_until = 0.0
+                return self._result(
+                    "Waiting for a fresh confident same-platform target; no movement"
+                )
             self.target = min(
                 candidates, key=lambda item: abs(item.box.center[0] - player.box.center[0])
             )
@@ -196,7 +192,7 @@ class Agent:
             return self._result("Acquired nearest same-platform target")
 
         if self.target is None:
-            return self.stop("Target tracking lost")
+            return self._search("Target tracking lost; waiting for a fresh target")
         expected = self.target.box.translated(*observation.camera_shift)
         tracked = sorted(candidates, key=lambda item: math.dist(item.box.center, expected.center))
         match = tracked[0] if tracked else None
@@ -204,15 +200,14 @@ class Agent:
         if len(tracked) > 1:
             second = math.dist(tracked[1].box.center, expected.center)
             if abs(second - distance) < 8:
-                return self.stop("Ambiguous target association; stopped")
+                return self._search("Ambiguous target association; waiting for a fresh target")
         if match is None or distance > 80:
             if self.state == State.VERIFY:
                 self.missing_frames += 1
                 if now < self.verify_until or self.missing_frames < 3:
                     return self._result("Target absent; awaiting further visual evidence")
-                self.state, self.target = State.SEARCH, None
-                return self._result("Target absent for 3 frames after attack; kill unconfirmed")
-            return self.stop("Target missing or below confidence; stopped")
+                return self._search("Target absent for 3 frames after attack; kill unconfirmed")
+            return self._search("Target missing or below confidence; waiting for a fresh target")
         self.target, self.missing_frames = match, 0
         dx = match.box.center[0] - player.box.center[0]
         direction = "right" if dx >= 0 else "left"

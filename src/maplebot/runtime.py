@@ -1310,6 +1310,10 @@ class Application:
             return f"deferred: {choice.action.kind} queued ({submitted})"
         if choice.action is None:
             return f"deferred: {choice.reason}"
+        if choice.action.kind == "release":
+            # A policy observation frame is not a request to cut a bounded attack/potion.
+            # Target-loss cancellation is handled explicitly before arbitration.
+            return "release"
         submitted = self.controller.submit(choice.action)
         if isinstance(submitted, int):
             self.arbiter.submitted(submitted, "combat")
@@ -1714,6 +1718,10 @@ class Application:
                 self._stop("PLAYER_UNCERTAIN" if uncertain else "POLICY_STOP", decision.reason)
                 self.policy_outcome = {"status": "not_sent"}
             elif self.mode == "live":
+                if decision.state == "SEARCH" or self.agent.missing_frames:
+                    for ticket, lane in tuple(self.arbiter.in_flight.items()):
+                        if lane == "combat":
+                            self.controller.cancel_ticket(ticket)
                 submitted = self._arbitrate(decision.action, potter["suggestion"])
                 self.last_action = (
                     f"{decision.action.kind} queued ({submitted})"
