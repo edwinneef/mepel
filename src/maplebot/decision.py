@@ -98,12 +98,14 @@ class Agent:
         self.last_distance: float | None = None
         self.stalled_steps = 0
         self.skill_ready = False
+        self.startup_wait_until: float | None = None
 
     def stop(self, reason: str) -> Decision:
         self.state, self.target, self.facing = State.IDLE, None, None
         self.attempts, self.missing_frames = 0, 0
         self.last_distance, self.stalled_steps = None, 0
         self.skill_ready = False
+        self.startup_wait_until = None
         return Decision(self.state, Action(), reason)
 
     def start(self) -> None:
@@ -129,6 +131,7 @@ class Agent:
             "last_distance": self.last_distance,
             "stalled_steps": self.stalled_steps,
             "skill_ready": self.skill_ready,
+            "startup_wait_until": self.startup_wait_until,
         }
 
     def restore(self, snapshot: dict[str, Any]) -> None:
@@ -156,6 +159,7 @@ class Agent:
             self.last_distance = snapshot["last_distance"]
             self.stalled_steps = int(snapshot["stalled_steps"])
             self.skill_ready = bool(snapshot.get("skill_ready", False))
+            self.startup_wait_until = snapshot.get("startup_wait_until")
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError(f"Invalid policy snapshot: {error}") from error
 
@@ -174,7 +178,15 @@ class Agent:
         ]
         if self.state == State.SEARCH:
             if not candidates:
+                if self.startup_wait_until is None:
+                    self.startup_wait_until = now + 2.0
+                if now < self.startup_wait_until:
+                    return self._result(
+                        "Waiting up to 2 seconds for a confident same-platform target"
+                    )
                 return self.stop("No confident same-platform targets; stopped")
+            # Only startup gets a grace period; losing targets later still stops.
+            self.startup_wait_until = 0.0
             self.target = min(
                 candidates, key=lambda item: abs(item.box.center[0] - player.box.center[0])
             )
