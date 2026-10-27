@@ -42,6 +42,21 @@ it('tracks a saved map or creates a new map without starting gameplay', async ()
   expect(command).toHaveBeenCalledWith('teach_new_area', { name: 'Ant Tunnel' });
 });
 
+it('offers a reversible session-only supplement only in capture-only observation', () => {
+  const supplemented = { ...tracked, supplement: { available: true, enabled: false,
+    reason: 'Off', platform: null } };
+  const { command, props, rerender } = setup(supplemented);
+  rerender(<PositionPanel {...props} snapshot={{ ...props.snapshot, capture_only: true, mode: 'capture' }} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Observe middle ledge' }));
+  expect(command).toHaveBeenCalledWith('position_supplement', { enabled: true });
+  rerender(<PositionPanel {...props} snapshot={{ ...props.snapshot, capture_only: true, mode: 'capture',
+    position: { ...supplemented, supplement: { ...supplemented.supplement, enabled: true } } }} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Stop observing middle ledge' }));
+  expect(command).toHaveBeenCalledWith('position_supplement', { enabled: false });
+  rerender(<PositionPanel {...props} snapshot={{ ...props.snapshot, capture_only: false }} />);
+  expect(screen.queryByRole('button', { name: 'Observe middle ledge' })).toBeNull();
+});
+
 it('keeps finishing a draft separate from using the map', async () => {
   const { command } = setup(tracked);
   fireEvent.click(screen.getByRole('button', { name: 'Teach this map' }));

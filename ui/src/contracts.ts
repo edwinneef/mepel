@@ -44,6 +44,8 @@ export interface LivePosition {
   projection?: { x: number; y: number; scale: number; revision: number } | null;
   calibration?: WalkCalibration; input_sent: false;
   teaching?: TeachingSession;
+  provisional?: boolean;
+  supplement?: { available: boolean; enabled: boolean; reason: string; platform: AreaSegment | null };
 }
 export interface TeachingSession {
   phase: 'calibrating' | 'recording' | 'review' | 'interrupted' | 'conflict' | null;

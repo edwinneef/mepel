@@ -151,7 +151,8 @@ class NavigationRuntime:
         profile = json.loads((self.app.areas.directory / f"{self.graph.profile['id']}.json")
                              .read_text("utf-8"))
         self.feedback = Feedback(now, map_hash(profile), feet,
-                                 position.get("surface_id") if position else None,
+                                 position.get("surface_id") if position
+                                 and not position.get("provisional") else None,
                                  motion, max(0, time.perf_counter() - now),
                                  self.app._input_block_reason() is None
                                  if not self.app.capture_only else False)

@@ -71,7 +71,8 @@ ELEVATED_GAME_REASON = (
     "Start the bot from an administrator terminal, or start the game without elevation"
 )
 POSITION_COMMANDS = frozenset({
-    "position_start", "position_stop", "walk_calibration_begin", "walk_calibration_finish",
+    "position_start", "position_stop", "position_supplement",
+    "walk_calibration_begin", "walk_calibration_finish",
     "walk_calibration_cancel", "teach_new_area", "teach_begin", "teach_finish", "teach_save",
     "teach_cancel", "teach_resume", "teach_pause", "teach_checkpoint",
 })
@@ -1323,6 +1324,15 @@ class Application:
             with self.lock:
                 self.status.pop("position", None)
             return {"tracking": False}
+        if name == "position_supplement":
+            if self.position is None:
+                raise ValueError("Track a saved area first")
+            enabled = payload.get("enabled")
+            if enabled is not False and (not self.capture_only or self.mode != "capture"
+                                        or self.active_probe or self.area_editing
+                                        or self.calibrating):
+                raise ValueError("Supplement requires idle capture-only observation")
+            return self.position.set_supplement(enabled)
         if self.area_editing:
             raise ValueError("Finish area editing before tracking the live position")
         if name == "teach_new_area":
@@ -1348,7 +1358,8 @@ class Application:
                 if self.position.profile["id"] == payload.get("area_id"):
                     return {"tracking": True, "area_id": self.position.profile["id"],
                             "calibrated": self.position.tracker is not None}
-            position = LivePosition(self.areas, payload.get("area_id"))
+            position = LivePosition(self.areas, payload.get("area_id"),
+                                    capture_only=self.capture_only)
             if self.position is not None:
                 self.position.close()
             self.position = position
@@ -1414,6 +1425,11 @@ class Application:
         """Clear a position older than 500 ms; a stale fix must never look current."""
         if position is None or self.position is None:
             return None
+        if position.get("provisional") and self.position.supplement_tracker is None:
+            return {**position, "kind": "unknown", "surface_id": None, "feet": None,
+                    "projection": None, "marker": None, "provisional": False,
+                    "supplement": self.position.supplement_status(),
+                    "reason": "Localization supplement disabled"}
         age = time.time() - position["captured_at"]
         if age <= STALE_SECONDS:
             return {**position, "stale": False}
@@ -1495,7 +1511,11 @@ class Application:
         if self.position is not None and fix is not None:
             try:
                 position = self.position.update(image, fix, observation, now,
-                                                captured_at=captured_at)
+                                                captured_at=captured_at,
+                                                allow_supplement=self.capture_only
+                                                and self.mode == "capture" and not self.area_editing
+                                                and not self.calibrating
+                                                and self.active_probe is None)
             except (ValueError, cv2.error) as error:
                 position = {"kind": "unknown", "reason": f"Position unavailable: {error}",
                             "captured_at": captured_at, "input_sent": False}

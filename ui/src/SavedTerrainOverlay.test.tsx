@@ -24,6 +24,20 @@ it('projects slopes and ropes with scale and camera translation, separately labe
   expect(screen.getByText(/not live detection/)).toBeTruthy();
 });
 
+it('labels provisional coverage separately and hides it on disable or stale observations', () => {
+  const provisional: LivePosition = { ...position, provisional: true, surface_id: 'extra',
+    supplement: { available: true, enabled: true, reason: 'Observation only',
+      platform: { id: 'extra', start: { x: 150, y: 200 }, end: { x: 200, y: 200 } } } };
+  const { rerender } = render(<svg><SavedTerrainOverlay map={map} position={provisional} now={10100} /></svg>);
+  expect(screen.getByText('Provisional · middle ledge · observation only')).toBeTruthy();
+  expect(map.platforms).toHaveLength(1);
+  rerender(<svg><SavedTerrainOverlay map={map} position={{ ...provisional,
+    supplement: { ...provisional.supplement!, enabled: false } }} now={10100} /></svg>);
+  expect(screen.queryByLabelText('Provisional middle ledge')).toBeNull();
+  rerender(<svg><SavedTerrainOverlay map={map} position={provisional} now={11000} /></svg>);
+  expect(screen.queryByLabelText('Provisional middle ledge')).toBeNull();
+});
+
 it.each([
   { stale: true }, { kind: 'unknown' }, { area_id: 'other' }, { captured_at: 9 },
   { captured_at: 11 }, { captured_at: undefined }, { projection: null },

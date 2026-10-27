@@ -10,11 +10,13 @@ import math
 import time
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import asdict
 
 import cv2
 import numpy as np
 
+from . import localization_supplement
 from .localization import (
     Location,
     MinimapTracker,
@@ -56,8 +58,12 @@ def _percentiles(values: np.ndarray) -> dict:
 class LivePosition:
     """Position on one saved area; reloads its calibration when the operator saves one."""
 
-    def __init__(self, store: AreaStore, area_id: str) -> None:
+    def __init__(self, store: AreaStore, area_id: str, *, capture_only: bool = False) -> None:
         self.store = store
+        self.capture_only = capture_only
+        self.supplement_tracker: MinimapTracker | None = None
+        self.supplement_available = False
+        self.supplement_reason = "Off; session-only observation"
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="walk-calibration")
         self.samples: list[tuple[tuple[float, float], tuple[float, float]]] | None = None
         self.pending: Future | None = None
@@ -196,6 +202,7 @@ class LivePosition:
         return teacher
 
     def _load(self, area_id: str) -> None:
+        self.set_supplement(False)
         profile = self.store.load(area_id)["profile"]
         calibration = profile.get("minimap_calibration")
         view = next((item for item in profile["views"]
@@ -214,12 +221,42 @@ class LivePosition:
             MinimapTracker(MinimapTransform(**calibration["transform"]), self.platforms)
             if calibration else None
         )
+        self.supplement_available = self.capture_only and localization_supplement.matches(
+            self.store.directory, self.profile)
+
+    def supplement_status(self) -> dict:
+        return {"available": self.supplement_available,
+                "enabled": self.supplement_tracker is not None,
+                "reason": self.supplement_reason,
+                "platform": deepcopy(localization_supplement.PLATFORM)
+                if self.supplement_tracker else None}
+
+    def set_supplement(self, enabled: bool) -> dict:
+        if type(enabled) is not bool:
+            raise ValueError("Supplement enabled must be a boolean")
+        if enabled:
+            if (not self.capture_only or not self.tracker
+                    or not localization_supplement.matches(self.store.directory, self.profile)):
+                raise ValueError(
+                    "Supplement needs capture-only observation on unchanged revision 4")
+            if self.teacher or self.finished or self.interrupted or self.samples is not None:
+                raise ValueError("Finish teaching and calibration before observing the supplement")
+            if self.supplement_tracker is None:
+                self.supplement_tracker = MinimapTracker(
+                    self.tracker.transform,
+                    platforms({"platforms": [localization_supplement.PLATFORM]}))
+            self.supplement_reason = "Provisional screenshot coverage; no movement evidence"
+        else:
+            self.supplement_tracker = None
+            self.supplement_reason = "Off; session-only observation"
+        return self.supplement_status()
 
     def read_map(self, image: np.ndarray) -> MinimapFix:
         return self.minimap.read(image)
 
     def update(self, image: np.ndarray, fix: MinimapFix, observation: Observation,
-               now: float, *, captured_at: float | None = None) -> dict:
+               now: float, *, captured_at: float | None = None,
+               allow_supplement: bool = False) -> dict:
         captured_at = time.time() if captured_at is None else captured_at
         player = observation.player
         shift = observation.camera_shift if observation.camera_confidence >= 0.35 else None
@@ -231,6 +268,18 @@ class LivePosition:
             location = Location("unknown", None, None, "Walk calibration needed")
         else:
             location = self.tracker.update(fix, player, shift, now)
+        self.supplement_available = self.capture_only and localization_supplement.matches(
+            self.store.directory, self.profile)
+        provisional = False
+        if self.supplement_tracker is not None:
+            if (not allow_supplement or not self.supplement_available or self.teacher
+                    or self.finished or self.interrupted or self.samples is not None):
+                self.set_supplement(False)
+                self.supplement_reason = "Disabled: observation mode or pinned map basis changed"
+            else:
+                extra = self.supplement_tracker.update(fix, player, shift, now)
+                if location.reason == "No unique taught platform" and extra.kind == "platform":
+                    location, provisional = extra, True
         canvas = fix.canvas
         # Project saved area coordinates into this same observation's crop pixels.
         # Never infer a camera transform from an unconfirmed/airborne position.
@@ -250,7 +299,10 @@ class LivePosition:
             "surface_id": location.surface_id,
             "feet": list(location.reference_feet) if location.reference_feet else None,
             "projection": projection,
-            "reason": location.reason,
+            "reason": "Provisional screenshot match; contact and movement not verified"
+            if provisional else location.reason,
+            "provisional": provisional,
+            "supplement": self.supplement_status(),
             "map": fix.reason,
             "canvas": {"x": canvas.x, "y": canvas.y, "width": canvas.width,
                        "height": canvas.height} if canvas else None,
@@ -317,6 +369,7 @@ class LivePosition:
 
     def begin_teaching(self) -> dict:
         """Record the operator's play; calibrate first when the area has no calibration."""
+        self.set_supplement(False)
         if self.draft_error or self.finished is not None or self.interrupted:
             raise ValueError("Resume or explicitly discard the existing teaching draft first")
         if self.teacher is not None or self.teach_calibrating:
@@ -344,6 +397,7 @@ class LivePosition:
 
     def resume_teaching(self) -> dict:
         """Back from review to recording, keeping everything walked so far."""
+        self.set_supplement(False)
         if self.draft_error:
             raise ValueError(self.draft_error)
         if self.interrupted and self.finished is None:
@@ -475,6 +529,7 @@ class LivePosition:
         }
 
     def begin_calibration(self) -> dict:
+        self.set_supplement(False)
         self.samples, self.rejected = [], 0
         return self._calibration_status()
 

@@ -10,6 +10,7 @@ interface PanelProps {
 }
 
 export function positionLabel(position: LivePosition): string {
+  if (position.kind === 'platform' && position.provisional) return 'Provisional middle-ledge match · observation only';
   if (position.kind === 'platform') return `On ${position.surface_id} · contact not verified`;
   return `Position unknown · ${position.reason}`;
 }
@@ -162,6 +163,13 @@ export function PositionPanel({ snapshot: s, client, act, disabled, areas, refre
         <span className={draft?.error ? 'draft-error' : 'draft-status'} role="status">{draft?.error ? 'Draft save needs attention' : draft?.pending ? 'Saving recent changes…' : draft?.saved && phase ? `Draft checkpoint saved · ${draft.saved_at ? new Date(draft.saved_at * 1000).toLocaleTimeString() : ''}` : phase ? 'Waiting for a saved checkpoint' : teaching?.map_receipt ? `Map revision ${teaching.map_receipt.revision} saved` : teaching?.map_revision ? `Saved map revision ${teaching.map_revision}` : ''}</span>
       </div>
       {position && <p className="saved-map-note">Saved map{teaching?.map_revision ? ` · revision ${teaching.map_revision}` : ''}{phase ? ' stays unchanged until you choose Use this map.' : ' is separate from a teaching draft.'}</p>}
+      {s.capture_only && position?.supplement?.available && <div className="saved-map-note">
+        <button aria-pressed={position.supplement.enabled}
+          disabled={disabled || Boolean(phase) || s.mode !== 'capture' || Boolean(s.area_editing)}
+          onClick={() => void command('position_supplement', { enabled: !position.supplement?.enabled })}>
+          {position.supplement.enabled ? 'Stop observing middle ledge' : 'Observe middle ledge'}</button>
+        <p>Session only · provisional screenshot coverage. The saved map and movement routes stay unchanged.</p>
+      </div>}
       {confirmation && <div role="alertdialog" aria-label="Confirm map replacement" className="teaching-confirm"><h3>Replace the saved map?</h3>
         <p>{confirmation.platforms_before} saved platforms → {confirmation.platforms_after} learned platforms. Missing routes or removed places may make this map incomplete.{confirmation.zones_removed ? ` ${confirmation.zones_removed} zones outside the new boundary will be removed.` : ''} A backup of the previous map is retained.</p>
         <button disabled={disabled} className="primary" onClick={() => void activate(true)}>Replace with this draft</button><button onClick={() => setConfirmation(null)}>Keep reviewing</button></div>}

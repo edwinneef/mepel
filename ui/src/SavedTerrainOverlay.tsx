@@ -14,6 +14,8 @@ export function SavedTerrainOverlay({ map, position, now }: {
     x: point.x * projection.scale + projection.x,
     y: point.y * projection.scale + projection.y,
   });
+  const extra = position.provisional && position.supplement?.enabled
+    ? position.supplement.platform : null;
   return <g aria-label="Saved terrain projected onto game" fill="none" strokeWidth="2">
     {[...map.platforms, ...map.ropes].map(segment => {
       const start = project(segment.start), end = project(segment.end);
@@ -26,6 +28,12 @@ export function SavedTerrainOverlay({ map, position, now }: {
           paintOrder="stroke" fontSize="12">Saved · {segment.name || segment.id}{matched ? ' · spatial match' : ''}</text>
       </g>;
     })}
+    {extra && extra.id === position.surface_id && <g stroke="#ffd07a" aria-label="Provisional middle ledge">
+      <line x1={project(extra.start).x} y1={project(extra.start).y}
+        x2={project(extra.end).x} y2={project(extra.end).y} strokeDasharray="3 5" vectorEffect="non-scaling-stroke" />
+      <text x={project(extra.start).x} y={project(extra.start).y - 7} fill="#ffd07a"
+        stroke="#091019" strokeWidth="3" paintOrder="stroke" fontSize="12">Provisional · middle ledge · observation only</text>
+    </g>}
     <text x="12" y="28" fill="#c8a5ff" stroke="#091019" strokeWidth="3" paintOrder="stroke"
       fontSize="14">Saved terrain · estimated alignment · not live detection</text>
   </g>;

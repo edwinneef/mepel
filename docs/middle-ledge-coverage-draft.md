@@ -1,8 +1,9 @@
 # Over the Wall middle-ledge draft — 2026-10-27
 
-Prepared a **review-only, disconnected interior span** at area x584–676,
-y397.7. The active map remains revision 4. No runtime code, saved map,
-calibration, teaching checkpoint, rope or navigation link was changed.
+The original draft prepared a **review-only, disconnected interior span** at
+area x584–676, y397.7. The active map remains revision 4. That preparation changed
+no runtime code, saved map, calibration, teaching checkpoint, rope or navigation
+link. The session-only supplement described below keeps the same saved-map boundary.
 
 The versioned proposal is [drafts/over-the-wall-middle-ledge.json](drafts/over-the-wall-middle-ledge.json).
 It records the exact active-map hash, retained screenshot hashes, manual pixel
@@ -75,3 +76,53 @@ active map and teaching checkpoint exactly as before. Any activation is separate
 work requiring explicit authorization.
 
 Ruff and 64 focused localization, minimap-reader and profile tests passed.
+
+## Session-only localization supplement
+
+The runtime now supports an explicit **Observe middle ledge** toggle under
+**Navigation → Teach map**. It is available only in a capture-only session tracking
+the exact unchanged revision 4 profile. It starts off after every process restart
+or map switch. **Stop observing middle ledge** disables it without a map save.
+
+A separate fallback tracker uses the screenshot span. The original tracker and
+saved profile remain unchanged. Existing platform matches always take priority;
+the fallback can replace only an otherwise unknown, uncovered-platform result.
+Fresh marker/player, fused-motion and confirmation-time gates remain in force.
+Supplement matches are marked provisional and excluded from navigation surface
+feedback. The game drawing labels the span in amber as observation-only coverage.
+
+Enabling does not write settings, geometry, calibration or a teaching checkpoint.
+Teaching/calibration, leaving idle capture observation, changing the pinned profile
+bytes or changing the loaded profile disables the supplement. Returning to the
+previous state does not re-enable it automatically. Its fixed data is in
+`src/maplebot/localization_supplement.py`, matching the versioned draft above.
+
+Do not merge the span into the active map. `navigation_evidence.build_evidence`
+requires exact archived geometry: the full candidate would lose all movement
+evidence even with identical links. The supplement instead preserves all 33
+saved links, the exact 29 usable movement-edge records and the P5/P16 exclusions.
+
+The versioned API command is `position_supplement` with `{"enabled":true}` or
+`{"enabled":false}`. Enabling requires idle capture-only observation and no
+teaching/calibration. Disabling remains available during area editing.
+
+Verification: 77 focused Python tests, all 76 UI tests, Ruff, TypeScript and the
+production UI build passed. The actual `LivePosition` implementation replayed
+1,053 distinct retained captures: 618 → 1,000 platform matches, including 382
+provisional matches and zero existing-surface regressions. All seven protected
+files and all 29 usable navigation-edge records remained identical. This still
+does not establish contact, full width or native movement effects.
+
+Local evidence and rollback backup:
+`artifacts/middle-ledge-supplement-20261027/` contains `before.zip` (previous
+runtime/workbench), `protected-before.json`, `validate.py` and `replay.json`.
+Normal reversal is the toggle or a restart; no saved-data rollback is needed.
+
+Deployment is pending: the host rejected the engine restart as `blocked by policy`
+before the command ran. The source and built workbench are ready on disk, but
+the running engine has not loaded the new backend. The operator must run
+`./tools/restart_engine.ps1` without `-EnableGameplayInput`, then report
+`capture_only`, `mode` and `session_id`. After restart, reconnect the workspace,
+track Over the Wall, and the toggle is available. The agent's remaining deployment
+check is enable → disable → enable through the input-free API, followed by
+protected-file and navigation-evidence checks; no gameplay test is needed.
