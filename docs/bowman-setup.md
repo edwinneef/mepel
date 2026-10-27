@@ -52,12 +52,36 @@ collected alongside events, not proof of the exact keypress or hit distance.
 The read-only observer also includes this evidence and engine-loaded tuning.
 
 The demo UI and evidence collection are installed; native acceptance remains
-pending. The latest live session reports **Free Market Entrance** with no
-recognized monsters. Close any game window covering the minimap and manually
-move to a clear single platform with a freshly boxed enemy. Keep all nine valid
+pending. The latest inspected live picture is **Henesys**, correctly recognized
+with the catalog running; no attackable monster is visible. Manually move to a
+clear single platform with a freshly boxed enemy. Keep all nine valid
 control confirmations. The next check measures visible damage and target
 distance for both attacks; it does not repeat key verification. Do not enable moving combat until hit-range evidence
 has supported and verified replacement of the inherited 0–90 px tuning.
+
+### Unreadable map diagnosis (27 October 2026)
+
+The submitted combat run is retained in
+`data/recordings/session-1793117446936591500-combat`. All 186 decision rows
+reported an unreadable map and paused catalog, with no OCR exception. Its
+uncovered minimap says **Warning Street / The Swamp of Despair I**. Replaying
+the original title extraction produced `The Swainp of Despair I`: the brightness
+mask discarded antialiased edges of the letter m. The strict fuzzy matcher
+correctly rejected this ambiguous text rather than guessing among I, II and III.
+
+`map_filter.py` now retains those edges. The captured-title regression reads the
+exact title with Windows OCR; map matching thresholds remain unchanged. Offline
+replay of frames 7348 and 7509 recognizes the map, activates 44 template variants
+and detects Ligators / Jr. Necki. Results: `artifacts/map-diagnosis-replay.json`.
+This establishes restored recognition on saved frames, not attack hits or range.
+
+The separate stop on frame 7509 remains valid: the player is partly hidden by
+foreground grass, no name tag is visible, and neither the recorded detector nor
+offline replay finds a confident player. The run queued no gameplay input.
+Do not loosen confidence or recalibrate solely because of this obstructed frame;
+use a clear platform with fresh player and enemy boxes before measuring range.
+The current player is again recognized in Henesys. Both firing confirmations and
+the other seven accepted controls remain valid; no repeat probes are needed.
 
 ### Completed control checks (reference only)
 

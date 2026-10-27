@@ -1,8 +1,32 @@
 import json
+from pathlib import Path
 
+import cv2
 import numpy as np
+import pytest
 
 from maplebot.map_filter import MapFilter
+
+
+def test_recorded_swamp_title_is_read_without_relaxing_map_matching(tmp_path):
+    pytest.importorskip("winrt.windows.media.ocr")
+    router = make_filter(tmp_path)
+    router.profiles.extend(
+        {"streetName": "Warning Street", "name": f"The Swamp of Despair {suffix}",
+         "monsters": [100100]}
+        for suffix in ("I", "II", "III")
+    )
+    image = cv2.imread(str(Path(__file__).parent / "fixtures" / "swamp-map-title.png"))
+    try:
+        # Real captured title: the old mask read "Swainp" and paused the catalog.
+        assert router.select(image) is None
+        text = router.pending.result(timeout=10)
+        assert text == "Warning Street The Swamp of Despair I"
+        assert router.select(image) == {"Snail"}
+        assert router.title == "The Swamp of Despair I"
+        assert router.match("Warning Street The Swainp of Despair I") == (None, None)
+    finally:
+        router.close()
 
 
 def make_filter(tmp_path):

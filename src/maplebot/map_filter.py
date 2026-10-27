@@ -122,7 +122,8 @@ class MapFilter:
         crop = image[:64, :310]
         expanded = bool(np.any(np.min(crop[25:62, :275], axis=2) > 180))
         if expanded:
-            mask = np.min(crop[25:62, :275], axis=2) > 180
+            # Keep antialiased glyph edges: 180 splits the m in Swamp into "in".
+            mask = np.min(crop[25:62, :275], axis=2) > 170
             title = np.repeat((np.uint8(~mask) * 255)[:, :, None], 3, axis=2)
         else:
             title = crop[:19].copy()
