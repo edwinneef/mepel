@@ -3,11 +3,31 @@
 ## Result
 
 Use published mechanics to choose the range; another manual hit-distance check is
-not required. Both accepted Space and Ctrl hits remain accepted. The current
-server/version and Eye of Amazon level are not identified in project settings.
-Do not combine values from different versions into a claimed exact client range.
+not required. Both accepted Space and Ctrl hits remain accepted. The operator
+identifies the game as a **custom v83 private server/project implementing newer
+Classic features**. Its project name, range overrides and Eye of Amazon level
+are not yet identified. Classic feature parity does not establish that it adopted
+Classic World's targeting implementation or skill values.
 
-## MapleStory Classic World
+## v83 baseline and remaining project-specific evidence
+
+Cosmic's author reports reverse-engineering a v83 client and finding a
+400-pixel projectile-range stat for bows, crossbows, claws and guns, with
+Eye of Amazon range bonuses of 15-120 across its eight levels. The report
+describes rectangle overlap with each monster's animation-frame body bounds,
+rather than a circular distance test. This is a published disassembly report;
+we have not reproduced the disassembly or inspected this project's binary.
+[Pinned v83 investigation](https://github.com/67-6f-64/Cosmic/blob/b684bf78588d50512bcd62db9bb7cb85e4f73829/docs/bot/kb/kb_v83_client_combat_internals.md).
+
+Together with HeavenClient's inspectable implementation below, this supports
+**400 game pixels as a v83 research baseline**, not a verified range for the
+customized client. It does not independently settle Arrow Blow's overrides,
+close-range melee substitution or capture-pixel conversion. Use the exact
+server/project's public repository or patch documentation to check which
+Classic range changes it adopted. Eye level is needed only when using its bonus.
+No further target measurement or repeated hit confirmation is requested.
+
+## MapleStory Classic World comparison (not the identified client's baseline)
 
 NiaMeowDB's own targeting research reports a base reach of **300 game pixels for
 basic bow/crossbow shots** and **350 for Arrow Blow**. Eye of Amazon adds zero
@@ -55,11 +75,12 @@ Neither establishes the game's internal render scale. Window width alone is
 not a conversion factor, and sprite centres are not the game's targeting origin.
 
 For an identified Classic World client at native 1:1 rendering, **120-250 capture
-pixels is a conservative candidate preset**, not a published boundary or measured
+pixels was the conservative candidate preset**, not a published boundary or measured
 guarantee. It leaves 55 pixels above the targeting-band start and 50 below the
 unlearned basic-shot reach. Those margins are engineering choices; they do not
 prove coverage for arbitrary sprite widths, scaling, scenery or moving enemies.
-No Eye bonus is needed for this candidate. Preserve the platform gate, facing
+This Classic-derived candidate is not selected for the customized v83 project.
+No Eye bonus is needed for that candidate. Preserve the platform gate, facing
 checks, minimum-range stop, input safeguards and attack-attempt limit.
 
 Existing evidence in `artifacts/bowman-labelled-hit-review-20261027.json` records
@@ -70,5 +91,6 @@ fails the unchanged 18-pixel eligibility gate.
 
 This research changes documentation only. `config.toml` remains 0-90; no preset
 was installed, engine restarted, controls reset or gameplay input sent. The next
-configuration decision needs the server/version and, for a maximum-reach preset,
-Eye level. It needs no new target, range recording or repeated hit confirmation.
+configuration decision needs the exact v83 server/project name or public source
+URL to check its range changes and, for a bonus-dependent preset, Eye level.
+It needs no new target, range recording or repeated hit confirmation.

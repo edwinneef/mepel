@@ -11,8 +11,11 @@ because the attack keys have been confirmed.
 The operator replaced manual range measurement with online research on 27 October.
 See [Bowman range research](bowman-range-research.md) for version-specific sources,
 published basic/Arrow Blow reach, targeting geometry and a conservative candidate
-preset. The remaining input is the server/version and Eye of Amazon level, not
-another target or attack recording. No range preset has been installed yet.
+preset. The operator identifies a custom v83 project adopting newer Classic
+features. Use v83 as the research baseline; check the exact project's public
+range changes before adopting Classic World values. Its name/source URL and,
+for a bonus-dependent preset, Eye level remain unknown. No range preset has
+been installed yet; another target or attack recording is not requested.
 Both accepted hit confirmations stand. Instructions below for collecting range
 samples are historical reference and do not request another test.
 
