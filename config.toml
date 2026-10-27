@@ -27,7 +27,7 @@ roi_height = 420
 
 [agent]
 platform_tolerance = 18
-attack_range = 65
+attack_range = 90
 # Horizontal player/target centre distance in capture pixels, not a class preset.
 # For ranged attacks, set measured limits shared by basic AND skill attacks.
 # Inside the minimum the bot stops; it never retreats blindly toward a ledge.
