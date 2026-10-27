@@ -10,8 +10,15 @@ because the attack keys have been confirmed.
 
 The installed input-capable engine has **Space** for basic attack, **Ctrl** for
 Arrow Blow and **Alt** for jump. Bowcaine is freshly recognized through the saved
-name tag. Attack and skill are correctly unconfirmed after the binding changes;
-the seven unchanged movement/potion confirmations remain saved.
+name tag. The operator has now confirmed that both **Space** and **Ctrl** fire.
+The engine retains both confirmations, plus the seven unchanged controls.
+Hits were explicitly **not checked**. Do not repeat control verification.
+
+Evidence: `artifacts/bowman-a5f3aa5147144da1a36fd767c82078a6-3.json`
+records skill input completion and the operator's confirmation (probe 3,
+generation 20). Every recorded `same_platform_targets` list is empty;
+`hit_confirmed` is null. The matching live session also confirmed attack probe 2.
+This accepts both key effects but supplies no hit-distance measurement.
 
 The first inspected picture was **Hidden Street / Utah's Pig Farm**. Offline OCR reads
 `Utah's Pig Fann`, leaving catalog matching paused. Its cached map profile also
@@ -26,7 +33,7 @@ catalog and found same-platform pigs at 83.5 and 186.5 px from Bowcaine. No new
 templates or recognition changes were needed. Evidence is in
 `artifacts/bowman-readiness-20261027.jsonl`; these are observed distances, not hits.
 
-## Two attack checks before the combat run
+## Remaining hit-range measurement
 
 The Bot page now contains **Bowman on one platform**, shared engine readiness,
 direct **attack** and **skill** probes, and the engine-loaded range. **Movement
@@ -45,14 +52,16 @@ collected alongside events, not proof of the exact keypress or hit distance.
 The read-only observer also includes this evidence and engine-loaded tuning.
 
 The demo UI and evidence collection are installed; native acceptance remains
-pending. On 27 October the current town view had the crafting window covering
-the minimap and no recognized enemy. Close that game window and manually move
-to a clear single platform with a freshly boxed enemy before the two checks.
-Keep the existing seven valid confirmations. Save each probe's run evidence
-before starting the next. Do not enable moving combat until hit-range evidence
+pending. The latest live session reports **Free Market Entrance** with no
+recognized monsters. Close any game window covering the minimap and manually
+move to a clear single platform with a freshly boxed enemy. Keep all nine valid
+control confirmations. The next check measures visible damage and target
+distance for both attacks; it does not repeat key verification. Do not enable moving combat until hit-range evidence
 has supported and verified replacement of the inherited 0–90 px tuning.
 
-Combat effects are required for these two checks. No new full recording is needed.
+### Completed control checks (reference only)
+
+These two control checks passed. Hits remain untested. No new full recording is needed.
 Allow about 30–60 seconds of active testing after positioning; travel/setup is
 separate. Keep F8 available, equip the bow and ammunition, and face one visible
 monster from a clear position on the same platform, away from an edge.
@@ -87,7 +96,7 @@ After range installation, select F7 → **Bot → Activity → Decision preview*
 close settings and press F6. Verify that the intended monster is selected at the
 measured distance. Then select **Combat + configured potions** and run at most
 10 seconds, stopping with F8 after the first clear attack/hit sequence or any
-unexpected movement. This final run is pending the two probe results and range.
+unexpected movement. This final run is pending measured range and hit evidence.
 
 Before enabling bowman combat:
 

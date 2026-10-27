@@ -1563,7 +1563,7 @@ class Application:
         observation = self.detector.detect(image, now)
         perception_ms = (time.perf_counter() - perception_began) * 1000
         evidence = summarize({
-            "frame": {"id": f"{self.session_id}:{self.sequence:08d}", "available": True,
+            "frame": {"id": f"{self.session_id}:{self.sequence}", "available": True,
                       "captured_at": captured_at},
             "player": asdict(observation.player) if observation.player else None,
             "monsters": [asdict(item) for item in observation.monsters],

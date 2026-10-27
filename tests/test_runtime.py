@@ -376,6 +376,24 @@ def test_published_frames_are_identified_and_superseded_bytes_cannot_be_read(app
     assert app.frame(app.snapshot()["frame"]["id"], raw=True) == b"raw-2"
 
 
+def test_demo_event_frame_matches_published_frame_not_padded_recording_name(app):
+    from maplebot.frame_encoder import FramePacket
+
+    app.sequence = 7
+    app.combat_evidence.start("preview")
+    captured_at = time.time()
+    annotated, status = app._process(app.image, time.perf_counter(), captured_at=captured_at)
+    app.combat_evidence.record("observation", "Input-free observation")
+    packet = FramePacket(7, "00000007", app.image, annotated, status | {
+        "captured_at": captured_at,
+    }, 0)
+    app._encoded(packet, b"raw", b"annotated", 0)
+    saved = app.snapshot()
+    frame_id = saved["combat_evidence"]["events"][-1]["observation"]["frame_id"]
+    assert frame_id == saved["frame"]["id"]
+    assert app.frame(frame_id) == b"annotated"
+
+
 def test_source_change_rejects_old_encoder_results_and_invalidates_readiness(app):
     from maplebot.frame_encoder import FramePacket
 
