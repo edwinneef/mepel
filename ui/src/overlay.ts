@@ -16,6 +16,7 @@ export const actions: Record<string, string> = {
   autopotter_live: 'Live potions', autopotter_start: 'Potion preview', probe: 'Control probe',
 };
 export class OverlayClient extends EngineClient {
+  protected override pollInterval = 100;
   select: (action: OverlayAction) => void = () => {};
   override async command<T = unknown>(name: string, payload: Record<string, unknown> = {}): Promise<T> {
     if (actions[name]) {
@@ -32,7 +33,7 @@ export function isRunning(s: Snapshot | null): boolean {
     || (s.mode !== 'capture' && s.mode !== 'probe_confirm')
     || s.autopotter.enabled));
 }
-export function freshDetections(s: Snapshot | null, connected: boolean, now: number): boolean {
+export function freshDetections(s: Pick<Snapshot, 'frame'> | null | undefined, connected: boolean, now: number): boolean {
   return Boolean(connected && s?.frame.available && s.frame.captured_at != null
     && now - s.frame.captured_at * 1000 >= 0 && now - s.frame.captured_at * 1000 <= 1500);
 }

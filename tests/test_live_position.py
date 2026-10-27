@@ -150,6 +150,19 @@ def test_position_older_than_500_ms_is_cleared():
     assert Application._position_snapshot(SimpleNamespace(position=None), fresh) is None
 
 
+def test_position_keeps_acquisition_time_instead_of_becoming_fresh_after_processing(store):
+    position = LivePosition(store, AREA)
+    try:
+        image = view(((60, 20),))
+        captured_at = time.time() - .6
+        result = position.update(image, position.read_map(image), observe(500),
+                                 time.perf_counter(), captured_at=captured_at)
+        assert result["captured_at"] == captured_at
+        assert Application._position_snapshot(SimpleNamespace(position=position), result)["stale"]
+    finally:
+        position.close()
+
+
 def test_taught_minimap_holds_monster_set_while_title_is_unreadable(monkeypatch, tmp_path):
     (tmp_path / "catalog").mkdir()
     (tmp_path / "catalog" / "maps.json").write_text(json.dumps([
@@ -185,7 +198,9 @@ def test_runtime_tracks_position_read_only_and_stops_cleanly(app, store):  # noq
     assert app._command("position_start", {"area_id": AREA}) == {
         "tracking": True, "area_id": AREA, "calibrated": False,
     }
-    _, result = app._process(view(((60, 20),)), time.perf_counter())
+    captured_at = time.time() - .6
+    _, result = app._process(view(((60, 20),)), time.perf_counter(), captured_at=captured_at)
+    assert result["position"]["captured_at"] == captured_at
     assert result["position"]["reason"] == "Walk calibration needed"
     assert result["position"]["input_sent"] is False and app.detector.taught_map
     assert app._command("walk_calibration_begin", {})["active"] is True

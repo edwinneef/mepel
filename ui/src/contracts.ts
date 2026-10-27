@@ -54,10 +54,15 @@ export interface TeachingSession {
   references?: AreaView[]; evidence?: string[]; geometry_source?: 'draft' | 'active_map';
 }
 export interface WindowInfo { hwnd: number; title: string; client: Rect; focused: boolean; dpi: number }
+export interface LiveDetections {
+  frame: Frame; player: Detection | null; monsters?: Detection[] | null;
+  target?: Detection | null; position?: LivePosition | null;
+}
 export interface Snapshot {
   schema_version: 1; session_id: string; instance_id: string; command_epoch: number;
   mode: string; state: string; reason: string; capture_only: boolean; calibrating: boolean;
   frame: Frame; preview_frame?: Frame; readiness: { preview: Gate; combat: Gate; potions: Gate };
+  live_detections?: LiveDetections | null;
   health?: { camera: boolean; recognition: boolean; position: boolean; reason: string; warning?: string | null };
   calibration: { capture_verified?: boolean; controls_verified?: boolean; crop?: Rect };
   player: Detection | null; monsters?: Detection[]; target?: Detection | null;

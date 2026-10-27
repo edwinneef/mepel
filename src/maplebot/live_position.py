@@ -219,7 +219,8 @@ class LivePosition:
         return self.minimap.read(image)
 
     def update(self, image: np.ndarray, fix: MinimapFix, observation: Observation,
-               now: float) -> dict:
+               now: float, *, captured_at: float | None = None) -> dict:
+        captured_at = time.time() if captured_at is None else captured_at
         player = observation.player
         shift = observation.camera_shift if observation.camera_confidence >= 0.35 else None
         self._collect(image, fix, player)
@@ -257,7 +258,7 @@ class LivePosition:
             "calibrated": self.tracker is not None,
             "calibration": self._calibration_status(),
             "teaching": self._teaching_status(now),
-            "captured_at": time.time(),
+            "captured_at": captured_at,
             "input_sent": False,
         }
 

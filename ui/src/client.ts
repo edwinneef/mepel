@@ -23,6 +23,7 @@ export class EngineClient {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
   private pollInFlight = false;
+  protected pollInterval = 250;
 
   constructor(
     private readonly token: string,
@@ -90,7 +91,7 @@ export class EngineClient {
     } finally {
       this.pollInFlight = false;
       if (this.running && this.state.process === 'running') {
-        this.timer = setTimeout(() => void this.poll(), 250);
+        this.timer = setTimeout(() => void this.poll(), this.pollInterval);
       }
     }
   }

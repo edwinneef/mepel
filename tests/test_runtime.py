@@ -388,7 +388,7 @@ def run_moving_capture(app, monkeypatch, failures, *, bursts=1):
         def close(self):
             pass
 
-    def process(frame, now, policy_now):
+    def process(frame, now, policy_now, *, captured_at):
         nonlocal stable_frames
         stable_frames += 1
         if stable_frames >= bursts:
@@ -629,6 +629,50 @@ def test_new_encoded_frame_cannot_hide_an_active_alarm_stop(app):
     assert status["stop"]["id"] == incident.id
     assert status["stop"]["code"] == "CAPTURE_WORKER_EXIT"
     app.acknowledge_stop()
+
+
+def test_live_drawings_publish_before_png_without_repairing_input_evidence(app, monkeypatch):
+    from maplebot.frame_encoder import FramePacket
+
+    old = {"view_generation": 0, "sequence": 1, "captured_at": time.time() - 2,
+           "width": 1024, "height": 768, "player": {"template": "old"}}
+    app._encoded(FramePacket(1, "old", app.image, app.image, old, 0), b"raw", b"png", 1)
+    app.sequence = 2
+    seen = []
+
+    class Capture:
+        def __init__(self, windows):
+            pass
+
+        def window(self, hwnd, calibration):
+            time.sleep(.01)
+            return app.image, app.window, app.region
+
+        def close(self):
+            pass
+
+    def process(image, now, policy_now, *, captured_at):
+        return image, {"player": {"template": "new"}, "stage_timing": {}}
+
+    def encode_later(packet):
+        seen.append((app.snapshot(), packet.status))
+        app.closed.set()
+
+    monkeypatch.setattr("maplebot.runtime.Capture", Capture)
+    monkeypatch.setattr(app, "_process", process)
+    monkeypatch.setattr(app.encoder, "publish", encode_later)
+    app._run()
+    status, processed = seen[0]
+    assert status["live_detections"]["player"]["template"] == "new"
+    assert status["live_detections"]["frame"]["sequence"] == 2
+    assert status["frame"]["sequence"] == 1 and status["player"]["template"] == "old"
+    assert not status["readiness"]["preview"]["ready"]  # Old encoded input evidence stays stale.
+    assert app.frame(status["frame"]["id"]) == b"png"
+    assert processed["stage_timing"]["capture_ms"] >= 5
+    assert app.controller.backend.events == []
+    app._invalidate_view()
+    app._publish_detections(processed)  # A result from the old crop cannot reappear.
+    assert app.snapshot()["live_detections"] is None
 
 
 def test_f8_watchdog_acknowledges_alarm_without_a_capture_worker(app, monkeypatch):

@@ -37,6 +37,8 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
   // Status can arrive between timer ticks; don't compare a new frame against
   // the previous tick and incorrectly classify it as coming from the future.
   const fresh = freshDetections(s, state.connected, Math.max(now, Date.now()));
+  const drawing = s?.live_detections === undefined ? s : s.live_detections;
+  const drawingFresh = freshDetections(drawing, state.connected, Math.max(now, Date.now()));
   const disabled = !state.connected || state.busy || state.needsReload;
   const act = async (fn: () => Promise<unknown>) => { try { await fn(); } catch (e) { client.fail(e); } };
   useEffect(() => {
@@ -102,7 +104,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
   };
   currentToggle.current = () => void toggle();
   const choose = (name: string, label: string) => setAction({ name, label, payload: {} });
-  const position = s?.position;
+  const position = drawing?.position;
   const active = state.connected && fresh && running;
   const status = !state.connected ? 'DISCONNECTED' : s?.alarm.active ? 'BLOCKED' : starting ? 'STARTING'
     : active ? (s?.mode.includes('wait') || s?.mode === 'pending_arm' ? 'STARTING' : 'ON') : 'OFF';
@@ -117,13 +119,13 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
   } : null;
   const game = gameBounds ?? { x: 0, y: 0, width: innerWidth, height: innerHeight };
   return <div className={`native-overlay ${panel ? 'editing-layout' : ''}`}>
-    {layers && fresh && s && gameBounds?.visible && <svg className="world-layer"
+    {layers && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
-      viewBox={`0 0 ${s.frame.width} ${s.frame.height}`} preserveAspectRatio="none" aria-label="Live detections">
+      viewBox={`0 0 ${drawing.frame.width} ${drawing.frame.height}`} preserveAspectRatio="none" aria-label="Live detections">
       {terrain && <SavedTerrainOverlay map={map} position={position} now={Math.max(now, Date.now())} />}
-      {s.player && detection(s.player, 'Player', '#81edbb')}
-      {s.monsters?.map((item, i) => detection(item, `${item.kind} ${i + 1}`, '#ffbd72'))}
-      {s.target && detection(s.target, 'Target', '#ff6b89')}
+      {drawing.player && detection(drawing.player, 'Player', '#81edbb')}
+      {drawing.monsters?.map((item, i) => detection(item, `${item.kind} ${i + 1}`, '#ffbd72'))}
+      {drawing.target && detection(drawing.target, 'Target', '#ff6b89')}
     </svg>}
     <div className={`overlay-hud ${active ? 'on' : 'off'}`} role="status"
       style={layout.position('hud', { x: game.x + 14, y: game.y + 14 })}>
@@ -136,7 +138,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
     {layers && terrain && map?.boundary && <section className="terrain-inset"
       style={layout.position('terrain', { x: game.x + 14, y: game.y + game.height - 240 })}>
       <strong className="panel-drag-handle" {...layout.handlers('terrain')}>Saved terrain · {map.name}</strong>
-      <MapSketch geometry={map} feet={fresh && position && !position.stale ? position.feet : null} />
+      <MapSketch geometry={map} feet={drawingFresh && position && !position.stale ? position.feet : null} />
       <small>{position?.stale ? 'Position stale' : position?.reason} · saved geometry, not live terrain detection</small>
     </section>}
     {panel && <section className="overlay-panel" aria-label="Overlay settings"

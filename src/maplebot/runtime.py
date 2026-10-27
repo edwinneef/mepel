@@ -138,6 +138,7 @@ class Application:
         self.view_generation = 0
         self.source_generation = 0
         self.published_frame: dict[str, Any] | None = None
+        self.live_detections: dict[str, Any] | None = None
         self.capture_only = capture_only
         self.data = Path(config.capture.data_dir).resolve()
         self.data.mkdir(parents=True, exist_ok=True)
@@ -421,6 +422,15 @@ class Application:
                 "preview_frame": self.preview.snapshot(
                     f"{self.session_id}:source:{self.source_generation}"
                 ),
+                "live_detections": {
+                    **self.live_detections,
+                    "frame": {
+                        **self.live_detections["frame"],
+                        "age_ms": max(0, round((time.time()
+                            - self.live_detections["frame"]["captured_at"]) * 1000, 1)),
+                    },
+                    "position": self._position_snapshot(self.live_detections["position"]),
+                } if self.live_detections is not None else None,
                 "stop": asdict(self.stop_record) if self.stop_record else None,
                 "capture_only": self.capture_only,
                 "bindings": asdict(self.config.input),
@@ -470,6 +480,7 @@ class Application:
             if source_changed:
                 self.source_generation += 1
             self.published_frame = None
+            self.live_detections = None
             self.latest, self.raw = None, None
 
     def _capture_moved(self, attempt: int) -> None:
@@ -1429,6 +1440,21 @@ class Application:
                 path.with_suffix(".annotated.png").write_bytes(self.latest)
         return str(path)
 
+    def _publish_detections(self, status: dict) -> None:
+        """Publish read-only drawings before PNG work; encoded status stays image-paired."""
+        with self.lock:
+            if status["view_generation"] != self.view_generation:
+                return
+            self.live_detections = {
+                "frame": {
+                    "source_id": f"{self.session_id}:source:{self.source_generation}",
+                    "id": f"{self.session_id}:{status['sequence']}",
+                    "sequence": status["sequence"], "captured_at": status["captured_at"],
+                    "width": status["width"], "height": status["height"], "available": True,
+                },
+                **{key: status.get(key) for key in ("player", "monsters", "target", "position")},
+            }
+
     def _encoded(self, packet: FramePacket, raw: bytes, annotated: bytes, elapsed: float) -> None:
         generation = packet.status.get("view_generation", self.view_generation)
         with self.lock:
@@ -1455,9 +1481,11 @@ class Application:
         self.frame_ready.set()
 
     def _process(
-        self, image: Image, now: float, policy_now: float | None = None
+        self, image: Image, now: float, policy_now: float | None = None,
+        *, captured_at: float | None = None,
     ) -> tuple[Image, dict]:
         policy_now = now if policy_now is None else policy_now
+        captured_at = time.time() if captured_at is None else captured_at
         fix = self.position.read_map(image) if self.position is not None else None
         self.detector.taught_map = bool(fix and fix.canvas)
         perception_began = time.perf_counter()
@@ -1466,10 +1494,11 @@ class Application:
         position = None
         if self.position is not None and fix is not None:
             try:
-                position = self.position.update(image, fix, observation, now)
+                position = self.position.update(image, fix, observation, now,
+                                                captured_at=captured_at)
             except (ValueError, cv2.error) as error:
                 position = {"kind": "unknown", "reason": f"Position unavailable: {error}",
-                            "captured_at": time.time(), "input_sent": False}
+                            "captured_at": captured_at, "input_sent": False}
         self.navigation.observe(fix, observation, position, now)
         if (
             self.calibration
@@ -1570,7 +1599,7 @@ class Application:
                 with self.controller.lock:
                     if self.stop_requested.is_set():
                         self._stop("OPERATOR_STOP", "Operator stopped pending input")
-                        return self._process(image, now)
+                        return self._process(image, now, captured_at=captured_at)
                     try:
                         self.controller.enable()
                     except RuntimeError:
@@ -1582,13 +1611,13 @@ class Application:
                         if self.active_probe is not None:
                             self._finish_probe(self.active_probe, "cancelled", reason)
                         self._stop("PROBE_COMPLETE", reason)
-                        return self._process(image, now)
+                        return self._process(image, now, captured_at=captured_at)
                     self._clear_stop_banner()
                 if pending == "probe_wait":
                     active = self.active_probe
                     if active is None or active.phase != "countdown":
                         self._stop("PROBE_COMPLETE", "Probe was canceled before key submission")
-                        return self._process(image, now)
+                        return self._process(image, now, captured_at=captured_at)
                     action = active.action
                     duration = min(0.12, self.config.input.max_action_seconds)
                     submitted = self.controller.submit(Action(action, duration), disable_after=True)
@@ -1794,13 +1823,15 @@ class Application:
                     else:
                         self.closed.wait(0.05)
                         continue
+                    capture_finished = time.perf_counter()
                     self.image, self.window, self.region = image, window, region
                     capture_ok = True
                     move_failures = 0
                     if self.session_capture_started is None:
                         self.session_capture_started = capture_began
                     policy_now = capture_began - self.session_capture_started
-                    annotated, result = self._process(image, capture_began, policy_now)
+                    annotated, result = self._process(image, capture_began, policy_now,
+                                                      captured_at=captured_at)
                     end = time.perf_counter()
                     status = {
                         **result,
@@ -1819,10 +1850,11 @@ class Application:
                         "recording": self.recorder.active,
                     }
                     status["stage_timing"] = {
-                        "capture_ms": round(1000 * (capture_began - began), 3),
+                        "capture_ms": round(1000 * (capture_finished - capture_began), 3),
                         **result["stage_timing"],
                     }
                     previous = end
+                    self._publish_detections(status)
                     publish_began = time.perf_counter()
                     packet = FramePacket(
                         self.sequence,
