@@ -19,6 +19,11 @@ target or attack recording is not requested.
 Both accepted hit confirmations stand. Instructions below for collecting range
 samples are historical reference and do not request another test.
 
+**Bot > Weapon range** now offers the Classic Bowman preset and
+[warrior weapon presets](warrior-ranges.md). Keep **Bow / crossbow + Arrow Blow**
+selected for Bowcaine. Applying saves the choice, stops input and never resumes
+combat. The loaded 120-250 px range remains labelled as operating tuning.
+
 ## Historical preparation and checks (27 October 2026)
 
 The installed input-capable engine has **Space** for basic attack, **Ctrl** for

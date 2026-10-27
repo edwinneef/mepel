@@ -14,6 +14,7 @@ from typing import Any
 import cv2
 
 from .alarm import AlarmManager
+from .attack_ranges import RangeStore, range_options, range_profile
 from .autopotter import BarReading, PotionMonitor
 from .capture import Calibration, Capture, CaptureMovedError, Image
 from .combat_evidence import CombatEvidence
@@ -146,6 +147,11 @@ class Application:
         self.capture_only = capture_only
         self.data = Path(config.capture.data_dir).resolve()
         self.data.mkdir(parents=True, exist_ok=True)
+        self.configured_agent = config.agent
+        self.range_store = RangeStore(self.data / "combat-range.json")
+        selected_range = self.range_store.load(config.agent.range_profile)
+        config = replace(config, agent=replace(config.agent, range_profile=selected_range))
+        self.config = config
         self.areas = AreaStore(self.data / "areas")
         self.area_editing = False
         self.position: LivePosition | None = None
@@ -366,16 +372,18 @@ class Application:
             # Release now, without waiting for a capture/detector operation to finish.
             self.stop_requested.set()
             self.safe_stop("CALIBRATION", "Debugger stop/calibration")
-        if name in {"autopotter_settings", "autopotter_stop", "autopotter_start"}:
+        if name in {"autopotter_settings", "autopotter_stop", "autopotter_start", "range_profile"}:
             self.stop_requested.set()
-            self.safe_stop("OPERATOR_STOP", "Autopotter mode/settings change; input stopped")
+            self.safe_stop("OPERATOR_STOP", "Weapon range change; input stopped"
+                           if name == "range_profile" else
+                           "Autopotter mode/settings change; input stopped")
         if context is not None:
             # Calibration/settings commands above deliberately supersede older work.
             # Start commands do not: a Stop that races a queued Start must win.
             if canceled_navigation or name in {
                 "attach", "connect_saved_window", "manual", "reset_crop", "freeze", "crop",
                 "template", "autopotter_calibrate", "reload_templates", "autopotter_settings",
-                "autopotter_stop", "autopotter_start",
+                "autopotter_stop", "autopotter_start", "range_profile",
             }:
                 context = replace(context, epoch=self.command_epoch)
             payload = {**payload, "_context": context}
@@ -445,6 +453,8 @@ class Application:
                     "maximum_px": self.config.agent.attack_range,
                     "measured": False,
                     "reason": "Engine-loaded operating band; exact hit limits remain unmeasured",
+                    "profile": self.config.agent.range_profile,
+                    "profiles": range_options(),
                 },
                 "potion_full_percent": self.config.probe.potion_full_percent,
                 "required_probes": sorted(REQUIRED_PROBES),
@@ -1029,6 +1039,17 @@ class Application:
                 gate = self.snapshot()["readiness"].get(activity)
                 if gate is None or not gate["ready"]:
                     raise ValueError(gate["reason"] if gate else "Invalid control probe")
+        if name == "range_profile":
+            profile_name = payload.get("profile")
+            range_profile(profile_name)
+            self._stop("OPERATOR_STOP", "Weapon range change; input stopped")
+            agent_config = replace(self.configured_agent, range_profile=profile_name)
+            self.range_store.save(profile_name)
+            self.config = replace(self.config, agent=agent_config)
+            self.agent = Agent(agent_config, self.config.perception.confidence)
+            self.note("Weapon range saved; bot remains Off")
+            return {"profile": profile_name, "minimum_px": agent_config.attack_min_range,
+                    "maximum_px": agent_config.attack_range}
         if name in {"attach", "manual", "reset_crop", "crop"}:
             self._invalidate_view()
         if self.capture_only and name in {"arm", "probe", "confirm_controls"}:

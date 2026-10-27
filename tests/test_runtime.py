@@ -73,6 +73,40 @@ def test_status_exposes_loaded_range_without_claiming_measurement(app):
     assert not setup["measured"]
 
 
+def test_range_change_stops_releases_preserves_controls_and_restores_choice(app):
+    initial = app.config
+    app.probed = set(REQUIRED_PROBES)
+    app.controller.enable()
+    with app.controller.lock:
+        app.controller.held["right"] = time.perf_counter() + 2
+    app.mode = "live"
+    result = app._command("range_profile", {"profile": "classic_spear"})
+    assert result["maximum_px"] == 100
+    assert app.mode == "capture" and not app.controller.enabled
+    assert app.controller.backend.events == [("right", False)]
+    assert app.probed == set(REQUIRED_PROBES)
+    assert app.config.input == initial.input
+    assert app.agent.config.attack_range == 100
+    assert app.snapshot()["attack_setup"]["profile"] == "classic_spear"
+    restarted = Application(initial)
+    try:
+        assert restarted.config.agent.range_profile == "classic_spear"
+        assert restarted.agent.config.attack_range == 100
+        assert restarted.mode == "capture" and not restarted.controller.enabled
+    finally:
+        restarted.controller.close()
+    app._command("range_profile", {"profile": "custom"})
+    assert app.config.agent.attack_range == initial.agent.attack_range
+
+
+def test_invalid_range_choice_preserves_settings_and_agent(app):
+    before = app.config
+    with pytest.raises(ValueError, match="Unknown attack range"):
+        app._command("range_profile", {"profile": "missing"})
+    assert app.config == before
+    assert not app.range_store.path.exists()
+
+
 def test_closed_window_does_not_break_status_or_hide_setup_blocker(app, monkeypatch):
     def closed(hwnd):
         raise RuntimeError("Target window is closed or minimized")

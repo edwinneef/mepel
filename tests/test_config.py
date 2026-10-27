@@ -6,8 +6,11 @@ import pytest
 from maplebot.config import Config, InputConfig, ProbeConfig
 
 
-def test_input_bindings_load_only_from_input_section():
-    config = Config.load(Path("config.toml"))
+def test_input_bindings_load_only_from_input_section(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[input]\nup="up"\ndown="down"\nhp_potion="insert"\n'
+                    'mp_potion="delete"\npet_food="home"\nskill="ctrl"\n[probe]\n')
+    config = Config.load(path)
     assert (
         config.input.up,
         config.input.down,
@@ -15,7 +18,7 @@ def test_input_bindings_load_only_from_input_section():
         config.input.mp_potion,
         config.input.pet_food,
         config.input.skill,
-    ) == ("up", "down", "insert", "delete", "home", "a")
+    ) == ("up", "down", "insert", "delete", "home", "ctrl")
     assert config.input.vertical_lease_seconds == 1.0
     assert config.input.vertical_lease_max_seconds == 8.0
 

@@ -3,6 +3,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .attack_ranges import range_profile
+
 
 @dataclass(frozen=True)
 class CaptureConfig:
@@ -40,8 +42,13 @@ class AgentConfig:
     max_attack_attempts: int = 6
     skill_low_mp: float = 20.0
     skill_high_mp: float = 40.0
+    range_profile: str = "custom"
 
     def __post_init__(self) -> None:
+        profile = range_profile(self.range_profile)
+        if profile is not None:
+            object.__setattr__(self, "attack_min_range", profile.minimum_px)
+            object.__setattr__(self, "attack_range", profile.maximum_px)
         if (not math.isfinite(self.attack_range) or not math.isfinite(self.attack_min_range)
                 or not 0 <= self.attack_min_range < self.attack_range):
             raise ValueError(

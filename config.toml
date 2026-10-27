@@ -27,6 +27,9 @@ roi_height = 420
 
 [agent]
 platform_tolerance = 18
+range_profile = "classic_bow"
+# Named presets set both limits. Use "custom" to use the numeric values below.
+# Bot > Weapon range also saves an explicit choice without restarting.
 attack_range = 250
 # Classic Bowman operating band, shared by basic AND Arrow Blow (no Eye bonus).
 # Native capture-pixel centre distances; margins, not exact game hitbox limits.

@@ -13,7 +13,7 @@ COMMANDS = frozenset({
     "record", "clip", "dry_run", "arm", "stop", "pause", "probe", "confirm_probe",
     "reject_probe", "acknowledge", "restart_capture", "restart_bot", "shutdown_bot",
     "autopotter_calibrate", "autopotter_settings", "autopotter_start", "autopotter_live",
-    "autopotter_stop",
+    "autopotter_stop", "range_profile",
     "area_list", "area_load", "area_begin", "area_capture", "area_save", "area_end",
     "position_start", "position_stop", "position_supplement",
     "walk_calibration_begin", "walk_calibration_finish",
