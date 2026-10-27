@@ -6,6 +6,16 @@ in native capture pixels. The current 0–90 values are inherited warrior tuning
 not measured bowman limits. Do not start moving combat with these values merely
 because the attack keys have been confirmed.
 
+## Current range method: online research
+
+The operator replaced manual range measurement with online research on 27 October.
+See [Bowman range research](bowman-range-research.md) for version-specific sources,
+published basic/Arrow Blow reach, targeting geometry and a conservative candidate
+preset. The remaining input is the server/version and Eye of Amazon level, not
+another target or attack recording. No range preset has been installed yet.
+Both accepted hit confirmations stand. Instructions below for collecting range
+samples are historical reference and do not request another test.
+
 ## Current preparation (27 October 2026)
 
 The installed input-capable engine has **Space** for basic attack, **Ctrl** for
@@ -33,7 +43,7 @@ catalog and found same-platform pigs at 83.5 and 186.5 px from Bowcaine. No new
 templates or recognition changes were needed. Evidence is in
 `artifacts/bowman-readiness-20261027.jsonl`; these are observed distances, not hits.
 
-## Remaining hit-range measurement
+## Historical hit-range evidence
 
 ### Two separately labelled manual checks
 
@@ -57,10 +67,10 @@ Slime match **240 px** away, with a **13 px** feet-height gap. Review details:
 report establish which check hit; neither distance is a keyboard timestamp or
 a minimum/maximum range boundary. Do not repeat either accepted hit confirmation.
 
-The remaining range gap is a **common** working distance: the two samples differ.
-The smallest proposed follow-up is one Ctrl-only check near the accepted Space
-distance (about 197 px), on flat ground with a fresh eligible enemy. Preserve
-the height gate, saved controls and range settings pending that evidence.
+The previous proposal to repeat Ctrl near 197 px is superseded by the online
+research above. Different observed samples remain recorded as observations;
+published mechanics can support choosing a shared preset without repeating them.
+Preserve the height gate and saved controls.
 
 Use `tools/bowman_hit_check.ps1` for **one Space attempt and one Ctrl attempt**.
 This GET-only helper saves frame-matched pictures, enemy detections and distances
