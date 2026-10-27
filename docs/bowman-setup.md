@@ -75,6 +75,12 @@ replay of frames 7348 and 7509 recognizes the map, activates 44 template variant
 and detects Ligators / Jr. Necki. Results: `artifacts/map-diagnosis-replay.json`.
 This establishes restored recognition on saved frames, not attack hits or range.
 
+A live check in **The Forest South of Ellinia** also exposed repeated map
+invalidation from moving scenery inside the fixed-width OCR crop. Extraction
+now clips to the expanded minimap's solid right border when present. A regression
+test changes exterior scenery without invalidating the map, then verifies that
+changing the title itself still invalidates it.
+
 The separate stop on frame 7509 remains valid: the player is partly hidden by
 foreground grass, no name tag is visible, and neither the recorded detector nor
 offline replay finds a confident player. The run queued no gameplay input.

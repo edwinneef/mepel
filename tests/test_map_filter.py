@@ -8,6 +8,30 @@ import pytest
 from maplebot.map_filter import MapFilter
 
 
+def test_scenery_outside_minimap_does_not_invalidate_title(monkeypatch, tmp_path):
+    router = make_filter(tmp_path)
+    calls = []
+
+    def recognize(image):
+        calls.append(image)
+        return "Kerning City Subway Line 1 <Area 1>"
+
+    monkeypatch.setattr("maplebot.map_filter.read_title", recognize)
+    image = cv2.imread(str(Path(__file__).parent / "fixtures" / "swamp-map-title.png"))
+    try:
+        router.select(image)
+        router.pending.result(timeout=3)
+        assert router.select(image) == {"Bubbling", "Snail"}
+        image[:, 203:] = 255  # Bright moving scenery beside the 203px-wide minimap.
+        assert router.select(image) == {"Bubbling", "Snail"}
+        assert router.pending is None
+        assert len(calls) == 1
+        image[25:62, 50:190] = 0  # A changed title still invalidates the map.
+        assert router.select(image) is None
+    finally:
+        router.close()
+
+
 def test_recorded_swamp_title_is_read_without_relaxing_map_matching(tmp_path):
     pytest.importorskip("winrt.windows.media.ocr")
     router = make_filter(tmp_path)

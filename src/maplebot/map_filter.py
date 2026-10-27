@@ -120,6 +120,12 @@ class MapFilter:
             return None
         # Expanded minimap titles are white; collapsed title bars contain dark text.
         crop = image[:64, :310]
+        # The expanded title panel has solid vertical borders. Exclude scenery
+        # beside narrower minimaps, which otherwise invalidates OCR every frame.
+        border = np.all(crop[20:63] == (153, 119, 85), axis=2).mean(axis=0) > 0.9
+        right = np.flatnonzero(border & (np.arange(crop.shape[1]) >= 80))
+        if right.size:
+            crop = crop[:, :right[0]]
         expanded = bool(np.any(np.min(crop[25:62, :275], axis=2) > 180))
         if expanded:
             # Keep antialiased glyph edges: 180 splits the m in Swamp into "in".
