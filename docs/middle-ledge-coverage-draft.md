@@ -118,11 +118,19 @@ Local evidence and rollback backup:
 runtime/workbench), `protected-before.json`, `validate.py` and `replay.json`.
 Normal reversal is the toggle or a restart; no saved-data rollback is needed.
 
-Deployment is pending: the host rejected the engine restart as `blocked by policy`
-before the command ran. The source and built workbench are ready on disk, but
-the running engine has not loaded the new backend. The operator must run
-`./tools/restart_engine.ps1` without `-EnableGameplayInput`, then report
-`capture_only`, `mode` and `session_id`. After restart, reconnect the workspace,
-track Over the Wall, and the toggle is available. The agent's remaining deployment
-check is enable → disable → enable through the input-free API, followed by
-protected-file and navigation-evidence checks; no gameplay test is needed.
+Deployment is complete after the operator restarted with `tools/restart_engine.ps1`
+in capture-only mode. The new engine session
+`d38d1bebfd69434e8250a25b6a4dc49c` accepted and published the input-free
+enable → disable → enable cycle. The supplement is enabled for this session;
+another process restart or map switch leaves it off again.
+
+The served JavaScript matched the built workbench bytes. The live engine reported
+revision 4 and 29 usable edges at each control-check step. Independent disk checks
+confirmed identical movement-edge records, the same map fingerprint, all 33 saved
+links and all seven protected file hashes. No gameplay input or new recording
+was requested. A provisional ledge match was not observed during this short
+control check; retained-frame coverage remains the offline evidence above.
+
+`deployment.json` records the live state cycle and asset hash, and
+`deploy_check.py` records the task-local procedure in the same artifact directory.
+The procedure is pinned to this session and refuses to overwrite its report.
