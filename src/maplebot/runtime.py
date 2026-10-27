@@ -444,7 +444,7 @@ class Application:
                     "minimum_px": self.config.agent.attack_min_range,
                     "maximum_px": self.config.agent.attack_range,
                     "measured": False,
-                    "reason": "Engine-loaded range; observed shared hit limits still required",
+                    "reason": "Engine-loaded operating band; exact hit limits remain unmeasured",
                 },
                 "potion_full_percent": self.config.probe.potion_full_percent,
                 "required_probes": sorted(REQUIRED_PROBES),

@@ -2,24 +2,24 @@
 
 Ranged decisions use `[agent].attack_min_range` and `attack_range` in
 `config.toml`: horizontal distance between detected player and monster centres,
-in native capture pixels. The current 0–90 values are inherited warrior tuning,
-not measured bowman limits. Do not start moving combat with these values merely
-because the attack keys have been confirmed.
+in native capture pixels. The current **120-250 px** band uses Classic mechanics
+with conservative margins shared by basic attack and Arrow Blow, without relying
+on Eye of Amazon. These are operating settings, not measured hitbox limits.
 
 ## Current range method: online research
 
 The operator replaced manual range measurement with online research on 27 October.
 See [Bowman range research](bowman-range-research.md) for version-specific sources,
-published basic/Arrow Blow reach, targeting geometry and a conservative candidate
-preset. The operator identifies a custom v83 project adopting newer Classic
-features. Use v83 as the research baseline; check the exact project's public
-range changes before adopting Classic World values. Its name/source URL and,
-for a bonus-dependent preset, Eye level remain unknown. No range preset has
-been installed yet; another target or attack recording is not requested.
+published basic/Arrow Blow reach, targeting geometry and the selected preset.
+The operator directs us to use **Classic as the baseline** for this custom v83
+project because its developer targets 1:1 parity. Report observed discrepancies
+as bugs, retaining Classic expectations and using v83 references to investigate.
+The project name and Eye level do not block this bonus-free preset; another
+target or attack recording is not requested.
 Both accepted hit confirmations stand. Instructions below for collecting range
 samples are historical reference and do not request another test.
 
-## Current preparation (27 October 2026)
+## Historical preparation and checks (27 October 2026)
 
 The installed input-capable engine has **Space** for basic attack, **Ctrl** for
 Arrow Blow and **Alt** for jump. Bowcaine is freshly recognized through the saved

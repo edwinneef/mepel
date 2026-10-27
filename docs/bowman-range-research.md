@@ -5,11 +5,12 @@
 Use published mechanics to choose the range; another manual hit-distance check is
 not required. Both accepted Space and Ctrl hits remain accepted. The operator
 identifies the game as a **custom v83 private server/project implementing newer
-Classic features**. Its project name, range overrides and Eye of Amazon level
-are not yet identified. Classic feature parity does not establish that it adopted
-Classic World's targeting implementation or skill values.
+Classic features**. The operator directs us to **use Classic World as the
+baseline**, matching the developer's intended 1:1 parity. Exact server identity
+and Eye level are not prerequisites for the conservative, bonus-free preset.
+An observed mismatch is a bug-report candidate; do not silently retune to v83.
 
-## v83 baseline and remaining project-specific evidence
+## v83 comparison for investigating mismatches
 
 Cosmic's author reports reverse-engineering a v83 client and finding a
 400-pixel projectile-range stat for bows, crossbows, claws and guns, with
@@ -20,14 +21,12 @@ we have not reproduced the disassembly or inspected this project's binary.
 [Pinned v83 investigation](https://github.com/67-6f-64/Cosmic/blob/b684bf78588d50512bcd62db9bb7cb85e4f73829/docs/bot/kb/kb_v83_client_combat_internals.md).
 
 Together with HeavenClient's inspectable implementation below, this supports
-**400 game pixels as a v83 research baseline**, not a verified range for the
-customized client. It does not independently settle Arrow Blow's overrides,
-close-range melee substitution or capture-pixel conversion. Use the exact
-server/project's public repository or patch documentation to check which
-Classic range changes it adopted. Eye level is needed only when using its bonus.
-No further target measurement or repeated hit confirmation is requested.
+**400 game pixels as a v83 comparison**, not the selected product baseline or
+a verified range for the customized client. Keep this difference available when
+investigating a demonstrated parity bug. No further target measurement or
+repeated hit confirmation is requested.
 
-## MapleStory Classic World comparison (not the identified client's baseline)
+## MapleStory Classic World baseline
 
 NiaMeowDB's own targeting research reports a base reach of **300 game pixels for
 basic bow/crossbow shots** and **350 for Arrow Blow**. Eye of Amazon adds zero
@@ -74,23 +73,41 @@ native screen pixels; perception restores coarse proposals to native coordinates
 Neither establishes the game's internal render scale. Window width alone is
 not a conversion factor, and sprite centres are not the game's targeting origin.
 
-For an identified Classic World client at native 1:1 rendering, **120-250 capture
-pixels was the conservative candidate preset**, not a published boundary or measured
+Under the agreed Classic baseline and native 1:1 rendering assumption,
+**120-250 capture pixels is the selected operating preset**, not a published boundary or measured
 guarantee. It leaves 55 pixels above the targeting-band start and 50 below the
 unlearned basic-shot reach. Those margins are engineering choices; they do not
 prove coverage for arbitrary sprite widths, scaling, scenery or moving enemies.
-This Classic-derived candidate is not selected for the customized v83 project.
-No Eye bonus is needed for that candidate. Preserve the platform gate, facing
+No Eye bonus is used. Preserve the platform gate, facing
 checks, minimum-range stop, input safeguards and attack-attempt limit.
 
 Existing evidence in `artifacts/bowman-labelled-hit-review-20261027.json` records
 Space damage at an observed 196.5-pixel separation and Ctrl arrow flight at 240
 pixels before confirmed damage. These observations are consistent with the
-candidate; they do not establish its endpoints. Space's 24-pixel feet gap still
+preset; they do not establish its endpoints. Space's 24-pixel feet gap still
 fails the unchanged 18-pixel eligibility gate.
 
-This research changes documentation only. `config.toml` remains 0-90; no preset
-was installed, engine restarted, controls reset or gameplay input sent. The next
-configuration decision needs the exact v83 server/project name or public source
-URL to check its range changes and, for a bonus-dependent preset, Eye level.
-It needs no new target, range recording or repeated hit confirmation.
+`config.toml` now sets `attack_min_range = 120` and `attack_range = 250`, replacing
+the inherited warrior 0-90 tuning. This is source-informed operating tuning;
+`attack_setup.measured` correctly remains false. Installation evidence is saved
+under `artifacts/classic-range-install-*`; actual gameplay outcomes remain separate.
+
+Installation check: the managed input-capable restart loaded 120/250 and retained
+all nine confirmations. SHA-256 checks found all 51 protected profile files
+unchanged. The 24 offline policy cases exercised both directions, basic/skill
+selection and distances 119/120/197/240/250/251. The focused suite passed 166
+checks; one existing config test expects skill `a`, while both the backup and
+current user config bind it to `ctrl`. Ruff and diff checks passed. Input-free
+live preview remains pending: a window covers part of the Game view, preventing
+capture verification. The engine remains Off; no gameplay input was sent.
+
+## Mismatch reports
+
+When an observed behavior contradicts Classic, create a local bug report with the
+Classic source URL and expected behavior, actual result, client/project build if
+known, relevant skill/Eye level, and existing frame/session evidence. Check bot
+recognition, render scale, facing and platform eligibility before attributing a
+miss to the server. Compare against the v83 references above to locate the likely
+unported behavior. Keep the report explicit about uncertainty and reproducibility.
+Different online v83/Classic tables alone do not prove a bug in this client.
+No client parity bug is established by the currently accepted hit samples.

@@ -27,11 +27,12 @@ roi_height = 420
 
 [agent]
 platform_tolerance = 18
-attack_range = 90
-# Horizontal player/target centre distance in capture pixels, not a class preset.
-# For ranged attacks, set measured limits shared by basic AND skill attacks.
+attack_range = 250
+# Classic Bowman operating band, shared by basic AND Arrow Blow (no Eye bonus).
+# Native capture-pixel centre distances; margins, not exact game hitbox limits.
+# Sources and v83/Classic mismatch reporting: docs/bowman-range-research.md.
 # Inside the minimum the bot stops; it never retreats blindly toward a ledge.
-attack_min_range = 0
+attack_min_range = 120
 movement_seconds = 0.12
 attack_seconds = 0.06
 verify_seconds = 0.45
