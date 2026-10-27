@@ -434,7 +434,15 @@ class Application:
                 } if self.live_detections is not None else None,
                 "stop": asdict(self.stop_record) if self.stop_record else None,
                 "capture_only": self.capture_only,
+                "input_setup_blocker": self._input_setup_block_reason(),
                 "bindings": asdict(self.config.input),
+                "attack_setup": {
+                    "minimum_px": self.config.agent.attack_min_range,
+                    "maximum_px": self.config.agent.attack_range,
+                    "measured": False,
+                    "reason": "Engine-loaded range; observed shared hit limits still required",
+                },
+                "potion_full_percent": self.config.probe.potion_full_percent,
                 "required_probes": sorted(REQUIRED_PROBES),
                 "optional_probes": sorted(OPTIONAL_PROBES),
                 "probes": self._probe_snapshot(),
@@ -773,6 +781,18 @@ class Application:
             if (not feedback or not feedback.motion_ok
                     or time.perf_counter() - feedback.now > .5):
                 return "Navigation fused position is stale or uncertain"
+        if reason := self._input_setup_block_reason():
+            return reason
+        window = self.windows.get(self.hwnd)
+        if not window.focused:
+            return "Click the actual game window before the countdown ends"
+        region = self.calibration.crop.translated(window.client.x, window.client.y)
+        if not self.windows.unobscured(window.hwnd, region):
+            return "Game view is covered by another window; move the covering window away"
+        return None
+
+    def _input_setup_block_reason(self) -> str | None:
+        """Stable setup gates; focus and overlay leases belong to dispatch."""
         if self.area_editing:
             return "Area editing: gameplay input is stopped"
         if self.capture_only:
@@ -788,11 +808,6 @@ class Application:
             return "Game window size or DPI changed; recalibrate and confirm capture"
         if self.windows.outranks_us(window.hwnd):
             return ELEVATED_GAME_REASON
-        if not window.focused:
-            return "Click the actual game window before the countdown ends"
-        region = self.calibration.crop.translated(window.client.x, window.client.y)
-        if not self.windows.unobscured(window.hwnd, region):
-            return "Game view is covered by another window; move the covering window away"
         return None
 
     def _controller_stop(self, code: str, message: str) -> None:
@@ -987,6 +1002,17 @@ class Application:
                 max_age=FRESH_FRAME_SECONDS if name in FRESH_FRAME_COMMANDS else 10,
             )
             payload = {key: value for key, value in payload.items() if key != "_context"}
+            # Versioned UI starts use the same selection preconditions as status.
+            # Focus/occlusion and input leases are still checked at dispatch time.
+            activity = {
+                "dry_run": "preview", "arm": "combat", "autopotter_live": "potions",
+            }.get(name)
+            if name == "probe":
+                activity = f"probe:{payload.get('action', '')}"
+            if activity:
+                gate = self.snapshot()["readiness"].get(activity)
+                if gate is None or not gate["ready"]:
+                    raise ValueError(gate["reason"] if gate else "Invalid control probe")
         if name in {"attach", "manual", "reset_crop", "crop"}:
             self._invalidate_view()
         if self.capture_only and name in {"arm", "probe", "confirm_controls"}:

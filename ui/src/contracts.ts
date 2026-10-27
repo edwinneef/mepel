@@ -63,7 +63,8 @@ export interface LiveDetections {
 export interface Snapshot {
   schema_version: 1; session_id: string; instance_id: string; command_epoch: number;
   mode: string; state: string; reason: string; capture_only: boolean; calibrating: boolean;
-  frame: Frame; preview_frame?: Frame; readiness: { preview: Gate; combat: Gate; potions: Gate };
+  frame: Frame; preview_frame?: Frame; readiness: { preview: Gate; combat: Gate; potions: Gate; [activity: string]: Gate };
+  attack_setup?: { minimum_px: number; maximum_px: number; measured: boolean; reason: string };
   live_detections?: LiveDetections | null;
   health?: { camera: boolean; recognition: boolean; position: boolean; reason: string; warning?: string | null };
   calibration: { capture_verified?: boolean; controls_verified?: boolean; crop?: Rect };

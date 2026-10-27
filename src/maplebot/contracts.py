@@ -102,6 +102,20 @@ def _recent_frame_ids(frame_id: str) -> set[str]:
     return {frame_id, f"{prefix}:{int(sequence) - 1}"}
 
 
+def potion_blocker(status: dict, resources: list[str]) -> str:
+    potter = status.get("autopotter", {})
+    for resource in resources:
+        reading = potter.get("readings", {}).get(resource, {})
+        if (resource not in potter.get("calibrated", [])
+                or reading.get("percent") is None or reading.get("confidence", 0) < 0.9):
+            return f"Calibrate a readable {resource.upper()} bar first"
+        if resource == "hp" and reading["percent"] == 0:
+            return "HP empty; check the game before starting"
+        if not status.get("probes", {}).get(f"{resource}_potion", {}).get("confirmed"):
+            return f"Verify the {resource.upper()} potion control first"
+    return ""
+
+
 def readiness(status: dict) -> dict[str, dict[str, bool | str]]:
     """Summarize existing gates; this never authorizes input or replaces runtime checks."""
     frame = status["frame"]
@@ -128,7 +142,16 @@ def readiness(status: dict) -> dict[str, dict[str, bool | str]]:
         reason = "Acknowledge the active alarm first"
     if not reason and status.get("active_probe"):
         reason = "Finish or reject the active probe first"
+    if not reason:
+        reason = status.get("input_setup_blocker", "") or ""
     common = reason
+    player_reason = ""
+    if not status.get("player") or status["player"].get("tracked"):
+        player_reason = "Waiting for a confirmed player"
+    elif status["player"].get("confidence", 0) < status.get("player_threshold", 0.9):
+        player_reason = "Waiting for a confident player"
+    potter = status.get("autopotter", {})
+    resources = [r for r in ("hp", "mp") if potter.get("settings", {}).get(f"{r}_threshold", 0) > 0]
     if not reason:
         missing = [
             name for name in status.get("required_probes", [])
@@ -136,12 +159,26 @@ def readiness(status: dict) -> dict[str, dict[str, bool | str]]:
         ]
         if missing:
             reason = "Verify controls: " + ", ".join(missing)
-        elif not status.get("player") or status["player"].get("tracked"):
-            reason = "Waiting for a confirmed player"
-        elif status["player"].get("confidence", 0) < status.get("player_threshold", 0.9):
-            reason = "Waiting for a confident player"
-    return {
+        else:
+            reason = player_reason or potion_blocker(status, resources)
+    potion_reason = common or (potion_blocker(status, resources) if resources
+                               else "Set at least one potion threshold above zero")
+    result = {
         "preview": preview,
         "combat": {"ready": not reason, "reason": reason or "Ready for combat countdown"},
-        "potions": {"ready": not common, "reason": common or "Check potion HUD and probes"},
+        "potions": {"ready": not potion_reason,
+                    "reason": potion_reason or "Ready for potion countdown"},
     }
+    for action in status.get("required_probes", []) + status.get("optional_probes", []):
+        blocker = common or player_reason
+        if not blocker and action in {"hp_potion", "mp_potion"}:
+            resource = action.split("_")[0]
+            reading = potter.get("readings", {}).get(resource, {})
+            if reading.get("percent") is None or reading.get("confidence", 0) < 0.9:
+                blocker = f"Calibrate a readable {resource.upper()} bar first"
+            elif reading["percent"] >= status.get("potion_full_percent", 95):
+                blocker = f"{resource.upper()} is full; lower it before probing"
+        result[f"probe:{action}"] = {
+            "ready": not blocker, "reason": blocker or "Ready for probe countdown",
+        }
+    return result

@@ -113,3 +113,41 @@ def test_blocked_reasons_name_the_lag_and_the_paused_catalog():
     assert "minimap visible" in catalog_warning({"catalog_paused": True})
     failed = {"catalog_paused": True, "map_filter_error": "OCR missing"}
     assert "OCR missing" in catalog_warning(failed)
+
+
+def test_activity_readiness_checks_resources_without_requiring_focus_for_selection():
+    status = snapshot() | {
+        "focused": False, "required_probes": ["attack"], "optional_probes": ["hp_potion"],
+        "probes": {"attack": {"confirmed": True}, "hp_potion": {"confirmed": True}},
+        "autopotter": {"settings": {"hp_threshold": 50}, "calibrated": ["hp"],
+                       "readings": {"hp": {"percent": 40, "confidence": 1}}},
+    }
+    assert readiness(status)["combat"]["ready"]
+    assert readiness(status)["potions"]["ready"]
+    assert readiness(status)["probe:attack"]["ready"]
+    status["autopotter"]["readings"]["hp"]["percent"] = None
+    assert "readable HP" in readiness(status)["potions"]["reason"]
+    assert not readiness(status)["combat"]["ready"]
+    assert not readiness(status)["probe:hp_potion"]["ready"]
+    assert readiness(status)["probe:attack"]["ready"]
+    status["autopotter"]["settings"]["hp_threshold"] = 0
+    assert readiness(status)["combat"]["ready"]
+    assert not readiness(status)["potions"]["ready"]
+
+
+@pytest.mark.parametrize("change", [
+    {"capture_only": True}, {"alarm": {"active": True}}, {"active_probe": {"id": 1}},
+    {"calibrating": True}, {"input_setup_blocker": "Game window DPI changed"},
+    {"player": {"confidence": 0.5}}, {"player": {"confidence": 1, "tracked": True}},
+])
+def test_probe_selection_never_hides_input_or_player_blockers(change):
+    status = snapshot() | {"required_probes": ["attack"]} | change
+    assert not readiness(status)["probe:attack"]["ready"]
+
+
+def test_probe_does_not_require_its_own_confirmation_and_full_bar_blocks_only_potion_probe():
+    status = snapshot() | {"required_probes": ["attack"], "optional_probes": ["hp_potion"],
+                           "autopotter": {"readings": {"hp": {"percent": 99, "confidence": 1}}}}
+    assert readiness(status)["probe:attack"]["ready"]
+    assert not readiness(status)["combat"]["ready"]
+    assert "full" in readiness(status)["probe:hp_potion"]["reason"]

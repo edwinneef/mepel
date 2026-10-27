@@ -52,6 +52,27 @@ class HoldingBackend(Backend):
         self.down = down
 
 
+def test_versioned_start_uses_published_readiness_before_mutating_mode(app):
+    for name, payload, activity in [("arm", {}, "combat"), ("dry_run", {}, "preview"),
+                                     ("probe", {"action": "attack"}, "probe:attack"),
+                                     ("autopotter_live", {}, "potions")]:
+        reason = app.snapshot()["readiness"][activity]["reason"]
+        with pytest.raises(ValueError) as error:
+            app._command(name, payload | {
+                "_context": CommandContext(app.command_epoch, time.time()),
+            })
+        assert str(error.value) == reason
+        assert app.mode == "capture"
+        assert not app.controller.backend.events
+
+
+def test_status_exposes_loaded_range_without_claiming_measurement(app):
+    setup = app.snapshot()["attack_setup"]
+    assert setup["minimum_px"] == app.config.agent.attack_min_range
+    assert setup["maximum_px"] == app.config.agent.attack_range
+    assert not setup["measured"]
+
+
 def test_area_editing_bypasses_capture_queue_releases_keys_and_never_resumes(app):
     app.mode = "live"
     with app.controller.lock:
@@ -313,6 +334,9 @@ def test_stop_supersedes_a_queued_versioned_start(app):
 
 
 def test_stop_during_start_preparation_wins_over_the_start(app, monkeypatch):
+    app.raw = b"frame"
+    app.published_frame = {"id": "test:1", "sequence": 1, "captured_at": time.time(),
+                           "width": 1024, "height": 768}
     context = CommandContext(app.command_epoch, time.time())
     original_stop = app._stop
 
