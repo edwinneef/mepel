@@ -37,10 +37,30 @@ templates or recognition changes were needed. Evidence is in
 
 ### Two separately labelled manual checks
 
-The mixed-key recording now supplies visible damage (140 on Dark Stump, 48 and
+The earlier mixed-key recording supplies visible damage (140 on Dark Stump, 48 and
 168 on Slime), but does not identify which key produced each hit. See
 `artifacts/bowman-visible-hits-20261027.json`. The 111 px slime observation is
 not an exact firing distance. Keep the range unchanged until evidence supports it.
+
+**Labelled checks reviewed:** the operator confirmed both hits, and all 101
+pictures were saved across the two checks. Space dealt **44 damage to a Stump**
+in `artifacts/bowman-hit-space-1793124485357092500/0018.png` (frame 25466).
+The matched centres were **196.5 px** apart at visible damage, with a **24 px**
+feet-height gap. That gap exceeds the bot's unchanged 18 px platform tolerance;
+the hit is accepted, but the bot would reject that positioning.
+
+Ctrl dealt **156 damage to a Slime** in
+`artifacts/bowman-hit-ctrl-1793124521371287400/0012.png` (frame 25634).
+The earlier arrow-flight picture `0009.png` (frame 25631) has a confident
+Slime match **240 px** away, with a **13 px** feet-height gap. Review details:
+`artifacts/bowman-labelled-hit-review-20261027.json`. Labels plus the operator's
+report establish which check hit; neither distance is a keyboard timestamp or
+a minimum/maximum range boundary. Do not repeat either accepted hit confirmation.
+
+The remaining range gap is a **common** working distance: the two samples differ.
+The smallest proposed follow-up is one Ctrl-only check near the accepted Space
+distance (about 197 px), on flat ground with a fresh eligible enemy. Preserve
+the height gate, saved controls and range settings pending that evidence.
 
 Use `tools/bowman_hit_check.ps1` for **one Space attempt and one Ctrl attempt**.
 This GET-only helper saves frame-matched pictures, enemy detections and distances
