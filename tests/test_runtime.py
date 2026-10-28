@@ -310,7 +310,7 @@ def test_live_processing_continues_while_submitted_key_is_held(app, monkeypatch)
     app.controller.enable()
     app.agent.start()
     app.mode = "live"
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: type("O", (), {
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: type("O", (), {
         "player": type("P", (), {"confidence": 1.0})(), "failures": [], "camera_shift": (0, 0),
         "camera_confidence": 1.0, "monsters": []
     })())
@@ -837,7 +837,7 @@ def test_dead_worker_can_acknowledge_and_restart_directly(app, monkeypatch):
 
 
 def test_capture_stage_timing_excludes_encoder_png_work(app, monkeypatch):
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: type("O", (), {
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: type("O", (), {
         "player": None, "monsters": [], "failures": [], "camera_shift": (0, 0),
         "camera_confidence": 1.0,
     })())
@@ -1235,7 +1235,7 @@ def test_recognition_verifies_capture_without_enabling_input(potion_app, monkeyp
     app._save_probes()
     app.calibration.capture_verified = False
     player = Detection("player", Rect(10, 20, 20, 30), 1.0) if evidence == "player" else None
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: Observation(player, []))
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: Observation(player, []))
     image = np.zeros_like(app.image) if player else hud(75, 75)
     if evidence == "hp":
         app.potter.bars.pop("mp")
@@ -1277,7 +1277,7 @@ def test_recognition_cannot_verify_uncertain_or_wrong_game_view(potion_app, monk
         image = image[:, :-1]
     else:
         app.calibrating = True
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: Observation(player, []))
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: Observation(player, []))
     app._process(image, now)
     assert not app.calibration.capture_verified
     assert not app.controller.enabled
@@ -1366,7 +1366,7 @@ def live_sustain_app(potion_app, monkeypatch):
     app = potion_app
     app.probed.update(REQUIRED_PROBES)
     player = Detection("player", Rect(100, 40, 30, 40), 1.0, "nametag")
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: Observation(player, []))
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: Observation(player, []))
     monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
     monkeypatch.setattr(app.agent, "step_input", lambda policy_input: Decision(
         "APPROACH", Action("right", 0.05), "test"))
@@ -1460,7 +1460,7 @@ def test_live_combat_without_potion_probe_sends_no_potion(potion_app, monkeypatc
     from maplebot.perception import Detection, Observation
 
     player = Detection("player", Rect(100, 40, 30, 40), 1.0, "nametag")
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: Observation(player, []))
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: Observation(player, []))
     monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
     monkeypatch.setattr(app.agent, "step_input", lambda policy_input: Decision(
         "APPROACH", Action("right", 0.05), "test"))
@@ -1492,7 +1492,7 @@ def test_target_loss_cancels_held_and_queued_combat_then_reacquires(app, monkeyp
     player = Detection("player", Rect(100, 100, 24, 28), 1.0)
     enemy = Detection("monster", Rect(140, 100, 24, 28), 1.0)
     observation = Observation(player, [enemy])
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: observation)
     monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
     app.controller.planner.config = replace(app.controller.planner.config, enabled=False)
     down = Event()
@@ -1556,7 +1556,8 @@ def test_completed_approach_dispatches_skill_without_an_extra_facing_frame(potio
     app = potion_app
     player = Detection("player", Rect(622, 498, 44, 64), 1.0)
     enemy = Detection("monster", Rect(524, 505, 65, 73), .957566)
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: Observation(player, [enemy]))
+    monkeypatch.setattr(app.detector, "detect",
+                        lambda image, now, **_: Observation(player, [enemy]))
     monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
     app.agent.config = replace(app.agent.config, attack_range=90)
     app.agent.state = State.APPROACH
@@ -1587,7 +1588,7 @@ def test_potion_deferred_attack_does_not_advance_and_rechecks_target(potion_app,
     player = Detection("player", Rect(100, 40, 24, 28), 1.0)
     enemy = Detection("monster", Rect(140, 40, 24, 28), 1.0)
     observation = Observation(player, [enemy])
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: observation)
     monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
     app.controller.planner.config = replace(app.controller.planner.config, enabled=False)
     app.mode = "live"
@@ -1624,7 +1625,7 @@ def test_distant_approach_renews_without_repeat_keydown_and_loss_releases(app, m
     player = Detection("player", Rect(100, 100, 24, 28), 1.0)
     enemy = Detection("monster", Rect(400, 100, 24, 28), 1.0)
     observation = Observation(player, [enemy])
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: observation)
     monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
     app.mode = "live"
     app.stop_requested.clear()
@@ -1647,7 +1648,7 @@ def test_renewed_approach_releases_before_an_in_range_attack(app, monkeypatch):
 
     observation = Observation(Detection("player", Rect(100, 100, 24, 28), 1.0),
                               [Detection("monster", Rect(400, 100, 24, 28), 1.0)])
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: observation)
     monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
     app.mode = "live"
     app.stop_requested.clear()
@@ -1683,3 +1684,28 @@ def test_potion_preempts_renewed_movement_before_its_keypress(potion_app):
         time.sleep(.005)
     assert app.controller.backend.events == [("right", True), ("right", False),
                                               ("insert", True), ("insert", False)]
+
+
+@pytest.mark.parametrize("mode, teaching, search", [
+    ("capture", False, True), ("live", False, True), ("dry_run", False, True),
+    ("navigation", False, False), ("navigation_wait", False, False), ("capture", True, False),
+])
+def test_monster_search_is_skipped_only_while_teaching_or_navigating(
+        app, monkeypatch, mode, teaching, search):
+    from maplebot.perception import Observation
+
+    calls = []
+
+    def detect(image, now, *, monsters=True):
+        calls.append(monsters)
+        return Observation(None, [])
+
+    monkeypatch.setattr(app.detector, "detect", detect)
+    monkeypatch.setattr(app, "_stop", lambda *args, **kwargs: None)
+    app.mode = mode
+    if teaching:
+        app.position = type("Position", (), {
+            "teacher": object(), "teach_calibrating": False,
+            "read_map": lambda self, image: None})()
+    app._process(app.image, time.perf_counter())
+    assert calls == [search] and app.monster_search is search

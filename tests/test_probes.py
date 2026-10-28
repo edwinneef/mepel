@@ -103,7 +103,7 @@ def test_probe_reports_the_failed_guard_without_a_capture_crash(app, monkeypatch
     app.request_probe({"action": "left"})
     app.pending_at = 0
     observation = Observation(Detection("player", Rect(10, 20, 20, 30), 1.0), [])
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: observation)
     if blocker == "focus":
         app.windows.window = replace(app.windows.window, focused=False)
     elif blocker == "visibility":
@@ -134,7 +134,7 @@ def test_completed_probe_can_be_confirmed_after_returning_to_dashboard(app, monk
     from maplebot.perception import Detection, Observation
 
     observation = Observation(Detection("player", Rect(10, 20, 20, 30), 1.0), [])
-    monkeypatch.setattr(app.detector, "detect", lambda image, now: observation)
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: observation)
     app.request_probe({"action": "left"})
     app.pending_at = 0
     app._process(app.image, time.perf_counter())

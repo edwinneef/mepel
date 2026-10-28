@@ -55,7 +55,8 @@ def masked_score(observed: np.ndarray, observed_gray: np.ndarray, reference: np.
 
 
 class Detector(Protocol):
-    def detect(self, image: Image, now: float | None = None) -> Observation: ...
+    def detect(self, image: Image, now: float | None = None, *,
+               monsters: bool = True) -> Observation: ...
 
 
 @dataclass(frozen=True)
@@ -744,7 +745,9 @@ class TemplateDetector:
             return player, 0.0, False
         return self._fuse_nametag(tags, player, failures)
 
-    def detect(self, image: Image, now: float | None = None) -> Observation:
+    def detect(self, image: Image, now: float | None = None, *,
+               monsters: bool = True) -> Observation:
+        """monsters=False searches only the player, for work that never targets an enemy."""
         now = time.monotonic() if now is None else now
         floor = max(0.5, self.config.confidence - 0.15)
         allowed = self.map_filter.select(image, self.taught_map)
@@ -762,6 +765,8 @@ class TemplateDetector:
                 or template.name.split(":")[1] in allowed
             ]
         )
+        if not monsters:
+            templates = [template for template in templates if template.kind != "monster"]
         held = self.map_filter.held and self.map_filter.taught is not None
         self.catalog_info["active_map"] = (
             self.map_filter.taught[0] if held else self.map_filter.title

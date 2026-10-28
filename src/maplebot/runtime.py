@@ -244,6 +244,7 @@ class Application:
         self.navigation = NavigationRuntime(self)
         self.rotation = Rotation(config.agent.clear_seconds)
         self.rotating = False
+        self.monster_search = True
 
     def start(self) -> None:
         self.connect_saved_window()
@@ -451,6 +452,7 @@ class Application:
                 "sustain": list(self.sustain),
                 "navigation": self.navigation.snapshot(),
                 "rotation": {**self.rotation.snapshot(), "enabled": self.rotating},
+                "monster_search": self.monster_search,
                 "player_threshold": self.config.perception.confidence,
                 "calibration": asdict(self.calibration) if self.calibration else {},
                 "frame": {
@@ -1682,8 +1684,14 @@ class Application:
         captured_at = time.time() if captured_at is None else captured_at
         fix = self.position.read_map(image) if self.position is not None else None
         self.detector.taught_map = bool(fix and fix.canvas)
+        # Teaching and moving between platforms never target a monster; skipping that search
+        # keeps position feedback fresh. Combat and dry runs always search.
+        position = self.position
+        self.monster_search = not (self.mode in {"navigation", "navigation_wait"} or (
+            position is not None and (position.teacher is not None
+                                      or position.teach_calibrating)))
         perception_began = time.perf_counter()
-        observation = self.detector.detect(image, now)
+        observation = self.detector.detect(image, now, monsters=self.monster_search)
         perception_ms = (time.perf_counter() - perception_began) * 1000
         evidence = summarize({
             "frame": {"id": f"{self.session_id}:{self.sequence}", "available": True,

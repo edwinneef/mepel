@@ -516,3 +516,13 @@ def test_stacked_monsters_of_one_species_are_both_kept(tmp_path):
     detector.detect(frame)
     # Once the front monster is known, the search widens around it and finds the other.
     assert strong(detector.detect(frame)) == {Rect(60, 40, 36, 36), Rect(80, 40, 36, 36)}
+
+
+def test_player_only_search_skips_monsters(tmp_path):
+    player, monster = templates(tmp_path)
+    image = np.full((160, 260, 3), 30, dtype=np.uint8)
+    image[90:118, 20:44] = player
+    image[90:118, 180:204] = monster
+    result = TemplateDetector(tmp_path, PerceptionConfig()).detect(image, monsters=False)
+    assert result.player is not None and result.player.box == Rect(20, 90, 24, 28)
+    assert result.monsters == []
