@@ -1,0 +1,57 @@
+from maplebot.moves import JUMP_RISE_PX, generate
+
+
+def flat(key, x0, x1, y):
+    return {"id": key, "name": key, "start": {"x": x0, "y": y}, "end": {"x": x1, "y": y}}
+
+
+def kinds(profile):
+    return {(m.source, m.target): m.kind for m in generate(profile)}
+
+
+def test_staircase_steps_jump_up_and_fall_back():
+    profile = {"platforms": [flat("floor", 0, 1000, 500), flat("step", 300, 450, 440),
+                             flat("high", 430, 600, 380)], "ropes": []}
+    moves = kinds(profile)
+    assert moves[("floor", "step")] == "jump" and moves[("step", "high")] == "jump"
+    assert moves[("step", "floor")] in {"jump", "drop"}
+    assert moves[("high", "step")] in {"jump", "drop"}
+    assert ("floor", "high") not in moves  # 120 px is beyond one jump
+
+
+def test_drop_lands_on_the_first_platform_below():
+    profile = {"platforms": [flat("floor", 0, 1000, 600), flat("mid", 200, 800, 450),
+                             flat("top", 300, 700, 300)], "ropes": []}
+    moves = generate(profile)
+    drops = {(m.source, m.target) for m in moves if m.kind == "drop"}
+    assert ("top", "mid") in drops and ("mid", "floor") in drops
+    assert ("top", "floor") not in drops  # the middle platform is in the way
+
+
+def test_hairline_gap_is_walked_and_wide_gap_is_jumped():
+    profile = {"platforms": [flat("a", 0, 200, 300), flat("b", 220, 400, 300),
+                             flat("c", 480, 600, 300), flat("far", 800, 900, 300)], "ropes": []}
+    moves = kinds(profile)
+    assert moves[("a", "b")] == "walk" and moves[("b", "c")] == "jump"
+    assert ("c", "far") not in moves
+
+
+def test_ropes_connect_their_foot_top_and_neighbours():
+    rope = {"id": "rope", "name": "Rope", "start": {"x": 500, "y": 292},
+            "end": {"x": 500, "y": 608}}
+    profile = {"platforms": [flat("floor", 0, 1000, 600), flat("top", 450, 700, 300),
+                             flat("side", 300, 440, 450)], "ropes": [rope]}
+    moves = generate(profile)
+    pairs = {(m.source, m.target): m for m in moves}
+    for pair in (("floor", "rope"), ("rope", "floor"), ("rope", "top"), ("top", "rope"),
+                 ("side", "rope")):
+        assert pairs[pair].kind == "climb"
+    assert pairs[("rope", "side")].kind == "jump"
+    assert pairs[("floor", "rope")].trace == ((500, 600), (500, 570))
+
+
+def test_rope_foot_within_a_jump_is_reached_by_jumping():
+    rope = {"id": "rope", "name": "Rope", "start": {"x": 500, "y": 200},
+            "end": {"x": 500, "y": 600 - JUMP_RISE_PX + 5}}
+    profile = {"platforms": [flat("floor", 0, 1000, 600)], "ropes": [rope]}
+    assert kinds(profile) == {("floor", "rope"): "climb"}
