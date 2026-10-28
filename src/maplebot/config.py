@@ -47,6 +47,7 @@ class AgentConfig:
     skill_low_mp: float = 20.0
     skill_high_mp: float = 40.0
     range_profile: str = "custom"
+    clear_seconds: float = 4.0
 
     def __post_init__(self) -> None:
         profile = range_profile(self.range_profile)
@@ -58,6 +59,8 @@ class AgentConfig:
             raise ValueError(
                 "agent.attack_min_range must be below attack_range, both finite and nonnegative"
             )
+        if not (math.isfinite(self.clear_seconds) and 1 <= self.clear_seconds <= 60):
+            raise ValueError("agent.clear_seconds must be between 1 and 60")
 
 
 @dataclass(frozen=True)

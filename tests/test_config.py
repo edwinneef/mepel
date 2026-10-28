@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from maplebot.config import Config, InputConfig, ProbeConfig
+from maplebot.config import AgentConfig, Config, InputConfig, ProbeConfig
 
 
 def test_input_bindings_load_only_from_input_section(tmp_path):
@@ -58,3 +58,9 @@ def test_probe_settings_load_from_the_validated_probe_section():
 def test_probe_config_rejects_unbounded_or_non_finite_values(settings):
     with pytest.raises(ValueError):
         ProbeConfig(**settings)
+
+
+@pytest.mark.parametrize("seconds", [math.nan, 0.5, 61])
+def test_agent_config_rejects_unbounded_clear_time(seconds):
+    with pytest.raises(ValueError, match="clear_seconds"):
+        AgentConfig(clear_seconds=seconds)

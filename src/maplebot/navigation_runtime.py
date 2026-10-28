@@ -17,6 +17,7 @@ class NavigationRuntime:
         self.graph = self.route = self.agent = self.feedback = None
         self.previous = None
         self.ticket = self.lease = None
+        self.resume_combat = False
         self.reason = "Track a saved map, then load its navigation routes"
 
     def cancel(self, reason: str) -> None:
@@ -25,6 +26,7 @@ class NavigationRuntime:
         if self.lease is not None:
             self.app.controller.release_vertical_lease(self.lease)
         self.lease, self.ticket = None, None
+        self.resume_combat = False
         self.reason = reason
 
     def _release(self) -> None:
@@ -127,6 +129,28 @@ class NavigationRuntime:
         self.reason = "Focus the game; navigation countdown is bounded and cancelable"
         return self.snapshot()
 
+    def handoff(self, target: str, now: float) -> str | None:
+        """Armed combat found its platform clear: route on without a new countdown.
+
+        Returns why the move was refused; the caller stops safely instead of retrying.
+        """
+        f = self.feedback
+        if not self.graph or not f or not f.surface:
+            return "Rotation: current platform unknown"
+        try:
+            self.route = self.graph.plan(f.surface, target)
+        except ValueError as error:
+            return f"Rotation: {error}"
+        blocker = self.blocker()
+        if blocker:
+            return f"Rotation: {blocker}"
+        self._release()
+        self.agent = Navigator(self.graph, self.route, now,
+                               pulse=min(.12, self.app.config.input.max_action_seconds))
+        self.resume_combat, self.app.mode = True, "navigation"
+        self.reason = f"Platform clear; moving to {self.graph.nodes[target].get('name', target)}"
+        return None
+
     def observe(self, fix, observation, position: dict | None, now: float) -> None:
         if not self.graph or not self.app.position:
             return
@@ -183,6 +207,11 @@ class NavigationRuntime:
         f = self.feedback
         motion = self.agent.step(f)
         if not self.agent.active:
+            if self.agent.stage == "arrived" and self.resume_combat:
+                self._release()
+                self.resume_combat = False
+                app.resume_combat(self.route.target, now)
+                return
             app._stop("POLICY_STOP", self.agent.reason)
             return
         if self.ticket is not None and self.ticket not in app.arbiter.in_flight:

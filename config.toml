@@ -46,6 +46,8 @@ max_attack_attempts = 6
 # Skill attack while MP is at or above high; basic attack below low or when MP is unreadable.
 skill_low_mp = 20.0
 skill_high_mp = 40.0
+# Platform rotation: after this many seconds without a same-platform target, move on.
+clear_seconds = 4.0
 
 [input]
 left = "left"

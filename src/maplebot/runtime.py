@@ -40,6 +40,7 @@ from .preview_stream import PreviewSource, PreviewStream
 from .probe_store import ProbeStore
 from .profiles import AreaStore
 from .recorder import SessionRecorder
+from .rotation import Rotation, routable, visible_by_surface
 from .scheduler import SUSTAIN, Arbiter
 from .windows import Window, Windows
 
@@ -241,6 +242,8 @@ class Application:
             on_stop=self._controller_stop,
         )
         self.navigation = NavigationRuntime(self)
+        self.rotation = Rotation(config.agent.clear_seconds)
+        self.rotating = False
 
     def start(self) -> None:
         self.connect_saved_window()
@@ -447,6 +450,7 @@ class Application:
                 "area_editing": self.area_editing,
                 "sustain": list(self.sustain),
                 "navigation": self.navigation.snapshot(),
+                "rotation": {**self.rotation.snapshot(), "enabled": self.rotating},
                 "player_threshold": self.config.perception.confidence,
                 "calibration": asdict(self.calibration) if self.calibration else {},
                 "frame": {
@@ -903,6 +907,7 @@ class Application:
         self.combat_evidence.stop(message)
         if hasattr(self, "navigation"):
             self.navigation.cancel(message)
+        self.rotating = False
         with self.stop_lock:
             self.command_epoch += 1
             if self.stop_record is not None:
@@ -1212,6 +1217,7 @@ class Application:
             return {"variants": len(self.detector.templates), "catalog": self.detector.catalog_info}
         if name == "dry_run":
             self._stop("DRY_RUN_STOP", "Dry run: no keyboard input")
+            self._prepare_rotation(payload.get("rotate") is True)
             with self.stop_lock:
                 if self.area_editing:
                     raise ValueError("Finish area editing before starting preview decisions")
@@ -1246,6 +1252,7 @@ class Application:
             missing = sorted(REQUIRED_PROBES - self.probed)
             if missing:
                 raise ValueError("Confirm required probes first: " + ", ".join(missing))
+            self._prepare_rotation(payload.get("rotate") is True)
             with self.stop_lock:
                 if self.alarm.snapshot()["active"]:
                     raise ValueError("Acknowledge the active alarm before arming combat")
@@ -1378,6 +1385,61 @@ class Application:
             "decoys": decoys,
             "frame": [image.shape[1], image.shape[0]],
         }
+
+    def _prepare_rotation(self, enabled: bool) -> None:
+        """Opt-in platform rotation needs a tracked map with two round-trip platforms."""
+        self.rotating = False
+        self.rotation.reset("Rotation off" if not enabled else "Waiting for a clear platform")
+        if not enabled:
+            return
+        self.navigation.refresh()
+        if len(routable(self.navigation.graph)) < 2:
+            raise ValueError("Rotation needs two platforms with recorded round-trip routes")
+        self.rotating = True
+
+    def _rotate(self, decision: Decision, observation, now: float) -> str | None:
+        """After the clear time with no same-platform target, hand combat to navigation."""
+        if not self.rotating:
+            return None
+        nav, f = self.navigation, self.navigation.feedback
+        known = bool(nav.graph and f and observation.player is not None)
+        visible = visible_by_surface(
+            nav.graph, f.feet, observation.player, observation.monsters,
+            self.config.perception.confidence,
+        ) if known and f.feet else {}
+        platforms = routable(nav.graph) if known else []
+        edges = {}
+        for key in platforms if decision.state == "SEARCH" and f.surface in platforms else []:
+            try:
+                edges[key] = len(nav.graph.plan(f.surface, key).edges)
+            except ValueError:
+                edges[key] = 99
+        target = self.rotation.step(
+            now, searching=decision.state == "SEARCH", surface=f.surface if known else None,
+            platforms=platforms, visible=visible, edges=edges,
+        )
+        if target is None:
+            return None
+        name = nav.graph.nodes[target].get("name", target)
+        if self.mode == "dry_run":
+            return f"dry run: platform clear; would move to {name}"
+        for ticket, lane in tuple(self.arbiter.in_flight.items()):
+            if lane == "combat":
+                self.controller.cancel_ticket(ticket)
+        blocker = nav.handoff(target, now)
+        if blocker:
+            self._stop("POLICY_STOP", blocker)
+            return blocker
+        self.combat_evidence.record("decision", f"rotate to {target}", action="navigation")
+        return f"Platform clear; moving to {name}"
+
+    def resume_combat(self, surface: str, now: float) -> None:
+        """Navigation settled on the rotation destination; fight there."""
+        self.rotation.arrived(surface, now)
+        self.mode = "live"
+        self.agent.start()
+        self.policy_outcome = {"status": "not_sent"}
+        self.note(f"Arrived on {surface}; combat resumed")
 
     def _start_sustain(self) -> None:
         """Let live combat press the potions whose bar, threshold and probe are all ready."""
@@ -1839,8 +1901,14 @@ class Application:
             )
             policy_before = self.agent.snapshot()
             decision = self.agent.step_input(policy_input)
+            moving = None if decision.state == "IDLE" else self._rotate(
+                decision, observation, now)
             if decision.state == "IDLE":
                 self._stop("PLAYER_UNCERTAIN" if uncertain else "POLICY_STOP", decision.reason)
+                self.policy_outcome = {"status": "not_sent"}
+            elif moving:
+                decision = replace(decision, reason=moving)
+                self.last_action = moving
                 self.policy_outcome = {"status": "not_sent"}
             elif self.mode == "live":
                 if decision.state == "SEARCH" or self.agent.missing_frames:
