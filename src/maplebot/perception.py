@@ -208,6 +208,10 @@ class TemplateDetector:
             "frames": catalog_frames,
             "names": sorted(catalog_names),
             "network_during_detection": False,
+            "spawn_source": self.map_filter.source,
+            "spawn_revision": self.map_filter.revision,
+            "spawn_error": self.map_filter.source_error,
+            "spawn_maps": len(self.map_filter.profiles),
         }
 
 
