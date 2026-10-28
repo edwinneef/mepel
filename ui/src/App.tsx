@@ -8,6 +8,7 @@ import type { Tool } from './tools';
 import { useAreaEditor } from './useAreaEditor';
 import { AreaCanvas, AreaEditor } from './AreaEditor';
 import { PositionOverlay, PositionPanel } from './PositionPanel';
+import { MapTab } from './MapTab';
 import { NavigationPanel } from './NavigationPanel';
 import { GoBar } from './GoBar';
 
@@ -16,7 +17,7 @@ export function App({ client }: { client: EngineClient }) {
   const s = state.snapshot;
   const [tool, setTool] = useState<Tool | null>(null);
   const [runMode, setRunMode] = useState<'preview' | 'live' | 'navigation'>('preview');
-  const [navigationTab, setNavigationTab] = useState<'routes' | 'teaching'>('routes');
+  const [navigationTab, setNavigationTab] = useState<'map' | 'routes' | 'teaching'>('map');
   const [supervised, setSupervised] = useState(false);
   const [routeCurrent, setRouteCurrent] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -136,9 +137,12 @@ export function App({ client }: { client: EngineClient }) {
         <header className="dock-heading"><div><span className="eyebrow">Workspace tool</span><h2>{toolName}</h2></div><button aria-label="Close tool panel" title="Return to full-width overview" onClick={() => setTool(null)}>×</button></header>
         <div className="dock-body"><div hidden={tool !== 'Navigation'}>
           <nav className="navigation-tabs" aria-label="Navigation pages">
+            <button aria-pressed={navigationTab === 'map'} onClick={() => setNavigationTab('map')}>Map</button>
             <button aria-pressed={navigationTab === 'routes'} onClick={() => setNavigationTab('routes')}>Routes</button>
             <button aria-pressed={navigationTab === 'teaching'} onClick={() => setNavigationTab('teaching')}>Teach map</button>
           </nav>
+          <div hidden={navigationTab !== 'map'}>{props && <MapTab snapshot={props.snapshot} client={client} act={act} disabled={props.disabled}
+            onPreview={() => { setRouteCurrent(true); setSupervised(false); setRunMode('navigation'); setNavigationTab('routes'); }} />}</div>
           <div hidden={navigationTab !== 'routes'}>{props && <NavigationPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled}
             onInvalidate={() => { setRouteCurrent(false); setSupervised(false); }} onPreview={() => { setRouteCurrent(true); setRunMode('navigation'); }} supervised={supervised} onSupervised={setSupervised} areas={area.areas} />}</div>
           <div hidden={navigationTab !== 'teaching'}>{props && <PositionPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} areas={area.areas} refreshAreas={area.refresh} />}
