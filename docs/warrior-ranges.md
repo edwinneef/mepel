@@ -81,16 +81,19 @@ Frames show ScrollAddict approaching left. At frame 112089, the requested skill
 was 45 px from the matched target centre, inside the 0-65 band. Ctrl completed;
 the saved HUD shows MP 386/443 before and 374/443 afterward, supporting skill
 use. Frame 112091 also shows incoming 65 damage and HP falling 727 to 662.
-No outgoing damage number is clear enough to establish a hit. Brief target loss
-during overlap is not a kill. The target was matched as Axe Stump in this run.
+No outgoing damage number is clear enough in the saved frames. The operator
+subsequently reported **hit**, which is accepted as direct observation of this
+run. Brief target loss during overlap is not a kill. The target was matched as
+Axe Stump in this run.
 
 No potion was requested: both bars remained above the configured 50% thresholds.
-Approach and skill-use evidence do not establish hit success, basic fallback,
-or a potion recovery effect. This is a partial native result, not a demonstrated
-Classic/v83 parity defect; keep the source-informed range unchanged.
+The leftward approach, skill-use evidence and operator-confirmed hit complete
+this bounded Broadsword demo. Basic fallback and potion recovery were not
+exercised; other weapons remain untested natively. This does not measure range
+endpoints or demonstrate a Classic/v83 parity defect. Keep the 0-65 preset unchanged.
 
 Evidence: `artifacts/broadsword-combat-1793167024160166000/result.json` and 24
 saved frame pictures, plus the existing automatic clip
 `data/recordings/session-1793167027665898100-combat/` (including 112091).
-The outstanding observation is whether the operator saw outgoing damage on the
-stump. No repeat run or extra recording is requested to answer that question.
+The operator's hit report closes the outstanding observation. No repeat run,
+extra recording or new control confirmation is needed for this demo.
