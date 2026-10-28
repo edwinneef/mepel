@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
@@ -28,8 +29,14 @@ class Debugger:
         }
         request = Request(self.base + "/api/v1/command", data=json.dumps(envelope).encode(),
                           headers={"X-Debug-Token": self.token, "Content-Type": "application/json"})
-        with urlopen(request, timeout=2) as response:
-            return json.load(response)
+        try:
+            with urlopen(request, timeout=2) as response:
+                return json.load(response)
+        except HTTPError as error:
+            with error:
+                body = error.read().decode("utf-8", errors="replace")
+            body = body.replace(self.token, "[redacted]")
+            raise RuntimeError(f"{name} rejected (HTTP {error.code}): {body}") from error
 
 
 def blocker(status):
@@ -66,6 +73,7 @@ def run(api, output, *, clock=time.monotonic, sleep=time.sleep, timer_factory=th
     if problem:
         raise RuntimeError(problem)
     rows, stop_errors = [], []
+    failure = None
 
     def stop():
         try:
@@ -86,14 +94,19 @@ def run(api, output, *, clock=time.monotonic, sleep=time.sleep, timer_factory=th
             if sample["mode"] not in {"pending_arm", "live"}:
                 break
             sleep(.1)
+    except Exception as error:
+        failure = str(error)
+        raise
     finally:
         stop()
         watchdog.cancel()
         output.mkdir(parents=True, exist_ok=False)
         result = {"before": compact(status), "samples": rows, "stop_errors": stop_errors,
-                  "elapsed": clock() - started}
+                  "elapsed": clock() - started, "error": failure}
         try:
             result["after"] = compact(api.status())
+        except Exception as error:
+            result["after_error"] = str(error)
         finally:
             (output / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result
@@ -111,9 +124,18 @@ def main():
         print(json.dumps({"mode": status["mode"], "blocker": blocker(status), "input_sent": False}))
         return
     output = Path(__file__).resolve().parents[1] / "artifacts" / f"combat-check-{time.time_ns()}"
-    result = run(api, output)
-    print(json.dumps({"evidence": str(output), "mode": result["after"]["mode"],
-                      "stop": result["after"].get("stop"), "stop_errors": result["stop_errors"]}))
+    try:
+        result = run(api, output)
+    except Exception as error:
+        print(json.dumps({"evidence": str(output / "result.json")
+                          if (output / "result.json").exists() else None, "error": str(error)}))
+        raise SystemExit(1) from None
+    after = result.get("after", {})
+    print(json.dumps({"evidence": str(output / "result.json"), "mode": after.get("mode"),
+                      "stop": after.get("stop"), "stop_errors": result["stop_errors"],
+                      "after_error": result.get("after_error")}))
+    if result["stop_errors"] or result.get("after_error"):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
