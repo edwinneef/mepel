@@ -257,6 +257,15 @@ def test_fused_location_is_unknown_without_agreement(fused, marker, tag, shift, 
     assert fused.update(fix(), player(600, 480), (0, 0), 1.8).kind == "unknown"
 
 
+@pytest.mark.parametrize(("dot", "kind"), [(70, "platform"), (72, "unknown")])
+def test_two_marker_pixels_past_a_walked_end_still_mean_that_ledge(dot, kind):
+    tracker = MinimapTracker(MinimapTransform(16, -500, 16, -127),
+                             (Platform("ledge", 300, 588, 593),))
+    for now in (1.0, 1.1, 1.3):
+        location = tracker.update(fix(dot), player(600, 480), (0, 0), now)
+    assert location.kind == kind  # dot 70 is 32 px past the end; dot 72 is 64 px
+
+
 def test_stale_fused_observation_starts_over(fused):
     for now in (1.0, 1.2, 1.4):
         fused.update(fix(), player(600, 480), (0, 0), now)

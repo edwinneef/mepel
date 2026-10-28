@@ -332,10 +332,14 @@ class MinimapTracker:
         slope_step = abs(marker[1]) <= 1 and abs(marker[0]) > 0.5 and abs(tag[1]) <= 24
         if (abs(marker[1]) > 0.5 or abs(tag[1]) > 3) and not slope_step:
             return self._unknown("Moving vertically (jump, fall or climb)", feet, keep=True)
+        # The marker moves in whole minimap pixels (~15 px): standing a pixel or two past the
+        # walked end of a ledge still means that ledge, when it is the only fit.
+        slack = 2 * abs(self.transform.scale_x)
         matches = [
             platform.id for platform in self.platforms
-            if platform.left <= feet[0] <= platform.right
-            and abs(feet[1] - platform.y_at(feet[0])) <= self.height
+            if platform.left - slack <= feet[0] <= platform.right + slack
+            and abs(feet[1] - platform.y_at(min(max(feet[0], platform.left), platform.right)))
+            <= self.height
         ]
         if len(matches) != 1:
             return self._unknown("No unique taught platform", feet, keep=True)
