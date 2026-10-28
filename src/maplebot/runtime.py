@@ -72,6 +72,8 @@ REQUIRED_PROBES = frozenset({"left", "right", "attack", "jump", "skill"})
 OPTIONAL_PROBES = frozenset({"up", "down", "hp_potion", "mp_potion"})
 PROBE_ACTIONS = REQUIRED_PROBES | OPTIONAL_PROBES
 PENDING_SLOW_GRACE_SECONDS = 2.0
+# Readouts keep showing the last platform through brief recognition gaps; input never uses it.
+DISPLAY_HOLD_SECONDS = 1.0
 ELEVATED_GAME_REASON = (
     "MapleStory runs as administrator, so Windows silently drops this bot's keys. "
     "Start the bot from an administrator terminal, or start the game without elevation"
@@ -245,6 +247,7 @@ class Application:
         self.rotation = Rotation(config.agent.clear_seconds)
         self.rotating = False
         self.monster_search = True
+        self.shown_platform: tuple[str, str, float] | None = None
 
     def start(self) -> None:
         self.connect_saved_window()
@@ -1606,10 +1609,24 @@ class Application:
                     "reason": "Localization supplement disabled"}
         age = time.time() - position["captured_at"]
         if age <= STALE_SECONDS:
-            return {**position, "stale": False}
-        return {**position, "kind": "unknown", "surface_id": None, "feet": None,
-                "marker": None, "projection": None, "stale": True,
-                "reason": f"Position stale: no processed frame for {age * 1000:.0f} ms"}
+            current = {**position, "stale": False}
+        else:
+            current = {**position, "kind": "unknown", "surface_id": None, "feet": None,
+                       "marker": None, "projection": None, "stale": True,
+                       "reason": f"Position stale: no processed frame for {age * 1000:.0f} ms"}
+        if position.get("kind") == "platform" and position.get("surface_id"):
+            self.shown_platform = (position.get("area_id"), position["surface_id"],
+                                   position["captured_at"])
+        elif str(position.get("reason", "")).startswith(
+                ("Moving vertically", "Minimap marker and name tag disagree")):
+            self.shown_platform = None  # Really moving: never hold the old platform.
+        held = getattr(self, "shown_platform", None)
+        if (current["kind"] == "platform" or not held or held[0] != position.get("area_id")
+                or time.time() - held[2] > DISPLAY_HOLD_SECONDS):
+            return current
+        return {**current, "kind": "platform", "surface_id": held[1], "feet": None,
+                "marker": None, "projection": None, "stale": True, "held": True,
+                "reason": "Showing your last platform through a brief recognition gap"}
 
     @staticmethod
     def _roi(payload: dict, image: Image) -> Rect:

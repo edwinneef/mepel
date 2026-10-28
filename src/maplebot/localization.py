@@ -317,7 +317,9 @@ class MinimapTracker:
         feet = self.transform.to_area(*fix.dot)
         if (player is None or player.kind != "player" or player.tracked
                 or not math.isfinite(player.confidence) or player.confidence < 0.90):
-            return self._unknown("Name tag missing, weak or tracked-only", feet)
+            # A one-frame name-tag miss is common while standing still; it says nothing about
+            # movement, so the platform being confirmed and the last observation survive it.
+            return Location("unknown", None, feet, "Name tag missing, weak or tracked-only")
         screen = (player.box.center[0], float(player.box.feet))
         last, self.last = self.last, (fix.dot, screen)
         if last is None or camera_shift is None:

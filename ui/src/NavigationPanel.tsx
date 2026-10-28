@@ -54,8 +54,9 @@ export function NavigationPanel({ snapshot: s, client, disabled, act, onPreview,
           onChange={e => { setOrigin(e.target.value); onInvalidate(); }}>
           {map.nodes.filter(n => n.kind === 'platform').map(n => <option key={n.id} value={n.id} disabled={n.excluded}>{name(n.id)}{n.excluded ? ' · unavailable' : ''}</option>)}
         </select></label>
-        {s.position?.kind !== 'platform' || s.position.surface_id !== from
-          ? <p className="route-preview-note">Hypothetical origin for preview. Start requires your fresh position on {name(from)}.</p> : null}
+        {/* Always reserve the line: the live position changes several times a second. */}
+        <p className="route-preview-note" style={{ visibility: s.position?.kind !== 'platform' || s.position.surface_id !== from ? 'visible' : 'hidden' }}>
+          Hypothetical origin for preview. Start requires your fresh position on {name(from)}.</p>
         <label>Destination<select aria-label="Route destination" value={target} disabled={frozen}
           onChange={e => { setTarget(e.target.value); onInvalidate(); }}>
           <option value="">Choose a reachable platform</option>

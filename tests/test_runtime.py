@@ -1709,3 +1709,21 @@ def test_monster_search_is_skipped_while_tracking_idle_or_navigating(
             "read_map": lambda self, image: None})()
     app._process(app.image, time.perf_counter())
     assert calls == [search] and app.monster_search is search
+
+
+def test_readouts_hold_the_last_platform_through_a_brief_gap_but_not_a_jump(app):
+    app.position = type("Position", (), {"supplement_tracker": None})()
+    now = time.time()
+    base = {"area_id": "a", "area_name": "A", "captured_at": now, "feet": [1, 2]}
+    on = {**base, "kind": "platform", "surface_id": "p1", "reason": "agree"}
+    assert app._position_snapshot(on)["surface_id"] == "p1"
+    gap = {**base, "kind": "unknown", "surface_id": None,
+           "reason": "Waiting for a second platform observation"}
+    held = app._position_snapshot(gap)
+    assert (held["kind"], held["surface_id"], held["held"]) == ("platform", "p1", True)
+    assert held["feet"] is None and held["stale"]
+    jump = {**gap, "reason": "Moving vertically (jump, fall or climb)"}
+    assert app._position_snapshot(jump)["kind"] == "unknown"
+    app._position_snapshot(on)
+    app.shown_platform = ("a", "p1", now - 2)
+    assert app._position_snapshot(gap)["kind"] == "unknown"

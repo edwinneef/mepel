@@ -254,7 +254,9 @@ def test_fused_location_is_unknown_without_agreement(fused, marker, tag, shift, 
         fused.update(fix(), player(600, 480), (0, 0), now)
     location = fused.update(marker, tag, shift, 1.6)
     assert location.kind == "unknown" and reason in location.reason
-    assert fused.update(fix(), player(600, 480), (0, 0), 1.8).kind == "unknown"
+    # Only a name-tag miss keeps the platform being confirmed; real disagreement restarts it.
+    after = "platform" if reason == "Name tag missing" else "unknown"
+    assert fused.update(fix(), player(600, 480), (0, 0), 1.8).kind == after
 
 
 @pytest.mark.parametrize(("dot", "kind"), [(70, "platform"), (72, "unknown")])
@@ -288,3 +290,10 @@ def test_platform_height_follows_its_bends():
     ledge = Platform("p", 50, 200, 440, 400, ((50, 440), (90, 400), (200, 400)))
     assert ledge.y_at(70) == 420 and ledge.y_at(150) == 400
     assert Platform("q", 0, 100, 10, 30).y_at(50) == 20
+
+
+def test_a_one_frame_name_tag_miss_does_not_restart_platform_confirmation(fused):
+    for now in (1.0, 1.2, 1.4):
+        fused.update(fix(), player(600, 480), (0, 0), now)
+    assert fused.update(fix(), None, (0, 0), 1.6).reason.startswith("Name tag missing")
+    assert fused.update(fix(), player(600, 480), (0, 0), 1.8).kind == "platform"

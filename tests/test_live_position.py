@@ -143,7 +143,11 @@ def test_position_older_than_500_ms_is_cleared():
     fresh = {"kind": "platform", "surface_id": "floor", "feet": [1, 2], "marker": [3, 4],
              "reason": "ok", "captured_at": time.time()}
     assert Application._position_snapshot(tracking, fresh)["kind"] == "platform"
-    stale = Application._position_snapshot(tracking, {**fresh, "captured_at": time.time() - 0.6})
+    # Readouts hold the last platform briefly, but never its coordinates.
+    held = Application._position_snapshot(tracking, {**fresh, "captured_at": time.time() - 0.6})
+    assert held["stale"] is True and held["held"] is True and held["feet"] is None
+    tracking.shown_platform = None
+    stale = Application._position_snapshot(tracking, {**fresh, "captured_at": time.time() - 1.2})
     assert stale["stale"] is True and stale["kind"] == "unknown"
     assert stale["surface_id"] is None and stale["feet"] is None and stale["marker"] is None
     assert stale["projection"] is None
