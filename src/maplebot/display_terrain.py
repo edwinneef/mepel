@@ -19,19 +19,27 @@ class DisplayTerrain:
     Coordinates in the configured reference obey screen = (area - origin) * scale.
     HUD strips and supplied actor boxes cannot support registration. Propagation
     expires after two seconds without an absolute reference-image re-anchor.
+    Background seen at verified alignments extends the reference beyond its one
+    screen, so later views of that part of the map can re-anchor too.
     """
 
     ANCHOR_INTERVAL = 0.5
     ANCHOR_LIFETIME = 2.0
     MAX_FRAME_GAP = 0.5
+    MAX_JUMP = 16.0  # px; larger disagreement with live propagation needs confirmation
+    FEATURES = 1600  # per reference-screen area
+    EXTEND_INTERVAL = 1.0
 
     def __init__(self) -> None:
-        self.orb = cv2.ORB_create(nfeatures=1600, fastThreshold=12, edgeThreshold=15)
+        self.orb = cv2.ORB_create(nfeatures=self.FEATURES, fastThreshold=12, edgeThreshold=15)
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
         self.reset()
 
     def reset(self) -> None:
         self.reference: np.ndarray | None = None
+        self.filled: np.ndarray | None = None
+        self.pad = np.zeros(2, np.float32)
+        self.base_area = 1
         self.reference_points: np.ndarray | None = None
         self.descriptors: np.ndarray | None = None
         self.shape: tuple[int, ...] | None = None
@@ -52,6 +60,8 @@ class DisplayTerrain:
         self.attempt_time = float("-inf")
         self.support = 0
         self.residual = 0.0
+        self.disagreements: list[np.ndarray] = []
+        self.extend_time = float("-inf")
 
     @staticmethod
     def _gray(image: Image) -> np.ndarray:
@@ -76,14 +86,47 @@ class DisplayTerrain:
         self.reset()
         if not all(math.isfinite(value) for value in (x, y, scale)) or not 0.05 <= scale <= 20:
             raise ValueError("Invalid terrain view transform")
-        self.reference = self._gray(reference)
+        gray = self._gray(reference)
+        height, width = gray.shape
+        # Room for about one more screen sideways and half a screen vertically.
+        self.pad = np.float32([width, height // 2])
+        px, py = int(self.pad[0]), int(self.pad[1])
+        self.reference = np.zeros((height + 2 * py, width + 2 * px), np.uint8)
+        self.filled = np.zeros_like(self.reference)
+        self.reference[py:py + height, px:px + width] = gray
+        self.filled[py:py + height, px:px + width] = self._mask(gray.shape)
+        self.base_area = int(np.count_nonzero(self.filled))
         self.shape = reference.shape
         self.origin, self.scale = (x, y), scale
         self.area_id, self.revision = area_id, revision
-        points, self.descriptors = self.orb.detectAndCompute(
-            self.reference, self._mask(self.reference.shape)
-        )
+        self._features()
+
+    def _features(self) -> None:
+        """Reference features in canvas coordinates over every verified pixel."""
+        assert self.reference is not None and self.filled is not None
+        area = int(np.count_nonzero(self.filled))
+        orb = cv2.ORB_create(nfeatures=min(4 * self.FEATURES, self.FEATURES * area
+                                           // self.base_area),
+                             fastThreshold=12, edgeThreshold=15)
+        mask = cv2.erode(self.filled, np.ones((9, 9), np.uint8))
+        points, self.descriptors = orb.detectAndCompute(self.reference, mask)
         self.reference_points = np.float32([point.pt for point in points]).reshape(-1, 2)
+
+    def _extend(self, gray: np.ndarray, mask: np.ndarray) -> None:
+        """Add newly seen background at the verified offset; existing pixels stay."""
+        assert self.reference is not None and self.filled is not None
+        shift = self.pad - self.offset / 2
+        transform = np.float32([[1, 0, shift[0]], [0, 1, shift[1]]])
+        size = self.reference.shape[::-1]
+        placed = cv2.warpAffine(gray, transform, size, flags=cv2.INTER_LINEAR)
+        cover = cv2.warpAffine(cv2.erode(mask, np.ones((5, 5), np.uint8)), transform, size,
+                               flags=cv2.INTER_NEAREST)
+        new = (cover != 0) & (self.filled == 0)
+        if np.count_nonzero(new) < 0.03 * mask.size:
+            return
+        self.reference[new] = placed[new]
+        self.filled[new] = 255
+        self._features()
 
     @staticmethod
     def _consensus(deltas: np.ndarray, points: np.ndarray,
@@ -111,7 +154,8 @@ class DisplayTerrain:
             return None
         return np.median(deltas[good], axis=0), good, float(np.percentile(errors[good], 95))
 
-    def _anchor(self, gray: np.ndarray, mask: np.ndarray, captured_at: float) -> bool:
+    def _anchor(self, gray: np.ndarray, mask: np.ndarray, captured_at: float,
+                expected: np.ndarray | None = None) -> bool:
         self.attempt_time = captured_at
         if self.descriptors is None or self.reference_points is None:
             return False
@@ -127,7 +171,7 @@ class DisplayTerrain:
         if len(matches) < 12:
             return False
         current = np.float32([features[match.trainIdx].pt for match in matches])
-        reference = self.reference_points[[match.queryIdx for match in matches]]
+        reference = self.reference_points[[match.queryIdx for match in matches]] - self.pad
         consensus = self._consensus(current - reference, current, gray.shape, absolute=True)
         if consensus is None:
             return False
@@ -135,6 +179,15 @@ class DisplayTerrain:
         refined = self._refine(gray, mask, reference[good], offset)
         if refined is None:
             return False
+        if expected is not None and np.linalg.norm(refined * 2 - expected) > self.MAX_JUMP:
+            # One registration cannot overrule continuous propagation; three consistent
+            # disagreements in a row can.
+            self.disagreements = [*self.disagreements[-2:], refined * 2 - expected]
+            if len(self.disagreements) < 3 or max(
+                    np.linalg.norm(item - self.disagreements[-1])
+                    for item in self.disagreements) > 3:
+                return False
+        self.disagreements = []
         self.offset = self.anchor_offset = refined * 2
         self.anchor_time = captured_at
         self.feature_time = captured_at
@@ -150,21 +203,26 @@ class DisplayTerrain:
         centers = []
         cells = set()
         height, width = gray.shape
+        canvas_height, canvas_width = self.reference.shape
+        pad_x, pad_y = int(self.pad[0]), int(self.pad[1])
         for point in reference:
             cell = (int(point[0] * 6 / width), int(point[1] * 6 / height))
             if cell in cells:
                 continue
             if any(np.linalg.norm(point - center) < 35 for center in centers):
                 continue
-            rx, ry = np.rint(point).astype(int)
+            # Reference patches come from the padded canvas; rx/ry are canvas pixels.
+            rx, ry = np.rint(point).astype(int) + (pad_x, pad_y)
             cx, cy = np.rint(point + offset).astype(int)
             if min(rx, ry, cx, cy) < 13:
                 continue
-            if max(rx, cx) + 13 >= width or max(ry, cy) + 13 >= height:
+            if (rx + 13 >= canvas_width or ry + 13 >= canvas_height
+                    or cx + 13 >= width or cy + 13 >= height):
                 continue
             patch = self.reference[ry - 9:ry + 10, rx - 9:rx + 10]
             search = gray[cy - 12:cy + 13, cx - 12:cx + 13]
-            if float(patch.std()) < 10 or not mask[cy - 9:cy + 10, cx - 9:cx + 10].all():
+            if (float(patch.std()) < 10 or not mask[cy - 9:cy + 10, cx - 9:cx + 10].all()
+                    or not self.filled[ry - 9:ry + 10, rx - 9:rx + 10].all()):
                 continue
             scores = cv2.matchTemplate(search, patch, cv2.TM_CCOEFF_NORMED)
             _, score, _, location = cv2.minMaxLoc(scores)
@@ -179,7 +237,8 @@ class DisplayTerrain:
                         if denominator < -1e-6:
                             shift = float(np.clip(0.5 * (left - right) / denominator, -0.5, 0.5))
                     subpixel.append(shift)
-                patches.append((cx - rx + px - 3 + subpixel[0], cy - ry + py - 3 + subpixel[1]))
+                patches.append((cx - rx + pad_x + px - 3 + subpixel[0],
+                                cy - ry + pad_y + py - 3 + subpixel[1]))
                 centers.append(point)
                 cells.add(cell)
                 if len(patches) >= 8:
@@ -238,13 +297,18 @@ class DisplayTerrain:
         mask = self._mask(gray.shape, excluded_boxes)
         tracked = self._propagate(gray, mask)
         anchored = False
-        if captured_at - self.attempt_time >= (self.ANCHOR_INTERVAL if tracked else 0.1):
+        # Re-check early during fast scrolls, before propagation reaches its 160 px limit
+        # and before its feature points leave the view.
+        scrolled = bool(np.linalg.norm(self.offset - self.anchor_offset) > 80)
+        if scrolled or captured_at - self.attempt_time >= (
+                self.ANCHOR_INTERVAL if tracked else 0.1):
             # Recheck the original image patches, not merely the preceding frame.
             # With a usable prediction this avoids full descriptor extraction/matching.
             self.attempt_time = captured_at
             # Replenish feature support periodically as old features leave the view.
-            if not tracked or captured_at - self.feature_time >= 1:
-                anchored = self._anchor(gray, mask, captured_at)
+            if not tracked or scrolled or captured_at - self.feature_time >= 1:
+                anchored = self._anchor(gray, mask, captured_at,
+                                        self.offset.copy() if tracked else None)
             if tracked and not anchored:
                 refined = self._refine(gray, mask, self.points.reshape(-1, 2) - self.offset / 2,
                                        self.offset / 2)
@@ -256,6 +320,9 @@ class DisplayTerrain:
         valid &= np.linalg.norm(self.offset - self.anchor_offset) <= 160
         self.last_time = captured_at
         self.previous = gray
+        if valid and anchored and captured_at - self.extend_time >= self.EXTEND_INTERVAL:
+            self.extend_time = captured_at
+            self._extend(gray, mask)
         if not valid:
             self.points = None
             return None

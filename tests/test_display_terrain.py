@@ -129,3 +129,46 @@ def test_long_sequence_reanchors_and_does_not_accumulate_drift():
         assert result["projection"]["x"] == pytest.approx(x - 150, abs=1)
         assert result["projection"]["y"] == pytest.approx(y - 300, abs=1)
         assert result["alignment"]["anchor_age_ms"] <= 550
+
+
+def world(width=3200, seed=71):
+    rng = np.random.default_rng(seed)
+    image = np.zeros((768, width, 3), np.uint8)
+    for _ in range(int(800 * width / 1366)):
+        x, y = rng.integers([0, 0], [width, 768])
+        radius = int(rng.integers(2, 12))
+        color = tuple(int(value) for value in rng.integers(30, 255, 3))
+        cv2.circle(image, (int(x), int(y)), radius, color, -1)
+    return image
+
+
+def test_terrain_stays_aligned_after_panning_past_the_saved_screen_and_reacquires_there():
+    land = world()
+    value = tracker(land[:, :1366].copy())
+    now = 100.0
+    for x in range(0, 1601, 16):
+        result = value.update(land[:, x:x + 1366].copy(), now)
+        assert result is not None, x
+        assert result["projection"]["x"] == pytest.approx(-x - 150, abs=1)
+        now += 1 / 30
+    # Nothing of the saved screen is visible now; after a loss, this view re-anchors
+    # from background that was verified on the way here.
+    assert value.update(np.zeros_like(land[:, :1366]), now) is None
+    result = value.update(land[:, 1600:2966].copy(), now + 1)
+    assert result is not None
+    assert result["projection"]["x"] == pytest.approx(-1750, abs=1)
+
+
+def test_one_registration_cannot_overrule_live_propagation():
+    image = scene()
+    value = tracker(image)
+    assert value.update(image, 100)
+    gray = value._gray(image)
+    mask = value._mask(gray.shape)
+    wrong = np.float32([40, 0])
+    assert not value._anchor(gray, mask, 100.1, wrong)
+    assert not value._anchor(gray, mask, 100.2, wrong)
+    assert value.offset[0] == pytest.approx(0, abs=0.5)
+    # Three consistent disagreements mean the propagated estimate was the wrong one.
+    assert value._anchor(gray, mask, 100.3, wrong)
+    assert value._anchor(gray, mask, 100.4, value.offset.copy())

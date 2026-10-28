@@ -175,3 +175,21 @@ def test_confident_matches_follow_gradual_animation_until_recognition_returns():
         tracks.update(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 1.0 + step / 30)
     # The final appearance shares nothing with the anchor patch, yet the box kept up.
     assert tracks.items(1.4)[1][0]["box"]["x"] == 336
+
+
+def test_late_recognition_never_snaps_a_tracked_box_back_and_misses_keep_ids():
+    tracks = DisplayTracks()
+    first = scene([((300, 300), 1), ((700, 300), 2)])
+    tracks.update(cv2.cvtColor(first, cv2.COLOR_BGR2GRAY), 1.0)
+    tracks.anchor(drawing("a", 1.0, [monster(300, 300), monster(700, 300, "Ribbon Pig")]), first)
+    ids = [item["track_id"] for item in tracks.items(1.0)[1]]
+    for step in range(1, 13):
+        frame = scene([((300 + 5 * step, 300), 1), ((700, 300), 2)])
+        tracks.update(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 1.0 + step / 30)
+    # Recognition of a frame 0.2 s old places the mushroom 20 px behind its live box,
+    # and misses the pig once.
+    old = scene([((340, 300), 1), ((700, 300), 2)])
+    tracks.anchor(drawing("b", 1.0 + 8 / 30, [monster(340, 300, frame="move-1")]), old)
+    _, monsters, _ = tracks.items(1.4)
+    boxes = {item["track_id"]: item["box"]["x"] for item in monsters}
+    assert boxes == {ids[0]: 360, ids[1]: 700}

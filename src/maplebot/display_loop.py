@@ -174,22 +174,49 @@ class DisplayTracks:
                 self.count += 1
                 key = f"monster:{self.count}"
             old = self.tracks.get(key)
-            track = Track(key, kind, identity(item), item, gray[top:bottom, left:right].copy(),
-                          float(left), float(top), moment, moment, moment,
-                          old.vx if old else 0.0, old.vy if old else 0.0)
-            track.history.append((moment, track.x, track.y))
-            if self.gray is not None and self.time is not None and self.time > moment:
-                # Bring the recognition box forward to the newest displayed frame.
-                dt = self.time - moment
-                found = self._search(self.gray, track.template, track.x, track.y,
-                                     min(200.0, 24 + self.SPEED * dt))
+            template = gray[top:bottom, left:right].copy()
+            if (old is not None and self.gray is not None and self.time is not None
+                    and self.time - old.seen <= self.VISIBLE):
+                # Recognition describes an older frame. A live track keeps its current
+                # place instead of snapping back; only its patch and identity refresh.
+                h, w = template.shape
+                cx = old.x + old.template.shape[1] / 2 - w / 2
+                cy = old.y + old.template.shape[0] / 2 - h / 2
+                found = self._search(self.gray, template, cx, cy, 16.0)
                 if found is not None:
-                    track.x, track.y, track.seen = found[0], found[1], self.time
-                track.updated = self.time
-                track.history.append((self.time, track.x, track.y))
-            tracks[key] = track
+                    old.template, old.x, old.y, old.seen = template, found[0], found[1], self.time
+                    old.history.append((self.time, old.x, old.y))
+                old.detection, old.identity, old.anchored = item, identity(item), moment
+                tracks[key] = old
+            else:
+                track = Track(key, kind, identity(item), item, template, float(left), float(top),
+                              moment, moment, moment)
+                track.history.append((moment, track.x, track.y))
+                if self.gray is not None and self.time is not None and self.time > moment:
+                    # Bring the recognition box forward to the newest displayed frame.
+                    dt = self.time - moment
+                    found = self._search(self.gray, track.template, track.x, track.y,
+                                         min(200.0, 24 + self.SPEED * dt))
+                    if found is not None:
+                        track.x, track.y, track.seen = found[0], found[1], self.time
+                    track.updated = self.time
+                    track.history.append((self.time, track.x, track.y))
+                tracks[key] = track
             if target and kind == "monster" and item["box"] == target.get("box"):
                 self.target = key
+
+        def center(track: Track) -> tuple[float, float]:
+            return (track.x + track.template.shape[1] / 2, track.y + track.template.shape[0] / 2)
+
+        # A single recognition miss keeps a visible track (and its ID) until its lifetime
+        # ends, unless another track now covers the same place.
+        for key, old in self.tracks.items():
+            if key in tracks or self.time is None or self.time - old.seen > self.VISIBLE:
+                continue
+            ox, oy = center(old)
+            if all(np.hypot(ox - x, oy - y) >= max(old.template.shape) / 2
+                   for x, y in map(center, tracks.values())):
+                tracks[key] = old
         self.tracks = tracks
 
     def boxes(self) -> tuple[Rect, ...]:
