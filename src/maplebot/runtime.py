@@ -1686,12 +1686,11 @@ class Application:
         captured_at = time.time() if captured_at is None else captured_at
         fix = self.position.read_map(image) if self.position is not None else None
         self.detector.taught_map = bool(fix and fix.canvas)
-        # Teaching and moving between platforms never target a monster; skipping that search
-        # keeps position feedback fresh. Combat and dry runs always search.
-        position = self.position
+        # Moving between platforms and idle map tracking (including teaching) never target a
+        # monster; skipping that search keeps position fresh enough to start a route.
+        # Combat and dry runs always search.
         self.monster_search = not (self.mode in {"navigation", "navigation_wait"} or (
-            position is not None and (position.teacher is not None
-                                      or position.teach_calibrating)))
+            self.mode == "capture" and self.position is not None))
         perception_began = time.perf_counter()
         observation = self.detector.detect(image, now, monsters=self.monster_search)
         perception_ms = (time.perf_counter() - perception_began) * 1000

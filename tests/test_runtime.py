@@ -1686,12 +1686,12 @@ def test_potion_preempts_renewed_movement_before_its_keypress(potion_app):
                                               ("insert", True), ("insert", False)]
 
 
-@pytest.mark.parametrize("mode, teaching, search", [
-    ("capture", False, True), ("live", False, True), ("dry_run", False, True),
+@pytest.mark.parametrize("mode, tracking, search", [
+    ("capture", False, True), ("live", True, True), ("dry_run", True, True),
     ("navigation", False, False), ("navigation_wait", False, False), ("capture", True, False),
 ])
-def test_monster_search_is_skipped_only_while_teaching_or_navigating(
-        app, monkeypatch, mode, teaching, search):
+def test_monster_search_is_skipped_while_tracking_idle_or_navigating(
+        app, monkeypatch, mode, tracking, search):
     from maplebot.perception import Observation
 
     calls = []
@@ -1703,9 +1703,9 @@ def test_monster_search_is_skipped_only_while_teaching_or_navigating(
     monkeypatch.setattr(app.detector, "detect", detect)
     monkeypatch.setattr(app, "_stop", lambda *args, **kwargs: None)
     app.mode = mode
-    if teaching:
+    if tracking:
         app.position = type("Position", (), {
-            "teacher": object(), "teach_calibrating": False,
+            "teacher": None, "teach_calibrating": False,
             "read_map": lambda self, image: None})()
     app._process(app.image, time.perf_counter())
     assert calls == [search] and app.monster_search is search
