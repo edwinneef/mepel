@@ -12,3 +12,23 @@ Restart the debugger engine only with `tools/restart_engine.ps1` (`-EnableGamepl
 input-capable sessions). Never `Start-Process` `run.ps1` again for a restart: the previous
 `-NoExit` launcher window stays open after its engine stops, and repeated restarts left four
 terminals open on 2026-10-26. Tell the operator before restarting; it ends any active probe.
+
+## Unattended testing
+
+Standing operator permission, granted 2026-10-29: agents may run gameplay tests without
+asking first. This covers restarting the engine and overlay (`tools/restart_engine.ps1
+-EnableGameplayInput`, then `tools/start_overlay.ps1 -WaitForEngine`), tracking and importing
+maps, control probes, navigation routes (`tools/navigation_check.py --run`), rotation, and
+combat checks (`tools/combat_check.py --run`). Read each failure's clip, fix the cause, and
+run the checks again.
+
+Limits that still apply:
+
+- Only on the bot-friendly server, and only through the engine's own commands and gates.
+  Never weaken, bypass or disable a safety gate, the watchdog, F8 or the overlay lease to
+  make a test pass; a test that needs a gate changed goes to the operator.
+- Stop a batch at its first failure; never repeat an unchanged failing run.
+- If the game is not focused, not on the expected map, or the player is not recognized,
+  report it and stop rather than taking over the window.
+- Do not delete recordings, calibration or saved maps; backups stay as they are.
+- Report every run in the final reply: what ran, the result, and evidence or clip paths.
