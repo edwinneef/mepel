@@ -92,6 +92,15 @@ def test_problems_list_unreachable_and_stranded_surfaces():
     }
 
 
+def test_home_is_the_widest_floor_despite_sub_pixel_height_noise():
+    from maplebot.map_teacher import problems
+
+    floors = [{"id": key, "start": {"x": x, "y": y}, "end": {"x": x + width, "y": y}}
+              for key, x, y, width in (("main", 298, 1510.2, 1343), ("side", 1934, 1510.3, 294),
+                                       ("ledge", 0, 1490, 2000))]
+    assert problems(floors, [], [])["home"] == "main"
+
+
 def test_level_marker_counts_as_standing_without_a_camera_estimate():
     teacher = MapTeacher(MinimapTransform(16, 0, 16, 0))
     for index, x in enumerate(range(10, 30)):

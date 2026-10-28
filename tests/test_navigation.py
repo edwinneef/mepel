@@ -78,7 +78,11 @@ def test_boundary_player_footprint_is_checked_between_endpoints():
     assert "boundary" in RouteMap(profile, evidence).disabled["up"]
 
 
-def test_evidence_matches_a_newer_session_log_beside_older_logs(tmp_path):
+def teaching_evidence(tmp_path, *, older=True, stretch=1.0, checks=0.0):
+    """Teach a small map, save its log (times scaled by stretch) and build its evidence.
+
+    checks adds a readable position check at that interval between kept samples.
+    """
     from dataclasses import asdict
 
     from test_map_teacher import fix, tag
@@ -94,7 +98,12 @@ def test_evidence_matches_a_newer_session_log_beside_older_logs(tmp_path):
         return teacher
 
     def write_log(name, teacher):
-        rows = [{"t": s.t, "kind": s.kind, "sample_dot": list(s.dot)} for s in teacher.samples]
+        rows = [{"t": s.t * stretch, "kind": s.kind, "sample_dot": list(s.dot)}
+                for s in teacher.samples]
+        if checks:
+            first, last = rows[0]["t"], rows[-1]["t"]
+            rows += [{"t": first + k * checks, "dot": [0, 0], "reason": "Player marker"}
+                     for k in range(1, int((last - first) / checks))]
         (tmp_path / "teaching" / name).write_text(
             "".join(json.dumps(row) + "\n" for row in rows), "utf-8")
 
@@ -103,16 +112,30 @@ def test_evidence_matches_a_newer_session_log_beside_older_logs(tmp_path):
     path += [(x, 32, 472) for x in range(30, 46)]
     path += [(45 + step, 32 + 2 * step, 472 + 32 * step) for step in range(1, 5)]
     path += [(x, 40, 600) for x in range(53, 61)]
-    old, new = walk(path[:30], 0), walk(path, 100)
-    (tmp_path / "teaching").mkdir()
+    new = walk(path, 100)
+    (tmp_path / "teaching").mkdir(parents=True)
     (tmp_path / "drafts").mkdir()
-    write_log("a-1.jsonl", old)
+    if older:
+        write_log("a-1.jsonl", walk(path[:30], 0))
     write_log("a-2.jsonl", new)
     (tmp_path / "drafts" / "a.json").write_text(
         json.dumps({"teacher": new.checkpoint()}), "utf-8")
     profile = {"id": "a", "revision": 1, "zones": [], **new.geometry(),
                "minimap_calibration": {"transform": asdict(new.transform)}}
-    edges = build_evidence(profile, tmp_path)["edges"]
+    return profile, build_evidence(profile, tmp_path)["edges"]
+
+
+def test_evidence_matches_a_newer_session_log_beside_older_logs(tmp_path):
+    profile, edges = teaching_evidence(tmp_path)
     assert {(e["from"], e["to"]) for e in edges.values()} == {
         (link["from"], link["to"]) for link in profile["links"]}
     assert {e["source"] for e in edges.values()} == {"a-2.jsonl"}
+
+
+def test_sparse_samples_are_continuous_only_when_checks_fill_the_gaps(tmp_path):
+    _, sparse = teaching_evidence(tmp_path / "sparse", older=False, stretch=6)
+    _, checked = teaching_evidence(tmp_path / "checked", older=False, stretch=6, checks=.5)
+    assert sparse.keys() == checked.keys() and sparse
+    assert all(edge["max_gap"] > 1 for edge in sparse.values())
+    assert all(edge["max_gap"] <= .5 + 1e-9 and edge["missing_checks"] == 0
+               for edge in checked.values())

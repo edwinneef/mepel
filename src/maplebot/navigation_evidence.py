@@ -75,14 +75,17 @@ def build_evidence(profile: dict, directory: Path) -> dict:
             if sources[start] == sources[i] and 0 < sample.t - samples[start].t <= 6:
                 between = [row for row in log if samples[start].t < row["t"] <= sample.t]
                 points = samples[start:i + 1]
+                times = sorted({s.t for s in points}
+                               | {r["t"] for r in between if r.get("dot") is not None})
                 for link in profile["links"]:
                     if (link["from"], link["to"]) != (origin, surface):
                         continue
                     row = {"from": origin, "to": surface, "kind": link["kind"],
                            "source": sources[i], "missing_checks": sum(
                                r.get("dot") is None for r in between),
-                           "max_gap": max(b.t - a.t for a, b in
-                                          zip(points, points[1:], strict=False)),
+                           # Continuity counts every readable check, not only the sparse
+                           # samples kept during falls and climbs; misses are counted above.
+                           "max_gap": max(b - a for a, b in zip(times, times[1:], strict=False)),
                            "trace": [list(s.feet) for s in points]}
                     prior = manifest["edges"].get(link["id"])
                     if prior is None or (row["missing_checks"], row["max_gap"]) < (

@@ -26,6 +26,7 @@ MIN_WIDTH_PX = 24  # narrower runs are usually a pause on a rope, not a ledge
 HOP_PX = 250  # a jump that lands back on the same height bridges at most this far
 SLOPE_TAG_PX = 24  # name-tag rise allowed for one walking step on a slope
 MAX_SAMPLES = 20_000
+FLOOR_PX = 8  # platforms this close to the lowest height are the same floor level
 
 
 @dataclass(frozen=True)
@@ -269,11 +270,17 @@ def problems(platforms: list[dict], ropes: list[dict], links: list[dict]) -> dic
     """Surfaces the floor cannot reach, and surfaces with no way back to it.
 
     The floor ("home") is the lowest platform; among equally low ones, the widest.
+    Learned heights carry sub-pixel noise, so "equally low" allows FLOOR_PX.
     """
     if not platforms:
         return {"home": None, "unreachable": [], "stranded": []}
-    home = max(platforms, key=lambda p: (round(p["start"]["y"] + p["end"]["y"]),
-                                         p["end"]["x"] - p["start"]["x"]))["id"]
+
+    def level(item: dict) -> float:
+        return (item["start"]["y"] + item["end"]["y"]) / 2
+
+    lowest = max(level(p) for p in platforms)
+    home = max((p for p in platforms if lowest - level(p) <= FLOOR_PX),
+               key=lambda p: p["end"]["x"] - p["start"]["x"])["id"]
     nodes = [item["id"] for item in (*platforms, *ropes)]
     forward: dict[str, set[str]] = {key: set() for key in nodes}
     backward: dict[str, set[str]] = {key: set() for key in nodes}
