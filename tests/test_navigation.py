@@ -1,4 +1,5 @@
 import copy
+import json
 
 import pytest
 
@@ -75,3 +76,43 @@ def test_boundary_player_footprint_is_checked_between_endpoints():
     profile, evidence = fixture()
     evidence["edges"]["up"]["trace"][1] = [590, 260]
     assert "boundary" in RouteMap(profile, evidence).disabled["up"]
+
+
+def test_evidence_matches_a_newer_session_log_beside_older_logs(tmp_path):
+    from dataclasses import asdict
+
+    from test_map_teacher import fix, tag
+
+    from maplebot.localization import MinimapTransform
+    from maplebot.map_teacher import MapTeacher
+    from maplebot.navigation_evidence import build_evidence
+
+    def walk(path, start):
+        teacher = MapTeacher(MinimapTransform(16, 0, 16, 0))
+        for index, (x, y, feet) in enumerate(path):
+            teacher.add(fix(x, y), tag(feet), (0, 0), start + index * 0.2)
+        return teacher
+
+    def write_log(name, teacher):
+        rows = [{"t": s.t, "kind": s.kind, "sample_dot": list(s.dot)} for s in teacher.samples]
+        (tmp_path / "teaching" / name).write_text(
+            "".join(json.dumps(row) + "\n" for row in rows), "utf-8")
+
+    path = [(x, 40, 600) for x in range(10, 31)]
+    path += [(30, y, 600 - 16 * (40 - y)) for y in range(39, 31, -1)]
+    path += [(x, 32, 472) for x in range(30, 46)]
+    path += [(45 + step, 32 + 2 * step, 472 + 32 * step) for step in range(1, 5)]
+    path += [(x, 40, 600) for x in range(53, 61)]
+    old, new = walk(path[:30], 0), walk(path, 100)
+    (tmp_path / "teaching").mkdir()
+    (tmp_path / "drafts").mkdir()
+    write_log("a-1.jsonl", old)
+    write_log("a-2.jsonl", new)
+    (tmp_path / "drafts" / "a.json").write_text(
+        json.dumps({"teacher": new.checkpoint()}), "utf-8")
+    profile = {"id": "a", "revision": 1, "zones": [], **new.geometry(),
+               "minimap_calibration": {"transform": asdict(new.transform)}}
+    edges = build_evidence(profile, tmp_path)["edges"]
+    assert {(e["from"], e["to"]) for e in edges.values()} == {
+        (link["from"], link["to"]) for link in profile["links"]}
+    assert {e["source"] for e in edges.values()} == {"a-2.jsonl"}

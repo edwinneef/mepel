@@ -38,21 +38,26 @@ def build_evidence(profile: dict, directory: Path) -> dict:
                 "map_hash": map_hash(profile), "edges": {}}
     if teacher is None:
         return manifest
-    # Match the complete saved sequence before trusting original log timestamps.
-    samples, log, sources = [], [], []
+    # Match the complete saved sequence before trusting original log timestamps. A merged
+    # draft spans every log; a newer single session (or its last finish) matches one log.
     transform = MinimapTransform(**profile["minimap_calibration"]["transform"])
+    sessions = []
     for path in sorted((directory / "teaching").glob(f"{profile['id']}-*.jsonl")):
         if path.stat().st_size > 16_000_000:
             continue
         rows = [json.loads(line) for line in path.read_text("utf-8").splitlines()]
         session = [row for row in rows if "sample_dot" in row]
-        samples.extend(_Sample(row["t"], row["kind"], tuple(row["sample_dot"]),
-                               transform.to_area(*row["sample_dot"])) for row in session)
-        sources.extend([path.name] * len(session))
-        log.extend(row for row in rows if "reason" in row)
-    if ([(s.kind, s.dot, s.feet) for s in samples]
-            != [(s.kind, s.dot, s.feet) for s in teacher.samples]):
+        sessions.append(([_Sample(row["t"], row["kind"], tuple(row["sample_dot"]),
+                                  transform.to_area(*row["sample_dot"])) for row in session],
+                         [row for row in rows if "reason" in row], [path.name] * len(session)))
+    wanted = [(s.kind, s.dot, s.feet) for s in teacher.samples]
+    candidates = [tuple(sum((item[i] for item in sessions), []) for i in range(3)),
+                  *reversed(sessions)]
+    match = next((item for item in candidates
+                  if [(s.kind, s.dot, s.feet) for s in item[0]] == wanted), None)
+    if match is None:
         return manifest
+    samples, log, sources = match
     teacher.samples, teacher.log = samples, log
     teacher.identities = copy.deepcopy(teacher.identities)
     platforms, members = teacher._platforms()
