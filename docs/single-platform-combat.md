@@ -87,3 +87,11 @@ Rollback is restoration of that one source backup followed by the same restart.
 No settings, maps, templates or UI rebuild are required. Native repeated-loop,
 basic-fallback and HP-recovery acceptance remain pending. Review ordinary-use
 recordings first; this report does not authorize a new native run or repeat probes.
+
+Installed through the restart helper on 28 October. New engine session
+`7218097e335346e6ae17c2886b77e23f` reports capture/IDLE, the same input capability,
+Broadsword 0–65 and all nine confirmations. Read-only tracking of the previously
+selected Forest III map was restored. All 46 protected file hashes are unchanged;
+the engine reports no error. `install-before.json` and `install-after.json` in the
+artifact directory retain the session, source/backup hashes and preservation checks.
+No gameplay was started, no UI rebuild was needed and no native acceptance was added.
