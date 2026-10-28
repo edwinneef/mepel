@@ -72,6 +72,8 @@ def serve(
                     "shutdown_available": on_shutdown is not None,
                 }
                 self.reply(200, json.dumps(status).encode(), "application/json")
+            elif parsed.path == "/api/v1/drawings":
+                self.reply(200, json.dumps(app.drawings()).encode(), "application/json")
             elif parsed.path == "/api/v1/area-frame":
                 query = parse_qs(parsed.query)
                 body = app.areas.frame(query.get("id", [""])[0])

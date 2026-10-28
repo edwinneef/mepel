@@ -28,6 +28,7 @@ from .contracts import (
     readiness,
 )
 from .decision import Action, Agent, Decision, PolicyInput
+from .display_loop import DisplayLoop, DisplaySource
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
 from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win32Input
@@ -145,6 +146,7 @@ class Application:
         self.source_generation = 0
         self.published_frame: dict[str, Any] | None = None
         self.live_detections: dict[str, Any] | None = None
+        self.display_anchor: tuple[dict[str, Any], Image] | None = None
         self.capture_only = capture_only
         self.data = Path(config.capture.data_dir).resolve()
         self.data.mkdir(parents=True, exist_ok=True)
@@ -215,6 +217,7 @@ class Application:
         self.latest: bytes | None = None
         self.raw: bytes | None = None
         self.preview = PreviewStream(self._preview_source, config.capture.fps)
+        self.display = DisplayLoop(self._display_source, config.capture.display_fps)
         self.status: dict[str, Any] = {
             "mode": "capture",
             "state": "IDLE",
@@ -253,6 +256,7 @@ class Application:
             except (OSError, ValueError, TypeError, KeyError):
                 self.note("A teaching draft needs recovery; its original file is preserved")
         self.preview.start()
+        self.display.start()
         self.start_capture_worker()
 
     def _preview_source(self) -> PreviewSource:
@@ -261,6 +265,23 @@ class Application:
                 f"{self.session_id}:source:{self.source_generation}", self.hwnd, self.manual,
                 replace(self.calibration) if self.calibration else None,
             )
+
+    def _display_source(self) -> DisplaySource:
+        position = self.position
+        terrain = None
+        if position is not None:
+            terrain = (position.profile["id"], position.profile["revision"], position.reference,
+                       position.view.x, position.view.y, position.view.scale)
+        with self.lock:
+            return DisplaySource(
+                f"{self.session_id}:source:{self.source_generation}", self.view_generation,
+                self.hwnd, self.manual, replace(self.calibration) if self.calibration else None,
+                self.display_anchor, terrain,
+            )
+
+    def drawings(self) -> dict | None:
+        """Display-only packets; never read by decisions, input or safety gates."""
+        return self.display.drawings()
 
     def preview_frame(self, frame_id: str) -> bytes | None:
         return self.preview.frame(frame_id, self._preview_source().id)
@@ -288,6 +309,7 @@ class Application:
         self.safe_stop("OPERATOR_STOP", "Application closing")
         self.closed.set()
         self.preview.close()
+        self.display.close()
         worker = self.worker
         if worker and worker is not threading.current_thread():
             worker.join(timeout=3)
@@ -512,6 +534,7 @@ class Application:
                 self.source_generation += 1
             self.published_frame = None
             self.live_detections = None
+            self.display_anchor = None
             self.latest, self.raw = None, None
 
     def _capture_moved(self, attempt: int) -> None:
@@ -1544,7 +1567,7 @@ class Application:
                 path.with_suffix(".annotated.png").write_bytes(self.latest)
         return str(path)
 
-    def _publish_detections(self, status: dict) -> None:
+    def _publish_detections(self, status: dict, image: Image | None = None) -> None:
         """Publish read-only drawings before PNG work; encoded status stays image-paired."""
         with self.lock:
             if status["view_generation"] != self.view_generation:
@@ -1558,6 +1581,7 @@ class Application:
                 },
                 **{key: status.get(key) for key in ("player", "monsters", "target", "position")},
             }
+            self.display_anchor = (self.live_detections, image) if image is not None else None
 
     def _encoded(self, packet: FramePacket, raw: bytes, annotated: bytes, elapsed: float) -> None:
         generation = packet.status.get("view_generation", self.view_generation)
@@ -2018,7 +2042,7 @@ class Application:
                         **result["stage_timing"],
                     }
                     previous = end
-                    self._publish_detections(status)
+                    self._publish_detections(status, image)
                     publish_began = time.perf_counter()
                     packet = FramePacket(
                         self.sequence,

@@ -54,6 +54,21 @@ def test_read_only_preview_route_requires_the_matching_frame_id():
         server.server_close()
 
 
+def test_display_drawings_route_returns_the_latest_packet_or_null():
+    app = RestartApp()
+    packets = [None, {"display": True, "frame": {"id": "s:source:0:display:1"}}]
+    app.drawings = lambda: packets.pop(0)
+    server = serve(app, 0)
+    try:
+        assert request(server, "GET", "/api/v1/drawings") == (200, "null")
+        status, body = request(server, "GET", "/api/v1/drawings")
+        assert status == 200 and json.loads(body)["display"] is True
+        assert app.events == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_teaching_evidence_and_draft_reads_cannot_escape_their_directories(tmp_path):
     app = RestartApp()
     app.areas = SimpleNamespace(directory=tmp_path)

@@ -1,5 +1,6 @@
 [capture]
 fps = 12
+display_fps = 30
 window_title = "MapleStory"
 data_dir = "data"
 

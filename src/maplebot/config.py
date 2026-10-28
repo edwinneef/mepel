@@ -9,6 +9,8 @@ from .attack_ranges import range_profile
 @dataclass(frozen=True)
 class CaptureConfig:
     fps: float = 12
+    # Display-only drawing refresh; 0 disables the separate display loop.
+    display_fps: float = 30
     window_title: str = "MapleStory"
     data_dir: str = "data"
 
@@ -201,6 +203,8 @@ class Config:
         )
         if not 1 <= config.capture.fps <= 60:
             raise ValueError("capture.fps must be between 1 and 60")
+        if not (config.capture.display_fps == 0 or 1 <= config.capture.display_fps <= 60):
+            raise ValueError("capture.display_fps must be 0 or between 1 and 60")
         if not config.capture.window_title.strip():
             raise ValueError("capture.window_title must identify the intended game window")
         for size in (config.perception.roi_width, config.perception.roi_height):

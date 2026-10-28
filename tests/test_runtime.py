@@ -753,9 +753,12 @@ def test_live_drawings_publish_before_png_without_repairing_input_evidence(app, 
     assert app.frame(status["frame"]["id"]) == b"png"
     assert processed["stage_timing"]["capture_ms"] >= 5
     assert app.controller.backend.events == []
+    drawing, image = app._display_source().anchor  # Display anchors pair boxes with their frame.
+    assert drawing["frame"]["sequence"] == 2 and image is app.image
     app._invalidate_view()
     app._publish_detections(processed)  # A result from the old crop cannot reappear.
     assert app.snapshot()["live_detections"] is None
+    assert app._display_source().anchor is None
 
 
 def test_f8_watchdog_acknowledges_alarm_without_a_capture_worker(app, monkeypatch):
