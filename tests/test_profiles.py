@@ -204,3 +204,17 @@ def test_new_view_aligns_to_an_overlapping_view_and_reports_its_evidence(tmp_pat
     assert store.align_view(moved, [])["reason"] == "No earlier view to align with"
     with pytest.raises(ValueError, match="Malformed alignment view"):
         store.align_view(moved, [{"image": first["image"]}])
+
+
+def test_platform_bends_are_kept_only_when_they_span_the_platform(area):
+    _, profile = area
+    bent = [{"x": 10, "y": 70}, {"x": 30, "y": 60}, {"x": 110, "y": 60}]
+    profile["platforms"][0]["points"] = bent
+    saved, _ = validate_profile(profile)
+    assert saved["platforms"][0]["points"] == bent
+    for broken in ([{"x": 10, "y": 70}, {"x": 110, "y": 60}],
+                   [{"x": 10, "y": 70}, {"x": 5, "y": 60}, {"x": 110, "y": 60}],
+                   [{"x": 20, "y": 70}, {"x": 30, "y": 60}, {"x": 110, "y": 60}]):
+        profile["platforms"][0]["points"] = broken
+        with pytest.raises(ValueError, match="bends"):
+            validate_profile(profile)

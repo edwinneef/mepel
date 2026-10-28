@@ -143,3 +143,17 @@ def test_rotation_needs_two_round_trip_platforms(app):
         app._prepare_rotation(True)
     app._prepare_rotation(False)
     assert not app.rotating
+
+
+def test_destinations_beyond_the_route_budget_are_never_chosen(app, monkeypatch):
+    nav = preview(app)
+    app.controller.enable()
+
+    def plan(origin, target, **_):
+        raise ValueError("No evidenced safe route within the eight-edge budget")
+
+    monkeypatch.setattr(nav.graph, "plan", plan)
+    now = time.perf_counter()
+    app._rotate(SEARCH, Observation(PLAYER, []), now)
+    assert app._rotate(SEARCH, Observation(PLAYER, []), now + 1) is None
+    assert app.mode == "live" and "No other routable platform" in app.rotation.reason

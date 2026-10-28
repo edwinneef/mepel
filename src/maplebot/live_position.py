@@ -41,7 +41,8 @@ def platforms(profile: dict) -> tuple[Platform, ...]:
     for item in profile["platforms"]:
         left, right = sorted((item["start"], item["end"]), key=lambda p: p["x"])
         result.append(Platform(item["id"], int(left["x"]), int(right["x"]), int(round(left["y"])),
-                               None if left["y"] == right["y"] else right["y"]))
+                               None if left["y"] == right["y"] else right["y"],
+                               tuple((p["x"], p["y"]) for p in item.get("points", ()))))
     return tuple(result)
 
 
@@ -132,7 +133,12 @@ class LivePosition:
         proposal = rows[-1].get("proposal") if rows else None
         if not proposal:
             return
-        if all(self.profile[key] == proposal[key] for key in ("platforms", "ropes", "links")):
+        def bare(items: list[dict]) -> list[dict]:
+            return [{k: v for k, v in item.items() if k != "points"} for item in items]
+
+        # Bends are recomputed from the same samples; logs from before bends lack them.
+        if all(bare(self.profile[key]) == bare(proposal[key])
+               for key in ("platforms", "ropes", "links")):
             return  # This result has already been installed as the saved map.
         transform = self.tracker.transform
         teacher = MapTeacher.restore({

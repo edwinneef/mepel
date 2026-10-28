@@ -27,6 +27,8 @@ HOP_PX = 250  # a jump that lands back on the same height bridges at most this f
 SLOPE_TAG_PX = 24  # name-tag rise allowed for one walking step on a slope
 MAX_SAMPLES = 20_000
 FLOOR_PX = 8  # platforms this close to the lowest height are the same floor level
+BEND_PX = 8  # keep a bend (sloped end) once the walked height leaves the line by this much
+COLUMN_PX = 16  # walked feet are summarized per column of this width before bending
 
 
 @dataclass(frozen=True)
@@ -196,9 +198,13 @@ class MapTeacher:
                 slope, offset = np.polyfit(xs, ys, 1)
                 y_left, y_right = slope * left + offset, slope * right + offset
             key = f"walk_p{len(platforms) + 1}"
-            platforms.append({"id": key,
-                              "start": {"x": round(left, 1), "y": float(round(y_left, 1))},
-                              "end": {"x": round(right, 1), "y": float(round(y_right, 1))}})
+            platform = {"id": key,
+                        "start": {"x": round(left, 1), "y": float(round(y_left, 1))},
+                        "end": {"x": round(right, 1), "y": float(round(y_right, 1))}}
+            points = _bends(xs, ys, left, right)
+            if points is not None:
+                platform["points"] = points
+            platforms.append(platform)
             members[key] = {s.dot for s in group}
         return platforms, members
 
@@ -267,6 +273,44 @@ def _touch(group: list[_Sample], walk: list[_Sample]) -> bool:
         if xs and min(xs) - SPLIT_PX <= sample.feet[0] <= max(xs) + SPLIT_PX:
             return True
     return False
+
+
+def _bends(xs: np.ndarray, ys: np.ndarray, left: float, right: float) -> list[dict] | None:
+    """The walked surface as a polyline when it bends away from one straight line.
+
+    Trapezoid platforms slope down at their ends; a straight fit leaves feet on those
+    slopes far below the line. Minimap heights come in ~15 px steps, so columns are
+    summarized by their median and only bends larger than BEND_PX are kept.
+    """
+    columns = []
+    for start in np.arange(xs.min(), xs.max() + COLUMN_PX, COLUMN_PX):
+        inside = (xs >= start) & (xs < start + COLUMN_PX)
+        if inside.any():
+            columns.append((float(np.median(xs[inside])), float(np.median(ys[inside]))))
+    line = [(left, columns[0][1]), *columns, (right, columns[-1][1])]
+
+    def simplify(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        (x0, y0), (x1, y1) = points[0], points[-1]
+        errors = [abs(y - (y0 + (y1 - y0) * (x - x0) / (x1 - x0))) if x1 != x0 else 0.0
+                  for x, y in points[1:-1]]
+        if not errors or max(errors) <= BEND_PX:
+            return [points[0], points[-1]]
+        split = errors.index(max(errors)) + 1
+        return simplify(points[:split + 1])[:-1] + simplify(points[split:])
+
+    bent = simplify(line)
+    if len(bent) <= 2:
+        return None
+    return [{"x": round(x, 1), "y": float(round(y, 1))} for x, y in bent]
+
+
+def surface_y(platform: dict, x: float) -> float:
+    """Height of a learned platform at x, following its bends when it has them."""
+    points = platform.get("points") or [platform["start"], platform["end"]]
+    points = sorted(points, key=lambda p: p["x"])
+    if points[0]["x"] == points[-1]["x"]:
+        return points[0]["y"]
+    return float(np.interp(x, [p["x"] for p in points], [p["y"] for p in points]))
 
 
 def problems(platforms: list[dict], ropes: list[dict], links: list[dict]) -> dict:

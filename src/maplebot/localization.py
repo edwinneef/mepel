@@ -41,8 +41,12 @@ class Platform:
     right: int
     y: int
     y_right: float | None = None  # sloped platforms: y is the left end, y_right the right
+    bends: tuple[tuple[float, float], ...] = ()  # walked polyline, left to right
 
     def y_at(self, x: float) -> float:
+        if len(self.bends) >= 2:
+            xs, ys = zip(*self.bends, strict=True)
+            return float(np.interp(x, xs, ys))
         if self.y_right is None or self.right == self.left:
             return self.y
         return self.y + (self.y_right - self.y) * (x - self.left) / (self.right - self.left)

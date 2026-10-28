@@ -1411,11 +1411,13 @@ class Application:
         ) if known and f.feet else {}
         platforms = routable(nav.graph) if known else []
         edges = {}
-        for key in platforms if decision.state == "SEARCH" and f.surface in platforms else []:
-            try:
-                edges[key] = len(nav.graph.plan(f.surface, key).edges)
-            except ValueError:
-                edges[key] = 99
+        if decision.state == "SEARCH" and f.surface in platforms:
+            for key in platforms:
+                try:
+                    edges[key] = len(nav.graph.plan(f.surface, key).edges)
+                except ValueError:
+                    pass  # Beyond the route budget from here; never chosen.
+            platforms = [key for key in platforms if key in edges or key == f.surface]
         target = self.rotation.step(
             now, searching=decision.state == "SEARCH", surface=f.surface if known else None,
             platforms=platforms, visible=visible, edges=edges,

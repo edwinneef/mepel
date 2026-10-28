@@ -7,7 +7,7 @@ import math
 from collections import deque
 from dataclasses import asdict, dataclass
 
-from .map_teacher import problems
+from .map_teacher import problems, surface_y
 
 
 def map_hash(profile: dict) -> str:
@@ -119,8 +119,7 @@ class RouteMap:
         if a["x"] == b["x"]:
             return abs(feet[0] - a["x"]) <= 12 and a["y"] - 1 <= feet[1] <= b["y"] + 1
         x0, x1 = sorted((a["x"], b["x"]))
-        y = a["y"] + (b["y"] - a["y"]) * (feet[0] - a["x"]) / (b["x"] - a["x"])
-        return x0 <= feet[0] <= x1 and abs(feet[1] - y) <= tolerance
+        return x0 <= feet[0] <= x1 and abs(feet[1] - surface_y(node, feet[0])) <= tolerance
 
     def path_blocker(self, points: tuple) -> str | None:
         boundary = self.profile["boundary"]

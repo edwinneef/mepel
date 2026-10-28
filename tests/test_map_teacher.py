@@ -117,3 +117,18 @@ def test_level_marker_counts_as_standing_without_a_camera_estimate():
         teacher.add(fix(x, 40), tag(600), None, index * 0.3)
     [floor] = teacher.geometry()["platforms"]
     assert (floor["start"]["x"], floor["end"]["x"]) == (168, 472)
+
+
+def test_trapezoid_ends_bend_the_platform_while_flat_walks_stay_straight():
+    from maplebot.map_teacher import surface_y
+
+    path = [(x, 40, 600) for x in range(10, 50)]  # long flat top
+    path += [(50 + step, 41 + step, 600) for step in range(6)]  # sloped right end
+    geometry = play(path)
+    [ledge] = geometry["platforms"]
+    assert len(ledge["points"]) >= 3
+    for x, y in [(15, 40), (45, 40), (52, 43), (55, 46)]:
+        assert abs(surface_y(ledge, x * 16) - y * 16) <= 12
+    assert abs(ledge["end"]["y"] - 46 * 16) > 12  # the straight line misses the slope
+    [flat] = play([(x, 40, 600) for x in range(10, 60)])["platforms"]
+    assert "points" not in flat

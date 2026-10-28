@@ -271,3 +271,11 @@ def test_register_view_finds_camera_offset_and_rejects_featureless_frames():
     assert register_view(reference, shifted) == (-37, 0)
     assert register_view(reference, np.zeros_like(reference)) is None
     assert register_view(reference, shifted[:700]) is None
+
+
+def test_platform_height_follows_its_bends():
+    from maplebot.localization import Platform
+
+    ledge = Platform("p", 50, 200, 440, 400, ((50, 440), (90, 400), (200, 400)))
+    assert ledge.y_at(70) == 420 and ledge.y_at(150) == 400
+    assert Platform("q", 0, 100, 10, 30).y_at(50) == 20

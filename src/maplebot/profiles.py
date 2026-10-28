@@ -39,6 +39,19 @@ def point(value: dict) -> dict:
     return {key: number(value[key]) for key in ("x", "y")}
 
 
+def bends(value: list, start: dict, end: dict, boundary: dict) -> list[dict]:
+    """A taught platform's walked polyline: left to right, spanning its own ends."""
+    if not isinstance(value, list) or not 3 <= len(value) <= 64:
+        raise ValueError("Platform bends need 3 to 64 points")
+    points = [point(item) for item in value]
+    left, right = sorted((start["x"], end["x"]))
+    if (any(b["x"] <= a["x"] for a, b in zip(points, points[1:], strict=False))
+            or abs(points[0]["x"] - left) > 0.5 or abs(points[-1]["x"] - right) > 0.5
+            or not all(contains(boundary, item) for item in points)):
+        raise ValueError("Platform bends must run left to right between its ends")
+    return points
+
+
 def rectangle(value: dict) -> dict:
     result = {key: number(value[key]) for key in ("x", "y", "width", "height")}
     if min(result["width"], result["height"]) <= 0:
@@ -164,6 +177,8 @@ def validate_profile(value: object) -> tuple[dict, list[str]]:
                     raise ValueError("Ropes must be vertical")
                 key = element(item)
                 segment = {"id": key, "start": start, "end": end}
+                if kind == "platforms" and "points" in item:
+                    segment["points"] = bends(item["points"], start, end, boundary)
                 if "name" in item:
                     if (not isinstance(item["name"], str) or not item["name"].strip()
                             or len(item["name"]) > 120):

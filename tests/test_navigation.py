@@ -147,3 +147,13 @@ def test_sparse_samples_are_continuous_only_when_checks_fill_the_gaps(tmp_path):
     assert all(edge["max_gap"] > 1 for edge in sparse.values())
     assert all(edge["max_gap"] <= .5 + 1e-9 and edge["missing_checks"] == 0
                for edge in checked.values())
+
+
+def test_anchors_on_a_sloped_platform_end_follow_its_bends():
+    profile, evidence = fixture()
+    floor = profile["platforms"][0]
+    floor["points"] = [{"x": 50, "y": 440}, {"x": 90, "y": 400}, {"x": 200, "y": 400}]
+    evidence["map_hash"] = map_hash(profile)
+    graph = RouteMap(profile, evidence)
+    assert graph.on_surface("floor", (60, 430)) and graph.on_surface("floor", (150, 400))
+    assert not graph.on_surface("floor", (60, 400))

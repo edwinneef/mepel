@@ -13,8 +13,16 @@ def _key(item: dict) -> tuple:
     return tuple(item[end][axis] for end in ("start", "end") for axis in ("x", "y"))
 
 
+def _straight(geometry: dict) -> dict:
+    """Geometry without platform bends, so maps saved before bends still match their draft."""
+    shape = {key: geometry[key] for key in ("ropes", "links", "boundary")}
+    shape["platforms"] = [{k: v for k, v in item.items() if k != "points"}
+                          for item in geometry["platforms"]]
+    return shape
+
+
 def build_evidence(profile: dict, directory: Path) -> dict:
-    expected = {key: profile[key] for key in ("platforms", "ropes", "links", "boundary")}
+    expected = _straight(profile)
     teacher = None
     paths = sorted((directory / "drafts").glob(f"{profile['id']}.*.bak"),
                    key=lambda p: p.stat().st_mtime, reverse=True)
@@ -29,7 +37,7 @@ def build_evidence(profile: dict, directory: Path) -> dict:
             if checkpoint["transform"] != profile["minimap_calibration"]["transform"]:
                 continue
             geometry = candidate.geometry()
-            if {key: geometry[key] for key in expected} == expected:
+            if _straight(geometry) == expected:
                 teacher = candidate
                 break
         except (OSError, ValueError, TypeError, KeyError):
