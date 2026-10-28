@@ -59,6 +59,7 @@
 .map-route { fill: none; stroke: #f2c14e; stroke-width: 3; vector-effect: non-scaling-stroke; }
 .map-label { fill: #e6edf3; paint-order: stroke; stroke: #121a22; stroke-width: 6px; stroke-linejoin: round; pointer-events: none; }
 .map-player { fill: #f2c14e; stroke: #121a22; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.map-player.stale { opacity: .55; }
 .map-actions { display: flex; gap: 12px; align-items: center; }
 .map-toggle { display: flex; gap: 6px; align-items: center; }
 .map-places { display: grid; gap: 4px; padding-left: 20px; margin: 0; }

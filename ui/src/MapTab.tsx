@@ -41,6 +41,9 @@ function placeLabels(platforms: Segment[], size: number) {
 }
 
 const LABEL_PX = 13; // on-screen label size
+// Status marks a reading stale after 0.5 s; at ~2.5 fps that is every other update.
+// The map keeps the last position this long (faded) instead of blinking.
+const HOLD_MS = 2000;
 const LABELS_FROM_PX = 600; // narrower drawings leave names to the list beside them
 
 /** Rendered width of an element, kept current as it resizes. */
@@ -66,6 +69,15 @@ export function MapTab({ snapshot: s, client, disabled, act, onPreview }: Props)
   const [focus, setFocus] = useState<string | null>(null);
   const [frame, frameWidth] = useWidth(400);
   const [dialog, dialogWidth] = useWidth(1200);
+  const live = s.position?.feet ?? null;
+  const last = useRef<{ feet: [number, number]; area?: string; at: number } | null>(null);
+  const [, tick] = useState(0);
+  if (live) last.current = { feet: live, area: s.position?.area_id, at: Date.now() };
+  useEffect(() => {
+    if (live) return;
+    const timer = setTimeout(() => tick(n => n + 1), HOLD_MS);
+    return () => clearTimeout(timer);
+  }, [live]);
   const areaId = s.position?.area_id;
   const nav = s.navigation;
   const map = (nav?.map && nav.map.area_id === areaId ? nav.map : null) as RouteMapStatus | null;
@@ -90,7 +102,9 @@ export function MapTab({ snapshot: s, client, disabled, act, onPreview }: Props)
   const box = profile.boundary;
   const centers = new Map([...platforms, ...ropes].map(item => [item.id, middle(item)]));
   const here = s.position?.kind === 'platform' || s.position?.kind === 'rope' ? s.position.surface_id : null;
-  const feet = s.position?.feet;
+  const held = !live && last.current && last.current.area === areaId
+    && Date.now() - last.current.at < HOLD_MS ? last.current.feet : null;
+  const feet = live ?? held;
   const route = nav?.route && nav.route.area_id === areaId ? nav.route : null;
   const origin = here && nodes.get(here) && !nodes.get(here)!.excluded ? here : map?.home ?? null;
   const name = (id: string) => [...platforms, ...ropes].find(item => item.id === id)?.name ?? id;
@@ -125,7 +139,7 @@ export function MapTab({ snapshot: s, client, disabled, act, onPreview }: Props)
       <title>{platform.name}{map && !usable(platform.id) ? ' · no safe route' : ''}</title></g>)}
     {width >= LABELS_FROM_PX && placeLabels(platforms, label).map(spot => <text key={spot.id} className="map-label"
       x={spot.x} y={spot.y} fontSize={label} textAnchor="middle">{spot.text}</text>)}
-    {feet && <circle className="map-player" cx={feet[0]} cy={feet[1] - label * 0.5} r={label * 0.5}><title>You</title></circle>}
+    {feet && <circle className={live ? 'map-player' : 'map-player stale'} cx={feet[0]} cy={feet[1] - label * 0.5} r={label * 0.5}><title>You</title></circle>}
   </svg>;
   };
 

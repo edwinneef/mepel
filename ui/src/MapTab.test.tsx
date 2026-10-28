@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MapTab } from './MapTab';
 import type { EngineClient } from './client';
@@ -72,4 +72,24 @@ it('opens a full-size map and closes it again', async () => {
   expect(screen.getByRole('dialog', { name: 'Full map of Middle Forest III' })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('keeps the last position faded briefly instead of blinking between readings', async () => {
+  const command = vi.fn(async (name: string) => name === 'area_load' ? { profile } : navigation);
+  const view = (feet: [number, number] | null) => <MapTab snapshot={snapshot({ navigation, position: {
+    area_id: 'area', kind: feet ? 'platform' : 'unknown', surface_id: feet ? 'fh1' : null, feet,
+    reason: 'reading', input_sent: false } })} client={{ command } as unknown as EngineClient}
+    disabled={false} act={async operation => { await operation(); }} onPreview={vi.fn()} />;
+  const { container, rerender } = render(view([500, 500]));
+  await screen.findByRole('img', { name: 'Map of Middle Forest III' });
+  expect(container.querySelector('.map-player:not(.stale)')).toBeTruthy();
+  vi.useFakeTimers();
+  try {
+    rerender(view(null));
+    expect(container.querySelector('.map-player.stale')).toBeTruthy();
+    await act(async () => { vi.advanceTimersByTime(2100); });
+    expect(container.querySelector('.map-player')).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });
