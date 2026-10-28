@@ -170,3 +170,50 @@ def test_ocr_typo_requires_unique_match_and_preserves_map_numbers(tmp_path):
         assert router.match("Hidden Street The Blue Mushrooln Forest") == (None, None)
     finally:
         router.close()
+
+
+def forest_filter(tmp_path):
+    router = make_filter(tmp_path)
+    router.profiles.extend(
+        {"streetName": "Victoria Road", "name": f"Kerning City Middle Forest {suffix}",
+         "monsters": mobs}
+        for suffix, mobs in (("I", [1210103]), ("II", []), ("III", [100100]))
+    )
+    return router
+
+
+@pytest.mark.parametrize(("number", "expected"), [
+    ("I", ("I", {"Bubbling"})),
+    ("II", ("II", set())),
+    ("III", ("III", {"Snail"})),
+    ("iii", ("III", {"Snail"})),
+    ("Ill", ("III", {"Snail"})),
+    ("IIl", ("III", {"Snail"})),
+    ("Il", ("II", set())),
+    ("IV", (None, None)),
+    ("IIII", (None, None)),
+    ("Illx", (None, None)),
+])
+def test_roman_map_numbers_do_not_match_a_shorter_title(tmp_path, number, expected):
+    router = forest_filter(tmp_path)
+    suffix, monsters = expected
+    title = f"Kerning City Middle Forest {suffix}" if suffix else None
+    try:
+        assert router.match(f"Victoria Road Kerning City Middle Forest {number}") == (
+            title, monsters,
+        )
+    finally:
+        router.close()
+
+
+def test_recorded_middle_forest_title_selects_third_map(tmp_path):
+    pytest.importorskip("winrt.windows.media.ocr")
+    router = forest_filter(tmp_path)
+    image = cv2.imread(str(Path(__file__).parent / "fixtures" / "middle-forest-map-title.png"))
+    try:
+        assert router.select(image) is None
+        router.pending.result(timeout=10)
+        assert router.select(image) == {"Snail"}
+        assert router.title == "Kerning City Middle Forest III"
+    finally:
+        router.close()

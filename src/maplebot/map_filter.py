@@ -59,23 +59,30 @@ class MapFilter:
         self.held = False
 
     def match(self, text: str) -> tuple[str | None, set[str] | None]:
+        # Windows OCR reads a run of Roman I glyphs as "Ill" or "IIl".
+        text = re.sub(r"\bI[Il]*\b", lambda match: match[0].replace("l", "I"), text)
+        numbers = re.findall(r"\d+|\b[IVX]+\b", text.upper())
+        # Check identifiers before substring matching: I must not match III or IV.
+        profiles = [
+            profile for profile in self.profiles
+            if re.findall(r"\d+|\b[IVX]+\b",
+                          (profile["streetName"] + " " + profile["name"]).upper()) == numbers
+        ]
         text = normalize(text)
         matches = [
             profile
-            for profile in self.profiles
+            for profile in profiles
             if normalize(profile["streetName"])
             and normalize(profile["name"])
             and normalize(profile["streetName"] + profile["name"]) in text
         ]
         if not matches:
             ranked = {}
-            for profile in self.profiles:
+            for profile in profiles:
                 street, name = normalize(profile["streetName"]), normalize(profile["name"])
                 if not street or street not in text or len(name) < 5:
                     continue
                 observed = text.split(street, 1)[1]
-                if re.findall(r"\d+", observed) != re.findall(r"\d+", name):
-                    continue
                 score = SequenceMatcher(None, observed, name).ratio()
                 ranked[street + name] = max(score, ranked.get(street + name, 0))
             candidates = sorted(ranked, key=ranked.get, reverse=True)
