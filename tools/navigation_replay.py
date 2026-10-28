@@ -49,7 +49,10 @@ def replay(profile: dict, directory: Path) -> dict:
     for node in graph.nodes:
         if node in graph.excluded:
             continue
-        route = graph.plan(graph.home, node)
+        try:
+            route = graph.plan(graph.home, node)
+        except ValueError:
+            continue  # Beyond the eight-edge budget from home; single edges still replay.
         if len(route.edges) == 2 and all(e.kind == "climb" for e in route.edges):
             compositions.append({"target": node, "edges": [e.id for e in route.edges],
                                  **simulate(graph, route)})
