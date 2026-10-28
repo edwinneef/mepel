@@ -1395,6 +1395,57 @@ def test_live_combat_queues_hp_potion_ahead_of_combat(potion_app, monkeypatch):
     assert app.sustain == () and not app.arbiter.in_flight
 
 
+@pytest.mark.parametrize("activity", ["potions", "combat"])
+def test_normal_potions_passively_retain_matched_evidence_without_confirming_probes(
+    potion_app, monkeypatch, activity,
+):
+    from test_autopotter import hud
+
+    from maplebot.frame_encoder import FramePacket
+
+    app = potion_app
+    if activity == "combat":
+        live_sustain_app(app, monkeypatch)
+    else:
+        start_live_potions(app)
+    confirmations = app.probed.copy()
+    low = hud(20, 100)
+    captured = time.perf_counter()
+    _, status = app._process(low, captured)
+
+    def publish(image, status, captured, sequence):
+        status = {**status, "sequence": sequence, "captured_at": time.time(),
+                  "capture_clock": captured, "focused": True,
+                  "view_generation": app.view_generation,
+                  "source_generation": app.source_generation}
+        packet = FramePacket(sequence, f"{sequence:08d}", image, image, status, captured)
+        app._encoded(packet, b"png", b"png", 0)
+
+    publish(low, status, captured, 1)
+    app._process(low, time.perf_counter())
+    ticket = app.live_potion_ticket
+    assert ticket is not None
+    finish_live_potion(app, low)
+    before = app.snapshot()["potion_evidence"]["records"][-1]
+    assert before["ticket"] == ticket and before["status"] == "awaiting_observation"
+    high = hud(90, 100)
+    captured = time.perf_counter()
+    _, status = app._process(high, captured)
+    publish(high, status, captured, 2)
+    record = app.snapshot()["potion_evidence"]["records"][-1]
+    assert record["status"] == "observed_bar_gain"
+    assert record["before"]["frame"] == "00000001.png"
+    assert record["after"]["frame"] == "00000002.png"
+    assert record["outcome"]["ticket"] == ticket
+    assert app.probed == confirmations and app.active_probe is None
+    assert app.controller.backend.events.count(("insert", True)) == 1
+    app._stop("OPERATOR_STOP", "offline test complete")
+    app.potion_evidence.close()
+    app.recorder.close()
+    path = app.data / "recordings" / record["recording"]
+    assert len(list(path.glob("*.png"))) == 2
+
+
 def test_live_combat_without_potion_probe_sends_no_potion(potion_app, monkeypatch):
     from test_autopotter import hud
 

@@ -95,6 +95,23 @@ def test_changed_map_or_old_feedback_cannot_start(app):
     assert app.controller.backend.events == []
 
 
+def test_navigation_potion_is_registered_for_passive_evidence(app):
+    nav = preview(app)
+    app._command("nav_start", {"opt_in": True})
+    app.pending_at = 0
+    nav.tick(None, time.perf_counter())
+    app.sustain = ("hp",)
+    nav.feedback = replace(nav.feedback, now=time.perf_counter())
+    nav.tick("hp", time.perf_counter())
+    record = app.potion_evidence.snapshot()["records"][-1]
+    assert record["ticket"] == app.live_potion_ticket
+    assert record["resource"] == "hp" and record["status"] == "queued"
+    assert app.active_probe is None
+    app._stop("OPERATOR_STOP", "offline test complete")
+    app.potion_evidence.close()
+    app.recorder.close()
+
+
 def test_queued_chord_cancellation_does_not_cancel_potion_or_send_late_movement(controller):
     control, backend, _ = controller
     control.enable()

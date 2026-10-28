@@ -194,10 +194,15 @@ class NavigationRuntime:
         if choice.lane in SUSTAIN:
             self.agent.pause_for_potion()
             self._release()
+            queued_at = time.perf_counter()
             submitted = app.controller.submit(choice.action, priority=choice.priority)
             if isinstance(submitted, int):
                 app.arbiter.submitted(submitted, choice.lane)
                 app.live_potion_ticket = submitted
+                app.potion_evidence.queued(
+                    submitted, choice.lane, queued_at,
+                    (app.view_generation, app.source_generation),
+                )
             else:
                 app._stop("INPUT_BACKEND_FAILURE", str(submitted))
             return

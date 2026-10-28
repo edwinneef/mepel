@@ -34,6 +34,7 @@ from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win
 from .live_position import STALE_SECONDS, LivePosition
 from .navigation_runtime import NavigationRuntime
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
+from .potion_evidence import PotionEvidence, PotionFrame
 from .preview_stream import PreviewSource, PreviewStream
 from .probe_store import ProbeStore
 from .profiles import AreaStore
@@ -190,6 +191,11 @@ class Application:
         self.recorder = SessionRecorder(
             self.data / "recordings", config.recording, config.capture.fps
         )
+        self.potion_evidence = PotionEvidence(
+            self.session_id, self.recorder.save_potion,
+            seconds=config.probe.potion_effect_seconds,
+            minimum_gain=config.probe.potion_min_gain_percent, enabled=config.recording.auto,
+        )
         self.encoder = FrameEncoder(self._encoded)
         self.player_uncertain = False
         self.sequence = 0
@@ -289,6 +295,7 @@ class Application:
         if self.position is not None:
             self.position.close()
         self.encoder.close()
+        self.potion_evidence.close()
         self.recorder.close()
         self.alarm.close()
 
@@ -462,6 +469,7 @@ class Application:
                 "probes": self._probe_snapshot(),
                 "active_probe": asdict(self.active_probe) if self.active_probe else None,
                 "autopotter": potter,
+                "potion_evidence": self.potion_evidence.snapshot(),
                 "alarm": self.alarm.snapshot(),
                 "history": list(self.history),
             }
@@ -1372,12 +1380,16 @@ class Application:
         self.controller.release_movement()
         if choice.lane in SUSTAIN:
             assert choice.action is not None and choice.lane is not None
+            queued_at = time.perf_counter()
             submitted = self.controller.submit(choice.action, priority=choice.priority)
             if not isinstance(submitted, int):
                 self._stop("INPUT_BACKEND_FAILURE", f"Potion key not queued: {submitted}")
                 return submitted
             self.arbiter.submitted(submitted, choice.lane)
             self.live_potion_ticket = submitted
+            self.potion_evidence.queued(
+                submitted, choice.lane, queued_at, (self.view_generation, self.source_generation)
+            )
             self.combat_evidence.record("queued", choice.action.kind, ticket=submitted)
             return f"deferred: {choice.action.kind} queued ({submitted})"
         if choice.action is None:
@@ -1557,6 +1569,10 @@ class Application:
             "encoder": {**self.encoder.snapshot(), "png_encode_ms": round(elapsed, 3)},
         }
         self.recorder.observe(packet.stem, raw, status, packet.now)
+        self.potion_evidence.observe(PotionFrame(
+            packet.stem, raw, status, status.get("capture_clock", 0),
+            (generation, status.get("source_generation", self.source_generation)),
+        ))
         status["recording"] = self.recorder.active
         status["recorder"] = self.recorder.snapshot()
         with self.lock:
@@ -1641,6 +1657,7 @@ class Application:
                     self._restore_probes(clear_results=False)
                     self.note("Game view verified by confident player or HUD recognition")
         for outcome in self.controller.poll_outcomes():
+            self.potion_evidence.outcome(outcome)
             self.combat_evidence.record("input_outcome", outcome.result, **asdict(outcome))
             self.arbiter.finished(outcome.ticket)
             self.last_action = outcome.result
@@ -1748,19 +1765,18 @@ class Application:
             not self.controller.enabled or self.controller.stopped.is_set()
         ):
             self._stop("INPUT_BACKEND_FAILURE", self.controller.reason)
+        potion_evidence_safe = bool(
+            self.calibration
+            and self.calibration.capture_verified
+            and not self.calibrating
+            and not self.stop_requested.is_set()
+            and time.perf_counter() - now <= 0.5
+            and self.window
+            and self.region
+            and self.windows.unobscured(self.window.hwnd, self.region)
+        )
         potter = self.potter.observe(
-            image,
-            now,
-            safe=bool(
-                self.calibration
-                and self.calibration.capture_verified
-                and not self.calibrating
-                and not self.stop_requested.is_set()
-                and time.perf_counter() - now <= 0.5
-                and self.window
-                and self.region
-                and self.windows.unobscured(self.window.hwnd, self.region)
-            ),
+            image, now, safe=potion_evidence_safe,
         )
         mp = potter["readings"].get("mp", {})
         self.mp_percent = mp.get("percent") if mp.get("confidence", 0) >= 0.9 else None
@@ -1890,6 +1906,7 @@ class Application:
                     if not self.stop_requested.is_set() and self.mode == "potion_live":
                         try:
                             self.controller.enable()
+                            queued_at = time.perf_counter()
                             submitted = self.controller.submit(
                                 Action(
                                     f"{potter['suggestion']}_potion",
@@ -1900,6 +1917,10 @@ class Application:
                             if not isinstance(submitted, int):
                                 raise RuntimeError(str(submitted))
                             self.live_potion_ticket = submitted
+                            self.potion_evidence.queued(
+                                submitted, potter["suggestion"], queued_at,
+                                (self.view_generation, self.source_generation),
+                            )
                             self.combat_evidence.record("queued", f"{potter['suggestion']}_potion",
                                                         ticket=submitted)
                         except (RuntimeError, OSError) as error:
@@ -1926,6 +1947,7 @@ class Application:
             "features": True,
             "capture_only": self.capture_only,
             "autopotter": potter,
+            "potion_evidence_safe": potion_evidence_safe,
             "catalog": self.detector.catalog_info,
             "position": position,
             "failures": observation.failures,
@@ -1977,6 +1999,8 @@ class Application:
                         **result,
                         "mode": self.mode,
                         "captured_at": captured_at,
+                        "capture_clock": capture_began,
+                        "source_generation": self.source_generation,
                         "width": image.shape[1],
                         "height": image.shape[0],
                         "sequence": self.sequence,

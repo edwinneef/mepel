@@ -35,6 +35,7 @@ class SessionRecorder:
         self.events = 0
         self.dropped = 0
         self.pending = 0
+        self.potion_paths: set[Path] = set()
         self.lock = threading.RLock()
         self.jobs: queue.Queue[tuple[str, Path, Any] | None] = queue.Queue()
         self.writer = threading.Thread(target=self._write, name="recorder", daemon=True)
@@ -125,20 +126,38 @@ class SessionRecorder:
                 "dropped": self.dropped,
             }
 
+    def save_potion(self, record: dict, frames: list) -> None:
+        """Queue a small ticket-specific record and matched PNGs, even after combat stops."""
+        path = self.root / record["recording"]
+        if record["status"] == "queued":
+            with self.lock:
+                self.potion_paths.add(path)
+                protected = self.potion_paths | {self.path}
+            self.jobs.put(("mkdir", path, None))
+            self.jobs.put(("prune", path, protected))
+        for frame in frames:
+            self._frame(path, frame.stem, frame.raw, deduplicate=False)
+            line = json.dumps({"frame": f"{frame.stem}.png", **frame.status}) + "\n"
+            self.jobs.put(("line", path / "decisions.jsonl", line))
+        self.jobs.put(("line", path / "potion-evidence.jsonl", json.dumps(record) + "\n"))
+        if record["status"] not in {"queued", "awaiting_observation"}:
+            self.jobs.put(("potion_done", path, None))
+
     def close(self) -> None:
         self.stop()
         self.jobs.put(None)
         self.writer.join(timeout=5)
 
-    def _frame(self, path: Path, stem: str, raw: bytes) -> None:
+    def _frame(self, path: Path, stem: str, raw: bytes, *, deduplicate: bool = True) -> None:
         with self.lock:
-            if stem in self.written:
+            if deduplicate and stem in self.written:
                 return
             if self.pending >= self.config.max_queue_frames:
                 self.dropped += 1
                 return
             self.pending += 1
-            self.written.add(stem)
+            if deduplicate:
+                self.written.add(stem)
         self.jobs.put(("frame", path / f"{stem}.png", raw))
 
     def _write(self) -> None:
@@ -147,11 +166,16 @@ class SessionRecorder:
             try:
                 if kind == "frame":
                     path.write_bytes(data)
+                elif kind == "mkdir":
+                    path.mkdir(parents=True, exist_ok=True)
+                elif kind == "potion_done":
+                    with self.lock:
+                        self.potion_paths.discard(path)
                 elif kind == "line":
                     with path.open("a", encoding="utf-8") as handle:
                         handle.write(data)
                 else:
-                    self._prune(keep=path)
+                    self._prune(keep=path, protected=data)
             except OSError:
                 if kind == "frame":
                     with self.lock:
@@ -161,9 +185,12 @@ class SessionRecorder:
                     with self.lock:
                         self.pending -= 1
 
-    def _prune(self, keep: Path) -> None:
+    def _prune(self, keep: Path, protected: set | None = None) -> None:
+        with self.lock:
+            protected = (protected or set()) | self.potion_paths | {keep, self.path}
         sessions = sorted(
-            (item for item in self.root.glob("session-*") if item.is_dir() and item != keep),
+            (item for item in self.root.glob("session-*")
+             if item.is_dir() and item not in protected),
             key=lambda item: item.stat().st_mtime,
         )
         cutoff = time.time() - self.config.max_age_days * 86400
