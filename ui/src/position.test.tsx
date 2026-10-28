@@ -112,6 +112,22 @@ it('prepares a report from a failed recording instead of asking for another walk
   expect(command).not.toHaveBeenCalled();
 });
 
+it('can finish teaching after copying a report and continuing the same draft', async () => {
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
+  const broken = { ...geometry, problems: { home: 'walk_p1', unreachable: [], stranded: ['walk_p2'] } };
+  const health = { checks: 958, misses: 60, last_reason: 'Minimap missing' };
+  const { command, rerender, props } = setup({ ...tracked, teaching: { phase: 'review', geometry: broken, samples: 888, health } });
+  fireEvent.click(screen.getByRole('button', { name: 'Copy tracking report' }));
+  await screen.findByRole('button', { name: 'Report copied' });
+  rerender(<PositionPanel {...props} snapshot={{ ...props.snapshot, position: { ...tracked,
+    teaching: { phase: 'recording', geometry: broken, samples: 900, health } } }} />);
+  const finish = screen.getByRole('button', { name: 'Finish teaching' });
+  expect((finish as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.queryByText(/Tracking report copied/)).toBeNull();
+  fireEvent.click(finish);
+  expect(command).toHaveBeenCalledWith('teach_finish', {});
+});
+
 it('requires a separate confirmation before replacing a smaller or incomplete map', async () => {
   const { command } = setup({ ...tracked, teaching: { phase: 'review', geometry, samples: 120 } });
   command.mockResolvedValueOnce({ requires_confirmation: true, platforms_before: 12, platforms_after: 3, zones_removed: 1 });

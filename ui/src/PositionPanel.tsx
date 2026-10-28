@@ -91,7 +91,8 @@ export function PositionPanel({ snapshot: s, client, act, disabled, areas, refre
   const unreachable = Boolean(place && issues?.unreachable.includes(place.id));
   const target = stranded ? home : unreachable ? home : undefined;
   const health = teaching?.health;
-  const lost = Boolean(missing.length && health?.misses);
+  // A tracking report belongs to the review; continuing to teach must still be able to finish.
+  const lost = phase === 'review' && Boolean(missing.length && health?.misses);
   const command = (action: string, payload: Record<string, unknown> = {}) => act(() => client.command(action, payload));
   const activate = (confirm = false) => act(async () => {
     setSaveError('');
@@ -175,7 +176,7 @@ export function PositionPanel({ snapshot: s, client, act, disabled, areas, refre
         <button disabled={disabled} className="primary" onClick={() => void activate(true)}>Replace with this draft</button><button onClick={() => setConfirmation(null)}>Keep reviewing</button></div>}
       {discard && <div role="alertdialog" aria-label="Confirm draft discard" className="teaching-confirm"><p>Discard this teaching draft? The saved map stays unchanged and a recovery copy is kept.</p><button disabled={disabled} onClick={() => void act(async () => { const result = await client.command('teach_cancel'); setDiscard(false); return result; })}>Discard teaching draft</button><button onClick={() => setDiscard(false)}>Keep draft</button></div>}
       {report && <label>Tracking report — copy this for repair<textarea readOnly rows={5} value={report} onFocus={event => event.target.select()} /></label>}
-      {copied && <p role="status">Tracking report copied. Keep this draft while the reader is investigated.</p>}
+      {lost && copied && <p role="status">Tracking report copied. Keep this draft while the reader is investigated.</p>}
       {saveError && <p role="alert" className="draft-error">Map not replaced: {saveError}. Your teaching draft is kept.</p>}
     </div>
     {geometry && nodes.length > 0 && <>
