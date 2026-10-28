@@ -64,13 +64,74 @@ it does not learn this client's spawn list from screenshots.
 whose species are not in the selected list. Thus an installed Slime or Snail
 reference cannot be recognized here even when its pixels match exactly.
 
-The cache/client coverage mismatch is demonstrated. Its upstream cause and the
-complete native spawn list are not established by these screenshots.
+## Source investigation: cause established
 
-Recommended separate implementation: add a local supplement for this exact map
-containing the five screenshot-backed species, preserving the imported cache and
-existing III species. Keep other maps, confidence thresholds, same-platform and
-input gates unchanged. Verify with these saved frames before installation.
+Follow-up investigation on 2026-10-28 confirms a **dataset compatibility bug**:
+the bot uses Dream MS's spawn metadata as authoritative for the operator's
+Classic-style client. Reusing matching sprite artwork does not establish that
+two games use the same map population.
+
+The chain is:
+
+1. `src/maplebot/catalog.py:16` hardcodes
+   `https://api.dreamms.gg/api/GMS/latest` for both sprite assets and map metadata.
+   Dream MS's own API documentation says requests use `gms/latest` to access
+   **Dream MS game assets**. This is not a generic Classic World dataset or an
+   automatic selection of the operator's client version.
+   [Provider documentation](https://api.dreamms.gg/).
+2. `import_map_catalog` copies `detail.mobs[*].id` from that provider into
+   `cache/maps/<id>.json` and `catalog/maps.json`. It preserves only the map's
+   ID, street, title and monster list; no client-compatibility declaration is
+   checked. The cache is keyed by map ID, without a separate dataset identity.
+3. The imported entry for `103030200` is named Victoria Road / Kerning City
+   Middle Forest III and lists the four mushroom IDs above. A fresh read of
+   [the provider's map endpoint](https://api.dreamms.gg/api/GMS/latest/map/103030200)
+   returns exactly those same four IDs. The local cache and merged map entry
+   agree with it. **The importer did not corrupt the list, and refreshing this
+   provider would not resolve the mismatch.**
+4. `MapFilter.match` identifies the map from its street and title. Neither that
+   match nor the monster-name lookup verifies that the cached spawn metadata
+   belongs to the same game dataset as the pixels being observed. This makes
+   the incompatible provider entry govern the screenshot detector.
+
+The project's accepted context in `docs/bowman-range-research.md:7-10` is a custom
+v83 client/project implementing Classic features, with Classic World as the
+intended baseline. The published Classic World counterpart has a different ID,
+`010003052`, and these eight species:
+
+- Snail, Blue Snail and Red Snail.
+- Slime and Pig.
+- Orange Mushroom, Ribbon Pig and Green Mushroom.
+
+All five screenshot-confirmed species are included in that list.
+[NiaMeowDB's Classic map entry](https://meowdb.com/msclassic/maps/010003052).
+The differing IDs corroborate that these are separate datasets; the actual
+custom client's internal map ID and exact server data revision were not read.
+The eight-species list is a published baseline, not a new native spawn census.
+
+This rules out the earlier OCR confusion, a stale local list, a corrupted import,
+missing installed templates and confidence thresholds as the cause of these
+demonstrated filter omissions. The confirmed integration error is choosing
+server-specific spawn metadata using a shared human-readable map name, without
+checking dataset compatibility. The precise history of Dream MS's customized
+map population is outside what these sources establish.
+
+Evidence is retained in `artifacts/middle-forest-import-cause-20261028/`:
+`dream-live-map-103030200.json`, `classic-map-page.html`, `source-comparison.json`
+and protected-file hashes. Requests only read public sources; runtime code and
+filter data remain unchanged.
+
+## Revised follow-up
+
+The earlier five-species supplement recommendation covers only the observed
+frames. The source finding supports separating reusable sprite references from
+version-specific map spawn metadata, selecting a Classic-compatible source
+explicitly and resolving its monster identifiers to the installed sprite names.
+A data migration should preserve the imported cache, saved maps, drafts, existing
+input safeguards and unrelated work, then replay the saved screenshots.
+
+No filter-data change is authorized by this cause-report task. Plan that source
+selection and identifier mapping before applying replacements or supplements.
 
 Do not enable full-catalog live searching or request another recording for this
 fix. P4's missing return route is a separate evidence gap and remains unchanged.
