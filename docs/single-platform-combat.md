@@ -47,7 +47,8 @@ causes from visual explanations that remain uncertain:
 
 The signature samples at most 24 pixels, chosen by color rather than area. Its
 old two-mismatch budget can reject an otherwise strong full-mask match. The
-focused change should adjust proposal pruning only. Final masked color/structure
+fix permits one fifth of the samples, rounded up, to disagree (five of 24).
+It adjusts proposal pruning only. Final masked color/structure
 scoring, .90 confidence, map selection, fresh-target requirement and height gate
 remain authoritative. Ordinary occlusion and the search boundary remain explicit
 limitations; no evidence supports blind pursuit through them.
@@ -55,8 +56,34 @@ limitations; no evidence supports blind pursuit through them.
 Baseline validation: 212 decision, runtime, scheduler, replay, potion-evidence
 and keyboard tests passed in 6.13 seconds. These use offline/fake input evidence.
 
+Final `validation.json` compares the original and patched candidate filter on all
+21 loss frames and the nine accepted Broadsword frames. It recovers the five
+listed targets and preserves every accepted-sequence decision. On frame 12300
+the same historical state can now request a skill instead of losing its target.
+This is a counterfactual offline decision, not an extra observed native attack.
+The comparison restores the preceding player search crop and recorded camera
+translation; isolated frames do not preserve all learned player snapshots.
+
+Detection-only median/p95 on the 21 loss frames rose from 237/253 ms to 290/308 ms.
+The maximum rose from 583 to 741 ms on a full-frame player-search fallback. These
+are replay timings, not end-to-end live latency. Freshness guards remain unchanged
+and may delay input on a slow frame. Initialization, investigation and installation
+time are separate from those measurements.
+
+The three-covered-sample regression failed before the fix and passed afterward;
+final coverage also includes five covered samples. Matching only sparse colors cannot
+pass full-sprite verification. Recognition/catalog/map/spawn tests: 77 passed.
+Final combined recognition, combat, runtime, replay and safety run: 289 passed
+in 7.06 seconds; Ruff and diff checks passed.
+Protected configuration, maps and catalog metadata: 46 files unchanged.
+
 ## Installation and acceptance
 
-Pending the focused recognition fix and its checks. Preserve all saved settings,
-maps, templates, nine control confirmations and unrelated UI changes. Installation
-must finish Off; a new native run is not authorized by this evidence report.
+The previous source is backed up as
+`artifacts/single-platform-combat-20261028/perception.py.before`.
+The editable installation loads `src/maplebot/perception.py`; restart only through
+`tools/restart_engine.ps1`, retaining the existing input capability and finishing Off.
+Rollback is restoration of that one source backup followed by the same restart.
+No settings, maps, templates or UI rebuild are required. Native repeated-loop,
+basic-fallback and HP-recovery acceptance remain pending. Review ordinary-use
+recordings first; this report does not authorize a new native run or repeat probes.

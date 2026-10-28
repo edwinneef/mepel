@@ -412,7 +412,9 @@ class TemplateDetector:
         order, boundaries = index
         sizes = [int((boundaries[bins + 1] - boundaries[bins]).sum()) for bins in signature.buckets]
         ranked = np.argsort(sizes)
-        max_misses = len(signature.colors) // 10
+        # These sparse, color-selected samples are not an area/confidence estimate.
+        # A few covered samples can still leave a strong full-mask match below.
+        max_misses = (len(signature.colors) + 4) // 5
         proposals = []
         # Multiple seeds keep a covered proposal pixel from hiding an otherwise valid sprite.
         for key in ranked[: max_misses + 1]:

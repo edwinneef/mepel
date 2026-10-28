@@ -188,8 +188,8 @@ def test_transparent_enemy_references_match_multiple_enemies_on_new_background(
     assert {item.box for item in strong} == {Rect(40, 70, 40, 30), Rect(200, 70, 40, 30)}
 
 
-@pytest.mark.parametrize("obscured_sample", [0, 12])
-def test_one_obscured_signature_pixel_does_not_hide_a_confident_monster(tmp_path, obscured_sample):
+@pytest.mark.parametrize("obscured_samples", [(0,), (12,), (0, 1, 2), tuple(range(5))])
+def test_obscured_signature_pixels_do_not_hide_a_confident_monster(tmp_path, obscured_samples):
     directory = tmp_path / "monster"
     directory.mkdir()
     rng = np.random.default_rng(71)
@@ -202,8 +202,9 @@ def test_one_obscured_signature_pixel_does_not_hide_a_confident_monster(tmp_path
     patch = frame[40:76, 60:96]
     patch[example[:, :, 3] != 0] = example[:, :, :3][example[:, :, 3] != 0]
     # Exercise both an indexed proposal pixel and a later verification sample.
-    y, x = detector.templates[0].signature.offsets[obscured_sample]
-    patch[y, x] = 255 - patch[y, x]
+    for sample in obscured_samples:
+        y, x = detector.templates[0].signature.offsets[sample]
+        patch[y, x] = 255 - patch[y, x]
     result = detector.detect(frame)
     assert any(
         item.box == Rect(60, 40, 36, 36) and item.confidence >= 0.9 for item in result.monsters
