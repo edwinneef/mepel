@@ -1,6 +1,5 @@
 import json
 import time
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -215,46 +214,3 @@ def test_runtime_tracks_position_read_only_and_stops_cleanly(app, store):  # noq
     assert app._command("position_stop", {}) == {"tracking": False}
     assert app.position is None and not app.detector.taught_map
     assert app.snapshot()["position"] is None
-
-
-def test_teaching_calibrates_itself_then_records_and_saves_walked_geometry(store):
-    position = LivePosition(store, AREA)
-    try:
-        assert position.begin_teaching()["phase"] == "calibrating"
-        for index, dx in enumerate(range(10, 170, 7)):
-            result = step(position, dx, index * 0.3)
-        assert position.tracker is not None
-        assert result["teaching"]["phase"] == "recording"
-        for index, dx in enumerate(range(170, 10, -7)):
-            result = step(position, dx, 20 + index * 0.3)
-        assert result["teaching"]["geometry"]["platforms"]
-        proposal = position.finish_teaching()
-        assert position._teaching_status(30)["phase"] == "review"
-        log = Path(proposal["log"]).read_text("utf-8").splitlines()
-        assert json.loads(log[-1])["proposal"]["platforms"] == proposal["platforms"]
-        assert proposal["problems"]["home"] == proposal["platforms"][0]["id"]
-        assert position.resume_teaching()["phase"] == "recording"
-        step(position, 90, 40.0)
-        proposal = position.finish_teaching()
-        saved = position.save_teaching()
-        profile = saved["profile"]
-        assert profile["platforms"] == proposal["platforms"] and profile["revision"] == 3
-        assert profile["minimap_calibration"]["pairs"] >= 20
-        [floor] = profile["platforms"]
-        assert floor["start"]["y"] == pytest.approx(600, abs=1)
-        assert position._teaching_status(31)["phase"] is None
-    finally:
-        position.close()
-
-
-def test_teaching_refuses_to_save_nothing(store):
-    position = LivePosition(store, AREA)
-    try:
-        calibrate(position)
-        position.begin_teaching()
-        with pytest.raises(ValueError, match="No platform seen"):
-            position.finish_teaching()
-        with pytest.raises(ValueError, match="Finish teaching"):
-            position.save_teaching()
-    finally:
-        position.close()

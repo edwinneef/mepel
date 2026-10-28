@@ -142,6 +142,17 @@ Distant approaches renew a horizontal hold on each fresh confident target observ
 
 Template matching was chosen as the first inspectable, training-free implementation. GrabCut foreground segmentation is used to derive the player mask once when templates load; no game assets are read. Segmentation can still fail when sprite/background colors blend or the player is off-center in a loose selection; feature matching is often weak on tiny animated pixel sprites. No neural model is included. Replace the `Detector` protocol implementation to experiment later.
 
+## Maps for navigation
+
+Platforms, ropes and movement links come from public map data, not from walking the map. Save the area once from **Navigation → Setup → Advanced: draw by hand** with a reference view, stop the engine, then import its public map:
+
+```powershell
+.\.venv\Scripts\python.exe -m maplebot import-map "<map name>" --dry-run
+.\.venv\Scripts\python.exe -m maplebot import-map "<map name>"
+```
+
+Use `--map-id` when the saved name does not match a public map title. Restart the engine, track the map under **Setup**, and run walk calibration once so the minimap marker lines up with the saved map. Navigation refuses maps that have not been imported.
+
 ## Verify keyboard control, then combat
 
 1. Verify capture and recognition first. Keep the player on one ground platform with one nearby visible monster. Combat is required only for the attack-effect probe and combat run, not capture calibration.

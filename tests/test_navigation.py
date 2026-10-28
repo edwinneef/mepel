@@ -1,9 +1,8 @@
 import copy
-import json
 
 import pytest
 
-from maplebot.navigation import RouteMap, map_hash
+from maplebot.navigation import RouteMap, map_hash, problems, surface_y
 
 
 def fixture():
@@ -78,75 +77,28 @@ def test_boundary_player_footprint_is_checked_between_endpoints():
     assert "boundary" in RouteMap(profile, evidence).disabled["up"]
 
 
-def teaching_evidence(tmp_path, *, older=True, stretch=1.0, checks=0.0, log_offset=0.0):
-    """Teach a small map, save its log (times scaled by stretch) and build its evidence.
-
-    checks adds a readable position check at that interval between kept samples;
-    log_offset leaves the check log on another clock.
-    """
-    from dataclasses import asdict
-
-    from test_map_teacher import fix, tag
-
-    from maplebot.localization import MinimapTransform
-    from maplebot.map_teacher import MapTeacher
-    from maplebot.navigation_evidence import build_evidence
-
-    def walk(path, start):
-        teacher = MapTeacher(MinimapTransform(16, 0, 16, 0))
-        for index, (x, y, feet) in enumerate(path):
-            teacher.add(fix(x, y), tag(feet), (0, 0), start + index * 0.2)
-        return teacher
-
-    def write_log(name, teacher):
-        rows = [{"t": s.t * stretch, "kind": s.kind, "sample_dot": list(s.dot)}
-                for s in teacher.samples]
-        rows += [{**row, "t": row["t"] * stretch + log_offset} for row in teacher.log]
-        if checks:
-            first, last = rows[0]["t"], rows[-1]["t"]
-            rows += [{"t": first + k * checks, "dot": [0, 0], "reason": "Player marker"}
-                     for k in range(1, int((last - first) / checks))]
-        (tmp_path / "teaching" / name).write_text(
-            "".join(json.dumps(row) + "\n" for row in rows), "utf-8")
-
-    path = [(x, 40, 600) for x in range(10, 31)]
-    path += [(30, y, 600 - 16 * (40 - y)) for y in range(39, 31, -1)]
-    path += [(x, 32, 472) for x in range(30, 46)]
-    path += [(45 + step, 32 + 2 * step, 472 + 32 * step) for step in range(1, 5)]
-    path += [(x, 40, 600) for x in range(53, 61)]
-    new = walk(path, 100)
-    (tmp_path / "teaching").mkdir(parents=True)
-    (tmp_path / "drafts").mkdir()
-    if older:
-        write_log("a-1.jsonl", walk(path[:30], 0))
-    write_log("a-2.jsonl", new)
-    (tmp_path / "drafts" / "a.json").write_text(
-        json.dumps({"teacher": new.checkpoint()}), "utf-8")
-    profile = {"id": "a", "revision": 1, "zones": [], **new.geometry(),
-               "minimap_calibration": {"transform": asdict(new.transform)}}
-    return profile, build_evidence(profile, tmp_path)["edges"]
+def test_problems_list_unreachable_and_stranded_surfaces():
+    flat = [{"id": key, "start": {"x": 0, "y": y}, "end": {"x": width, "y": y}}
+            for key, y, width in (("floor", 600, 900), ("ledge", 400, 200), ("island", 300, 100))]
+    links = [{"id": "l1", "from": "floor", "to": "ledge", "kind": "jump"}]
+    assert problems(flat, [], links) == {
+        "home": "floor", "unreachable": ["island"], "stranded": ["ledge"],
+    }
 
 
-def test_evidence_matches_a_newer_session_log_beside_older_logs(tmp_path):
-    profile, edges = teaching_evidence(tmp_path)
-    assert {(e["from"], e["to"]) for e in edges.values()} == {
-        (link["from"], link["to"]) for link in profile["links"]}
-    assert {e["source"] for e in edges.values()} == {"a-2.jsonl"}
+def test_home_is_the_widest_floor_despite_sub_pixel_height_noise():
+    floors = [{"id": key, "start": {"x": x, "y": y}, "end": {"x": x + width, "y": y}}
+              for key, x, y, width in (("main", 298, 1510.2, 1343), ("side", 1934, 1510.3, 294),
+                                       ("ledge", 0, 1490, 2000))]
+    assert problems(floors, [], [])["home"] == "main"
 
 
-def test_moves_without_aligned_position_checks_prove_nothing(tmp_path):
-    _, aligned = teaching_evidence(tmp_path / "aligned", older=False)
-    _, shifted = teaching_evidence(tmp_path / "shifted", older=False, log_offset=-500)
-    assert aligned and shifted == {}
-
-
-def test_sparse_samples_are_continuous_only_when_checks_fill_the_gaps(tmp_path):
-    _, sparse = teaching_evidence(tmp_path / "sparse", older=False, stretch=6)
-    _, checked = teaching_evidence(tmp_path / "checked", older=False, stretch=6, checks=.5)
-    assert sparse.keys() == checked.keys() and sparse
-    assert all(edge["max_gap"] > 1 for edge in sparse.values())
-    assert all(edge["max_gap"] <= .5 + 1e-9 and edge["missing_checks"] == 0
-               for edge in checked.values())
+def test_surface_height_follows_bends_and_straight_ends():
+    bent = {"start": {"x": 0, "y": 640}, "end": {"x": 200, "y": 600},
+            "points": [{"x": 0, "y": 640}, {"x": 40, "y": 600}, {"x": 200, "y": 600}]}
+    assert surface_y(bent, 20) == 620 and surface_y(bent, 120) == 600
+    straight = {"start": {"x": 0, "y": 600}, "end": {"x": 100, "y": 500}}
+    assert surface_y(straight, 50) == 550
 
 
 def test_anchors_on_a_sloped_platform_end_follow_its_bends():

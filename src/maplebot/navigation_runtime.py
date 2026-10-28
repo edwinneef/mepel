@@ -8,7 +8,6 @@ from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
 from .move_proofs import MoveProofs
 from .navigation import RouteMap, map_hash
-from .navigation_evidence import build_evidence
 from .navigation_executor import Feedback, Navigator
 from .scheduler import SUSTAIN
 
@@ -58,18 +57,14 @@ class NavigationRuntime:
         app = self.app
         if not app.position or app.area_editing:
             raise ValueError("Track a saved map outside the area editor first")
-        position = app.position
-        if position.teacher or position.finished or position.teach_calibrating:
-            raise ValueError("Finish and save or discard teaching before navigation")
-        profile = app.areas.load(position.profile["id"])["profile"]
-        if profile.get("public_map"):
-            fingerprint = map_hash(profile)
-            if self.failed_map != fingerprint:
-                self.failed, self.failed_map = set(), fingerprint
-            self.graph = RouteMap.computed(profile, self.proofs.load(profile["id"], fingerprint),
-                                           self.failed)
-        else:
-            self.graph = RouteMap(profile, build_evidence(profile, app.areas.directory))
+        profile = app.areas.load(app.position.profile["id"])["profile"]
+        if not profile.get("public_map"):
+            raise ValueError("Import this map first: maplebot import-map <area>")
+        fingerprint = map_hash(profile)
+        if self.failed_map != fingerprint:
+            self.failed, self.failed_map = set(), fingerprint
+        self.graph = RouteMap.computed(profile, self.proofs.load(profile["id"], fingerprint),
+                                       self.failed)
         self.route = self.agent = None
         self.reason = "Choose a destination and preview its route; no keys are sent"
         return self.snapshot()

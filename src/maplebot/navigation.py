@@ -7,8 +7,55 @@ import math
 from collections import deque
 from dataclasses import asdict, dataclass
 
-from .map_teacher import problems, surface_y
+import numpy as np
+
 from .moves import generate
+
+FLOOR_PX = 8  # platforms this close to the lowest height are the same floor level
+
+
+def surface_y(platform: dict, x: float) -> float:
+    """Height of a platform at x, following its bends when it has them."""
+    points = platform.get("points") or [platform["start"], platform["end"]]
+    points = sorted(points, key=lambda p: p["x"])
+    if points[0]["x"] == points[-1]["x"]:
+        return points[0]["y"]
+    return float(np.interp(x, [p["x"] for p in points], [p["y"] for p in points]))
+
+
+def problems(platforms: list[dict], ropes: list[dict], links: list[dict]) -> dict:
+    """Surfaces the floor cannot reach, and surfaces with no way back to it.
+
+    The floor ("home") is the lowest platform; among equally low ones, the widest.
+    Heights can carry sub-pixel noise, so "equally low" allows FLOOR_PX.
+    """
+    if not platforms:
+        return {"home": None, "unreachable": [], "stranded": []}
+
+    def level(item: dict) -> float:
+        return (item["start"]["y"] + item["end"]["y"]) / 2
+
+    lowest = max(level(p) for p in platforms)
+    home = max((p for p in platforms if lowest - level(p) <= FLOOR_PX),
+               key=lambda p: p["end"]["x"] - p["start"]["x"])["id"]
+    nodes = [item["id"] for item in (*platforms, *ropes)]
+    forward: dict[str, set[str]] = {key: set() for key in nodes}
+    backward: dict[str, set[str]] = {key: set() for key in nodes}
+    for link in links:
+        forward[link["from"]].add(link["to"])
+        backward[link["to"]].add(link["from"])
+
+    def reach(edges: dict[str, set[str]]) -> set[str]:
+        seen, todo = {home}, [home]
+        while todo:
+            for key in edges[todo.pop()] - seen:
+                seen.add(key)
+                todo.append(key)
+        return seen
+
+    reached, returns = reach(forward), reach(backward)
+    return {"home": home, "unreachable": [key for key in nodes if key not in reached],
+            "stranded": [key for key in nodes if key in reached and key not in returns]}
 
 
 def map_hash(profile: dict) -> str:

@@ -1704,9 +1704,7 @@ def test_monster_search_is_skipped_while_tracking_idle_or_navigating(
     monkeypatch.setattr(app, "_stop", lambda *args, **kwargs: None)
     app.mode = mode
     if tracking:
-        app.position = type("Position", (), {
-            "teacher": None, "teach_calibrating": False,
-            "read_map": lambda self, image: None})()
+        app.position = type("Position", (), {"read_map": lambda self, image: None})()
     app._process(app.image, time.perf_counter())
     assert calls == [search] and app.monster_search is search
 

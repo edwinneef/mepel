@@ -136,7 +136,7 @@ it('draws scaled geometry, keeps a closed-tool draft, adds a link and saves with
   render(<App client={new EngineClient('token', fetcher)} />);
   await waitFor(() => expect(screen.getByRole('img')).toBeTruthy());
   fireEvent.click(screen.getByRole('button', { name: 'Navigation' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Teach map' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Setup' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'New area' }).hasAttribute('disabled')).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: 'New area' }));
   await waitFor(() => expect(screen.getByLabelText('Area name')).toBeTruthy());

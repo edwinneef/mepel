@@ -17,8 +17,7 @@ COMMANDS = frozenset({
     "area_list", "area_load", "area_begin", "area_capture", "area_save", "area_end",
     "position_start", "position_stop", "position_supplement",
     "walk_calibration_begin", "walk_calibration_finish",
-    "walk_calibration_cancel", "teach_new_area", "teach_begin", "teach_finish", "teach_save",
-    "teach_cancel", "teach_resume", "teach_pause", "teach_checkpoint",
+    "walk_calibration_cancel",
     "nav_refresh", "nav_preview", "nav_start", "nav_go",
 })
 FRESH_FRAME_COMMANDS = frozenset(

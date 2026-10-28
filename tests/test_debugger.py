@@ -4,7 +4,6 @@ import threading
 import time
 from http.client import HTTPConnection
 from importlib.resources import files
-from types import SimpleNamespace
 
 import pytest
 
@@ -64,28 +63,6 @@ def test_display_drawings_route_returns_the_latest_packet_or_null():
         status, body = request(server, "GET", "/api/v1/drawings")
         assert status == 200 and json.loads(body)["display"] is True
         assert app.events == []
-    finally:
-        server.shutdown()
-        server.server_close()
-
-
-def test_teaching_evidence_and_draft_reads_cannot_escape_their_directories(tmp_path):
-    app = RestartApp()
-    app.areas = SimpleNamespace(directory=tmp_path)
-    area = "a" * 32
-    (tmp_path / "teaching").mkdir()
-    (tmp_path / "drafts").mkdir()
-    (tmp_path / "teaching" / f"{area}-miss-123.png").write_bytes(b"PNG")
-    (tmp_path / "drafts" / f"{area}.json").write_text('{"draft":true}')
-    server = serve(app, 0)
-    try:
-        assert request(server, "GET", f"/api/v1/teaching-evidence?id={area}-miss-123.png") == (
-            200, "PNG")
-        assert request(server, "GET", f"/api/v1/teaching-draft?area_id={area}")[0] == 200
-        for path in ("/api/v1/teaching-evidence?id=../config.toml",
-                     "/api/v1/teaching-draft?area_id=../config"):
-            assert request(server, "GET", path)[0] == 404
-        assert not app.events
     finally:
         server.shutdown()
         server.server_close()

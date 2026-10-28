@@ -81,8 +81,7 @@ ELEVATED_GAME_REASON = (
 POSITION_COMMANDS = frozenset({
     "position_start", "position_stop", "position_supplement",
     "walk_calibration_begin", "walk_calibration_finish",
-    "walk_calibration_cancel", "teach_new_area", "teach_begin", "teach_finish", "teach_save",
-    "teach_cancel", "teach_resume", "teach_pause", "teach_checkpoint",
+    "walk_calibration_cancel",
 })
 
 # Give ordinary dragging a bounded grace period, independent of capture FPS.
@@ -251,17 +250,6 @@ class Application:
 
     def start(self) -> None:
         self.connect_saved_window()
-        # Restore a draft for review, never resume teaching or gameplay automatically.
-        for path in sorted((self.areas.directory / "drafts").glob("*.json"),
-                           key=lambda item: item.stat().st_mtime, reverse=True):
-            try:
-                saved = json.loads(path.read_text("utf-8"))
-                if saved.get("phase") not in {"used", "discarded"}:
-                    self._position_command("position_start", {"area_id": path.stem})
-                    self.note("Teaching draft recovered; recording and gameplay stay stopped")
-                    break
-            except (OSError, ValueError, TypeError, KeyError):
-                self.note("A teaching draft needs recovery; its original file is preserved")
         self.preview.start()
         self.display.start()
         self.start_capture_worker()
@@ -392,7 +380,7 @@ class Application:
         }
         if canceled_navigation:
             self.stop_requested.set()
-            self.safe_stop("OPERATOR_STOP", "Position/teaching change canceled navigation")
+            self.safe_stop("OPERATOR_STOP", "Position change canceled navigation")
         if name in {
             "stop",
             "attach",
@@ -508,8 +496,7 @@ class Application:
             if position is None and self.position is not None:
                 position = {"area_id": self.position.profile["id"],
                             "area_name": self.position.profile["name"], "kind": "unknown",
-                            "reason": "Waiting for capture; teaching draft preserved",
-                            "teaching": getattr(self.position, "teaching_snapshot", None),
+                            "reason": "Waiting for capture",
                             "captured_at": 0, "input_sent": False}
             result["position"] = self._position_snapshot(position)
             result["readiness"] = readiness(result)
@@ -1353,7 +1340,7 @@ class Application:
             return {"path": path}
         if name in POSITION_COMMANDS:
             if self.mode in {"navigation", "navigation_wait"}:
-                self._stop("OPERATOR_STOP", "Position/teaching change canceled navigation")
+                self._stop("OPERATOR_STOP", "Position change canceled navigation")
             return self._position_command(name, payload)
         if name == "save":
             return {"path": self._save()}
@@ -1512,26 +1499,8 @@ class Application:
             return self.position.set_supplement(enabled)
         if self.area_editing:
             raise ValueError("Finish area editing before tracking the live position")
-        if name == "teach_new_area":
-            if self.mode != "capture":
-                raise ValueError("Stop combat and potions before teaching a map")
-            latest = self.preview.frozen(self._preview_source().id)
-            if latest is None:
-                raise ValueError("Wait for a fresh preview before teaching a map")
-            view = self.areas.capture_view(latest[0])
-            if view["minimap"] is None:
-                raise ValueError("Open the full minimap in the game, then try again")
-            label = payload.get("name")
-            saved = self.areas.save({
-                "schema_version": 2, "id": uuid.uuid4().hex, "revision": 0,
-                "name": label if isinstance(label, str) and label.strip() else "New map",
-                "boundary": {"x": 0, "y": 0, "width": view["width"], "height": view["height"]},
-                "views": [view], "zones": [], "platforms": [], "ropes": [], "links": [],
-            })["profile"]
-            name, payload = "position_start", {"area_id": saved["id"], "teach": True}
         if name == "position_start":
             if self.position is not None:
-                self.position._checkpoint(force=True)
                 if self.position.profile["id"] == payload.get("area_id"):
                     return {"tracking": True, "area_id": self.position.profile["id"],
                             "calibrated": self.position.tracker is not None}
@@ -1544,12 +1513,9 @@ class Application:
                 self.status["position"] = {
                     "area_id": position.profile["id"], "area_name": position.profile["name"],
                     "kind": "unknown", "reason": "Waiting for a fresh position reading",
-                    "teaching": position._teaching_status(time.perf_counter()),
                     "captured_at": time.time(), "input_sent": False,
                 }
-            if payload.get("teach"):
-                position.begin_teaching()
-            elif not (self.navigation.agent and self.navigation.agent.active):
+            if not (self.navigation.agent and self.navigation.agent.active):
                 try:
                     self.navigation.refresh()  # List destinations as soon as a map is tracked.
                 except ValueError:
@@ -1566,30 +1532,6 @@ class Application:
             return result
         if name == "walk_calibration_cancel":
             return self.position.cancel_calibration()
-        if name == "teach_begin":
-            if self.mode != "capture":
-                raise ValueError("Stop combat and potions before teaching a map")
-            self.note("Teaching the map; play it yourself, no input is sent")
-            return self.position.begin_teaching()
-        if name == "teach_finish":
-            return self.position.finish_teaching()
-        if name == "teach_cancel":
-            return self.position.cancel_teaching()
-        if name == "teach_resume":
-            return self.position.resume_teaching()
-        if name == "teach_pause":
-            return self.position.pause_teaching()
-        if name == "teach_checkpoint":
-            return self.position.checkpoint_teaching()
-        if name == "teach_save":
-            result = self.position.save_teaching(
-                confirm_partial=payload.get("confirm_partial") is True)
-            if result.get("requires_confirmation"):
-                return result
-            profile = result["profile"]
-            self.note(f"Map saved from walking: {len(profile['platforms'])} platforms, "
-                      f"{len(profile['ropes'])} ropes, {len(profile['links'])} links")
-            return result
         result = self.position.finish_calibration()
         residual = result["calibration"]["residual_px"]
         self.note(
@@ -1700,8 +1642,8 @@ class Application:
         captured_at = time.time() if captured_at is None else captured_at
         fix = self.position.read_map(image) if self.position is not None else None
         self.detector.taught_map = bool(fix and fix.canvas)
-        # Moving between platforms and idle map tracking (including teaching) never target a
-        # monster; skipping that search keeps position fresh enough to start a route.
+        # Moving between platforms and idle map tracking never target a monster;
+        # skipping that search keeps position fresh enough to start a route.
         # Combat and dry runs always search.
         self.monster_search = not (self.mode in {"navigation", "navigation_wait"} or (
             self.mode == "capture" and self.position is not None))

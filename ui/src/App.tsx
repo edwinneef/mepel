@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { EngineClient, resultMessage } from './client';
 import { useViewport } from './useViewport';
 import { GameViewport } from './GameViewport';
@@ -17,18 +17,11 @@ export function App({ client }: { client: EngineClient }) {
   const s = state.snapshot;
   const [tool, setTool] = useState<Tool | null>(null);
   const [runMode, setRunMode] = useState<'preview' | 'live' | 'navigation'>('preview');
-  const [navigationTab, setNavigationTab] = useState<'map' | 'routes' | 'teaching'>('map');
+  const [navigationTab, setNavigationTab] = useState<'map' | 'routes' | 'setup'>('map');
   const [supervised, setSupervised] = useState(false);
   const [routeCurrent, setRouteCurrent] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [readySince, setReadySince] = useState<number | null>(null);
-  const openedSession = useRef<string | null>(null);
-  useEffect(() => {
-    if (s && openedSession.current !== s.session_id) {
-      openedSession.current = s.session_id;
-      if (s.position?.teaching?.phase) { setTool('Navigation'); setNavigationTab('teaching'); }
-    }
-  }, [s]);
   const view = useViewport(client, s, state.connected);
   const area = useAreaEditor(client, s?.session_id, s?.area_editing, s?.command_epoch);
   const areaEditing = area.editing || Boolean(s?.area_editing);
@@ -112,7 +105,7 @@ export function App({ client }: { client: EngineClient }) {
     <main className={`workspace ${tool ? 'with-dock' : ''} ${tool === 'Navigation' ? 'navigation-workspace' : ''}`}>
       <section className="preview-panel" aria-label="Live game workspace">
         <div className="preview-heading"><div><span className="eyebrow">{area.editing ? 'Area reference' : view.frozen ? 'Frozen frame' : 'Game view'}</span>
-          <span className="map-name">{area.editing ? area.draft?.name ?? 'Area teaching' : s?.catalog?.active_map || s?.window?.title || 'Waiting for connection'}</span></div>
+          <span className="map-name">{area.editing ? area.draft?.name ?? 'Area drawing' : s?.catalog?.active_map || s?.window?.title || 'Waiting for connection'}</span></div>
           <span className={`view-badge ${!liveFrame || area.editing ? 'stale' : ''}`}>{area.editing ? 'Editing · input stopped' : view.frozen ? 'Selection mode' : liveFrame ? 'Live picture' : !state.connected ? 'Disconnected · last frame' : view.image ? 'Last frame · waiting for capture' : 'Waiting for fresh frame'}</span></div>
         {area.editing ? <AreaCanvas workspace={area} disabled={disabled || area.working} /> : <GameViewport image={view.image} frozen={Boolean(view.frozen)} stale={!liveFrame} selection={view.selection} onSelection={view.setSelection}
           overlay={!liveFrame ? null : <PositionOverlay position={s?.position} showText={tool !== 'Navigation'} />}
@@ -139,14 +132,14 @@ export function App({ client }: { client: EngineClient }) {
           <nav className="navigation-tabs" aria-label="Navigation pages">
             <button aria-pressed={navigationTab === 'map'} onClick={() => setNavigationTab('map')}>Map</button>
             <button aria-pressed={navigationTab === 'routes'} onClick={() => setNavigationTab('routes')}>Routes</button>
-            <button aria-pressed={navigationTab === 'teaching'} onClick={() => setNavigationTab('teaching')}>Teach map</button>
+            <button aria-pressed={navigationTab === 'setup'} onClick={() => setNavigationTab('setup')}>Setup</button>
           </nav>
           <div hidden={navigationTab !== 'map'}>{props && <MapTab snapshot={props.snapshot} client={client} act={act} disabled={props.disabled}
             onPreview={() => { setRouteCurrent(true); setSupervised(false); setRunMode('navigation'); setNavigationTab('routes'); }} />}</div>
           <div hidden={navigationTab !== 'routes'}>{props && <NavigationPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled}
             onInvalidate={() => { setRouteCurrent(false); setSupervised(false); }} onPreview={() => { setRouteCurrent(true); setRunMode('navigation'); }} supervised={supervised} onSupervised={setSupervised} areas={area.areas} />}</div>
-          <div hidden={navigationTab !== 'teaching'}>{props && <PositionPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} areas={area.areas} refreshAreas={area.refresh} />}
-            <details className="advanced-editor"><summary>Advanced: draw by hand</summary><AreaEditor workspace={area} active={tool === 'Navigation' && navigationTab === 'teaching'} connected={state.connected} disabled={disabled} /></details></div></div>
+          <div hidden={navigationTab !== 'setup'}>{props && <PositionPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} areas={area.areas} refreshAreas={area.refresh} />}
+            <details className="advanced-editor"><summary>Advanced: draw by hand</summary><AreaEditor workspace={area} active={tool === 'Navigation' && navigationTab === 'setup'} connected={state.connected} disabled={disabled} /></details></div></div>
           {tool !== 'Navigation' && (!props ? <p>Waiting for the engine connection…</p> : tool === 'Tracking' ? <TrackingTool {...props} /> : tool === 'Combat' ? <CombatTool {...props} /> : tool === 'Potions' ? <PotionsTool key={s!.session_id} {...props} /> : tool === 'Settings' ? <SettingsTool key={s!.session_id} {...props} /> : tool === 'Diagnostics' ? <DiagnosticsTool {...props} /> : null)}</div>
       </aside>
     </main>

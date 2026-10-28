@@ -56,7 +56,6 @@ def test_optin_fallback_preserves_map_primary_tracker_and_restarts_off(position)
     assert result["projection"] and result["input_sent"] is False
     assert position.tracker is primary and len(primary.platforms) == 1
     assert path.read_bytes() == before
-    assert result["teaching"]["geometry"]["platforms"] == position.profile["platforms"]
     position.set_supplement(False)
     cleared = Application._position_snapshot(SimpleNamespace(position=position), result)
     assert cleared["kind"] == "unknown" and cleared["projection"] is None
@@ -137,7 +136,7 @@ def test_runtime_rejects_input_sessions_and_non_capture_modes_and_accepts_disabl
     assert app.controller.backend.events == []
 
 
-def test_teaching_calibration_and_input_capable_tracker_cannot_use_supplement(position):
+def test_calibration_and_input_capable_tracker_cannot_use_supplement(position):
     position.capture_only = False
     with pytest.raises(ValueError, match="capture-only"):
         position.set_supplement(True)
@@ -145,12 +144,11 @@ def test_teaching_calibration_and_input_capable_tracker_cannot_use_supplement(po
     position.set_supplement(True)
     position.begin_calibration()
     assert not position.supplement_status()["enabled"]
-    with pytest.raises(ValueError, match="teaching and calibration"):
+    with pytest.raises(ValueError, match="walk calibration"):
         position.set_supplement(True)
     position.cancel_calibration()
     position.set_supplement(True)
-    position.begin_teaching()
-    assert not position.supplement_status()["enabled"]
+    assert position.supplement_status()["enabled"]
 
 
 def test_provisional_reading_is_not_navigation_feedback(app, position):

@@ -71,3 +71,11 @@ def test_runtime_proves_settled_moves_and_switches_off_failed_ones(app):
     nav.failed.clear()
     nav._learn()
     assert nav.failed == set()  # a lost reading is not the move's fault
+
+
+def test_a_map_without_public_data_must_be_imported_before_navigation(app):
+    profile = {key: value for key, value in imported().items() if key != "public_map"}
+    app.position = type("Position", (), {"profile": profile})()
+    app.areas = type("Areas", (), {"load": lambda self, area_id: {"profile": profile}})()
+    with pytest.raises(ValueError, match="Import this map first: maplebot import-map"):
+        app.navigation.refresh()

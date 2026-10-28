@@ -6,7 +6,6 @@ import math
 from pathlib import Path
 
 from maplebot.navigation import Route, RouteMap
-from maplebot.navigation_evidence import build_evidence
 from maplebot.navigation_executor import Feedback, Navigator
 
 
@@ -38,9 +37,10 @@ def simulate(graph: RouteMap, route: Route) -> dict:
     return {"stage": agent.stage, "reason": agent.reason, "proposals": proposals}
 
 
-def replay(profile: dict, directory: Path) -> dict:
-    graph = (RouteMap.computed(profile) if profile.get("public_map")
-             else RouteMap(profile, build_evidence(profile, directory)))
+def replay(profile: dict) -> dict:
+    if not profile.get("public_map"):
+        raise ValueError("Import this map first: maplebot import-map <area>")
+    graph = RouteMap.computed(profile)
     results, compositions = [], []
     for edge in graph.edges.values():
         route = Route(profile["id"], profile["revision"], graph.fingerprint,
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     parser.add_argument("profile", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    result = replay(json.loads(args.profile.read_text("utf-8")), args.profile.parent)
+    result = replay(json.loads(args.profile.read_text("utf-8")))
     args.output.write_text(json.dumps(result, indent=2), "utf-8")
     print(json.dumps({"edges": len(result["edges"]), "input_sent": False,
                       "stages": {stage: sum(e["stage"] == stage for e in result["edges"])
