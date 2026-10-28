@@ -64,3 +64,33 @@ paired automatic HP/MP recovery observation during combat remains missing.
 Keep that outcome pending rather than calling it passed or failed. Do not run
 another test merely to close this report. The useful next improvement is passive
 retention of frame-matched before/after potion evidence during ordinary use.
+
+## Passive capture follow-up - 28 October 2026, 06:50 UTC
+
+The passive collector is now installed and enabled, but there is **no newly
+captured passive potion ticket evidence to assess**. The source description above
+records the earlier audit; current collection behavior is documented in
+[Passive potion evidence](passive-potion-evidence.md).
+
+This follow-up read all 18 retained recording directories, including 1,867
+decision rows in 13 logs. There are no `potion-evidence.jsonl` files. The only
+newer directory, `session-1793169379190568200-clip`, contains just an event:
+`Calibration: gameplay input disabled`, at `1793169379.191`. It contains neither
+decision rows nor PNGs, so it cannot supply a before/after recovery pair.
+
+A GET-only status check returned the same engine session as the installation
+receipt, `f47b1698aa7746d2b4ff441bf11850d6`, with passive collection enabled and
+zero retained records. The engine was in capture mode, with no active probe and
+autopotter disabled. Automatic recording remains configured on. These facts do
+not demonstrate a potion attempt or a collector failure.
+
+All five protected configuration/calibration/confirmation files still match
+their installation hashes. Machine-readable inventory, checks and the status
+summary are saved in `artifacts/passive-potion-audit-20261028/audit.json`.
+JSON parsing found no errors. No gameplay test, replay, input, computer use,
+restart, settings change or new automated test was performed.
+
+The requested audit is complete. Native automatic HP/MP recovery remains pending;
+accepted controls and the earlier hit observation remain accepted. Audit a
+future existing ticket recording if one becomes available during ordinary use;
+another gameplay test is not required by this audit.
