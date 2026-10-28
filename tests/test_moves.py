@@ -47,7 +47,8 @@ def test_ropes_connect_their_foot_top_and_neighbours():
                  ("side", "rope")):
         assert pairs[pair].kind == "climb"
     assert pairs[("rope", "side")].kind == "jump"
-    assert pairs[("floor", "rope")].trace == ((500, 600), (500, 570))
+    assert pairs[("floor", "rope")].trace == ((500, 600), (500, 570), (500, 562), (500, 554),
+                                             (500, 546))
 
 
 def test_rope_foot_within_a_jump_is_reached_by_jumping():

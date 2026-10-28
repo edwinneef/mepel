@@ -37,11 +37,13 @@ def distance(point: tuple, trace: tuple) -> float:
 
 
 class Navigator:
-    def __init__(self, graph: RouteMap, route: Route, now: float, *, pulse: float = .12) -> None:
+    def __init__(self, graph: RouteMap, route: Route, now: float, *, pulse: float = .12,
+                 trusted_only: bool = False) -> None:
         graph.verify(route)
         if not math.isfinite(now) or not 0 < pulse <= .25:
             raise ValueError("Invalid navigation clock or input pulse")
         self.graph, self.route, self.pulse = graph, route, pulse
+        self.trusted_only = trusted_only  # unsupervised: replans may use proven edges only
         self.started = self.edge_started = now
         self.last_time = float("-inf")
         self.index = self.completed = self.retries = self.replans = 0
@@ -116,7 +118,8 @@ class Navigator:
                     return self.stop("Replan budget exhausted")
                 try:
                     self.route = self.graph.plan(f.surface, self.route.target,
-                                                 max_edges=max(1, 8 - self.completed))
+                                                 max_edges=max(1, 8 - self.completed),
+                                                 trusted_only=self.trusted_only)
                 except ValueError as error:
                     return self.stop(str(error))
                 self.replans += 1

@@ -39,7 +39,8 @@ def simulate(graph: RouteMap, route: Route) -> dict:
 
 
 def replay(profile: dict, directory: Path) -> dict:
-    graph = RouteMap(profile, build_evidence(profile, directory))
+    graph = (RouteMap.computed(profile) if profile.get("public_map")
+             else RouteMap(profile, build_evidence(profile, directory)))
     results, compositions = [], []
     for edge in graph.edges.values():
         route = Route(profile["id"], profile["revision"], graph.fingerprint,

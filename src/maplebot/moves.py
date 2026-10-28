@@ -43,6 +43,12 @@ def _below(platforms: list[dict], x: float, y: float) -> dict | None:
     return min(under, key=lambda p: height(p, x), default=None)
 
 
+def _grip(x: float, y: float, direction: int) -> tuple[tuple[float, float], ...]:
+    """Reach a rope at (x, y), then keep climbing: the navigator confirms a grip only
+    after steady progress along the rope, never from being close to it."""
+    return tuple((x, y + direction * step) for step in (0, 8, 16, 24))
+
+
 def _point(item: dict, x: float) -> tuple[float, float]:
     return round(x, 1), round(height(item, x), 1)
 
@@ -128,13 +134,14 @@ def generate(profile: dict) -> list[Move]:
             if left <= x <= right:
                 y = height(p, x)
                 if bottom - CLIMB_PX <= y <= bottom + LEVEL_PX:  # standing at its foot
-                    add(p["id"], rope["id"], "climb", (x, y), (x, y - CLIMB_PX))
+                    add(p["id"], rope["id"], "climb", (x, y), *_grip(x, y - CLIMB_PX, -1))
                     add(rope["id"], p["id"], "climb", (x, y - CLIMB_PX), (x, y))
                 elif bottom < y <= bottom + JUMP_RISE_PX:  # jump up to its foot
-                    add(p["id"], rope["id"], "climb", (x, y), (x, bottom - CLIMB_PX / 2))
+                    add(p["id"], rope["id"], "climb", (x, y),
+                        *_grip(x, bottom - CLIMB_PX / 2, -1))
                 elif top - LEVEL_PX <= y <= top + CLIMB_PX:  # stepping off at its top
                     add(rope["id"], p["id"], "climb", (x, y + CLIMB_PX), (x, y))
-                    add(p["id"], rope["id"], "climb", (x, y), (x, y + CLIMB_PX))
+                    add(p["id"], rope["id"], "climb", (x, y), *_grip(x, y + CLIMB_PX, 1))
                 continue
             # A platform beside the rope: jump onto the rope, or off it onto the platform.
             # The gap is measured from the rope's center; the body reaches past it.
@@ -148,7 +155,7 @@ def generate(profile: dict) -> list[Move]:
                     ((x + landing[0]) / 2, y - 40), landing)
             if top <= y <= bottom and abs(x - edge) <= JUMP_GAP_PX:
                 landing = _point(p, _inside(p, edge))
-                add(p["id"], rope["id"], "climb", landing, (x, y - CLIMB_PX / 2))
+                add(p["id"], rope["id"], "climb", landing, *_grip(x, y - CLIMB_PX / 2, -1))
                 add(rope["id"], p["id"], "jump", (x, y - CLIMB_PX / 2),
                     ((x + landing[0]) / 2, y - 40), landing)
     return list(moves.values())

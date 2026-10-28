@@ -26,8 +26,11 @@ def visible_by_surface(graph: RouteMap, player_area: tuple[float, float],
 
 
 def routable(graph: RouteMap) -> list[str]:
-    """Platforms with an evidenced round trip, in saved map order. Ropes are never stops."""
-    return [p["id"] for p in graph.profile["platforms"] if p["id"] not in graph.excluded]
+    """Platforms with a proven round trip, in saved map order. Ropes are never stops.
+
+    Rotation moves without supervision, so it never relies on an unproven computed move.
+    """
+    return [p["id"] for p in graph.profile["platforms"] if p["id"] not in graph.trusted_excluded]
 
 
 class Rotation:

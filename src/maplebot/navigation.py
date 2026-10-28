@@ -8,6 +8,7 @@ from collections import deque
 from dataclasses import asdict, dataclass
 
 from .map_teacher import problems, surface_y
+from .moves import generate
 
 
 def map_hash(profile: dict) -> str:
@@ -59,21 +60,28 @@ class Route:
 
 
 class RouteMap:
-    def __init__(self, profile: dict, evidence: dict) -> None:
+    def __init__(self, profile: dict, evidence: dict, *, links: list[dict] | None = None,
+                 proven: set[str] | None = None) -> None:
+        """Edges from recorded or computed evidence for `links` (default: the saved links).
+
+        `proven` names the edges trusted without supervision; None trusts every usable
+        edge, as recorded teaching evidence always was.
+        """
         profile = copy.deepcopy(profile)
         self.profile = profile
         self.fingerprint = map_hash(profile)
+        links = profile["links"] if links is None else links
         if (evidence.get("area_id") != profile["id"]
                 or evidence.get("revision") != profile["revision"]
                 or evidence.get("map_hash") != self.fingerprint):
             raise ValueError("Navigation evidence does not match the active map revision")
         self.nodes = {p["id"]: p for p in profile["platforms"] + profile["ropes"]}
-        issue = problems(profile["platforms"], profile["ropes"], profile["links"])
+        issue = problems(profile["platforms"], profile["ropes"], links)
         self.home = issue["home"]
         self.excluded = set(issue["unreachable"] + issue["stranded"])
         self.edges: dict[str, Edge] = {}
         self.disabled: dict[str, str] = {}
-        for link in profile["links"]:
+        for link in links:
             row = evidence.get("edges", {}).get(link["id"])
             reason = None
             if link["from"] in self.excluded or link["to"] in self.excluded:
@@ -110,6 +118,25 @@ class RouteMap:
             if edge.source in self.excluded or edge.target in self.excluded:
                 self.disabled[key] = "No evidenced round-trip route through this surface"
                 del self.edges[key]
+        self.proven = set(self.edges) if proven is None else set(self.edges) & set(proven)
+        trusted = [{"from": e.source, "to": e.target} for k, e in self.edges.items()
+                   if k in self.proven]
+        safe = problems(profile["platforms"], profile["ropes"], trusted)
+        # Unsupervised movement (rotation) may only use proven edges and their surfaces.
+        self.trusted_excluded = self.excluded | set(safe["unreachable"] + safe["stranded"])
+
+    @classmethod
+    def computed(cls, profile: dict, proven: set[str] = frozenset(),
+                 failed: set[str] = frozenset()) -> "RouteMap":
+        """Edges computed from an imported map's geometry; `failed` ones are left out."""
+        moves = [m for m in generate(profile) if m.id not in failed]
+        evidence = {"area_id": profile["id"], "revision": profile["revision"],
+                    "map_hash": map_hash(profile),
+                    "edges": {m.id: {"from": m.source, "to": m.target, "kind": m.kind,
+                                     "source": "proven" if m.id in proven else "computed",
+                                     "missing_checks": 0, "max_gap": 0,
+                                     "trace": [list(p) for p in m.trace]} for m in moves}}
+        return cls(profile, evidence, links=[m.link for m in moves], proven=set(proven))
 
     def on_surface(self, surface: str, feet: tuple, *, tolerance: float = 24) -> bool:
         node = self.nodes.get(surface)
@@ -133,10 +160,13 @@ class RouteMap:
                 return f"Movement crosses {zone['kind']} zone {zone['id']}"
         return None
 
-    def plan(self, origin: str, target: str, *, max_edges: int = 8) -> Route:
+    def plan(self, origin: str, target: str, *, max_edges: int = 8,
+             trusted_only: bool = False) -> Route:
+        excluded = self.trusted_excluded if trusted_only else self.excluded
         for key in (origin, target):
-            if key not in self.nodes or key in self.excluded:
-                raise ValueError("Origin or target is outside the reachable round-trip map")
+            if key not in self.nodes or key in excluded:
+                raise ValueError("Origin or target is outside the reachable round-trip map"
+                                 + (" over proven moves" if trusted_only else ""))
         if not 1 <= max_edges <= 8:
             raise ValueError("Route edge budget must be between one and eight")
         queue, seen = deque([(origin, ())]), {origin}
@@ -148,6 +178,8 @@ class RouteMap:
             if len(path) >= max_edges:
                 continue
             for edge in self.edges.values():
+                if trusted_only and edge.id not in self.proven:
+                    continue
                 if edge.source == node and edge.target not in seen:
                     seen.add(edge.target)
                     queue.append((edge.target, (*path, edge)))
@@ -163,5 +195,10 @@ class RouteMap:
                 "map_hash": self.fingerprint, "home": self.home,
                 "nodes": [{"id": k, "name": v.get("name", k),
                            "kind": "rope" if v in self.profile["ropes"] else "platform",
-                           "excluded": k in self.excluded} for k, v in self.nodes.items()],
-                "usable_edges": len(self.edges), "disabled_edges": self.disabled}
+                           "excluded": k in self.excluded,
+                           "unproven": k in self.trusted_excluded and k not in self.excluded}
+                          for k, v in self.nodes.items()],
+                "usable_edges": len(self.edges), "proven_edges": len(self.proven),
+                "edges": [{"id": e.id, "from": e.source, "to": e.target, "kind": e.kind,
+                           "proven": e.id in self.proven} for e in self.edges.values()],
+                "disabled_edges": self.disabled}

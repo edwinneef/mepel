@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
+from .move_proofs import MoveProofs
 from .navigation import RouteMap, map_hash
 from .navigation_evidence import build_evidence
 from .navigation_executor import Feedback, Navigator
@@ -14,6 +15,10 @@ from .scheduler import SUSTAIN
 # While airborne the camera moves faster than its shift estimate and the minimap marker
 # moves in ~15 px steps, so marker and name tag can briefly disagree mid-jump.
 FLIGHT_GRACE_SECONDS = 0.8
+# Stops that blame the move itself; focus, feedback or budget stops do not.
+MOVE_FAILURES = ("Movement departed the recorded corridor", "Landing overshoot",
+                 "Departure not observed", "Edge deadline exhausted",
+                 "Lost launch platform", "Lost rope alignment", "Unexpected or excluded surface")
 
 
 class NavigationRuntime:
@@ -25,6 +30,10 @@ class NavigationRuntime:
         self.resume_combat = False
         self.agreed_at = float("-inf")
         self.reason = "Track a saved map, then load its navigation routes"
+        self.proofs = MoveProofs(app.areas.directory)
+        self.failed: set[str] = set()  # computed moves that failed this session
+        self.failed_map: str | None = None
+        self.counted = 0
 
     def cancel(self, reason: str) -> None:
         if self.agent and self.agent.active:
@@ -53,7 +62,14 @@ class NavigationRuntime:
         if position.teacher or position.finished or position.teach_calibrating:
             raise ValueError("Finish and save or discard teaching before navigation")
         profile = app.areas.load(position.profile["id"])["profile"]
-        self.graph = RouteMap(profile, build_evidence(profile, app.areas.directory))
+        if profile.get("public_map"):
+            fingerprint = map_hash(profile)
+            if self.failed_map != fingerprint:
+                self.failed, self.failed_map = set(), fingerprint
+            self.graph = RouteMap.computed(profile, self.proofs.load(profile["id"], fingerprint),
+                                           self.failed)
+        else:
+            self.graph = RouteMap(profile, build_evidence(profile, app.areas.directory))
         self.route = self.agent = None
         self.reason = "Choose a destination and preview its route; no keys are sent"
         return self.snapshot()
@@ -144,7 +160,7 @@ class NavigationRuntime:
         if not self.graph or not f or not f.surface:
             return "Rotation: current platform unknown"
         try:
-            self.route = self.graph.plan(f.surface, target)
+            self.route = self.graph.plan(f.surface, target, trusted_only=True)
         except ValueError as error:
             return f"Rotation: {error}"
         blocker = self.blocker()
@@ -152,7 +168,9 @@ class NavigationRuntime:
             return f"Rotation: {blocker}"
         self._release()
         self.agent = Navigator(self.graph, self.route, now,
-                               pulse=min(.12, self.app.config.input.max_action_seconds))
+                               pulse=min(.12, self.app.config.input.max_action_seconds),
+                               trusted_only=True)
+        self.counted = 0
         self.resume_combat, self.app.mode = True, "navigation"
         self.reason = f"Platform clear; moving to {self.graph.nodes[target].get('name', target)}"
         return None
@@ -227,7 +245,9 @@ class NavigationRuntime:
             app._start_sustain()
             self.agent = Navigator(self.graph, self.route, now,
                                    pulse=min(.12, app.config.input.max_action_seconds))
+            self.counted = 0
         motion = self.agent.step(replace(f, motion_ok=True) if airborne else f)
+        self._learn()
         if not self.agent.active:
             if self.agent.stage == "arrived" and self.resume_combat:
                 self._release()
@@ -276,6 +296,21 @@ class NavigationRuntime:
             else:
                 app._stop("INPUT_BACKEND_FAILURE", str(submitted))
         self.reason = self.agent.reason
+
+    def _learn(self) -> None:
+        """Prove each computed move the navigator just settled; switch off one that failed."""
+        agent, graph = self.agent, self.graph
+        if graph is None or not graph.profile.get("public_map"):
+            return
+        if agent.completed > self.counted:
+            self.counted = agent.completed
+            edge = agent.route.edges[agent.index - 1]
+            if edge.id not in graph.proven:
+                self.proofs.record(graph.profile["id"], graph.fingerprint, edge.id)
+                graph.proven.add(edge.id)
+        elif (agent.stage == "stopped" and agent.reason.startswith(MOVE_FAILURES)
+              and agent.index < len(agent.route.edges)):
+            self.failed.add(agent.route.edges[agent.index].id)
 
     def snapshot(self) -> dict:
         value = self.agent.snapshot() if self.agent else {
