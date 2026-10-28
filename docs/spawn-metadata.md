@@ -38,6 +38,32 @@ Rollback: stop the engine, restore the configuration backed up before activation
 and restart in the same session mode. The previous `meowdb-classic/20261028-iii`
 revision remains available; imported OSMS data can remain inactive on disk.
 
+### Missing OSMS sprites
+
+`python -m maplebot osms-sprites --dry-run` finds missing sprite names used by
+maps in the selected OSMS revision and validates its standing, movement and flight
+animations. Run without `--dry-run` to install. It preserves existing catalog
+entries and image bytes, backs up the manifest, then activates additions with an
+atomic manifest replacement. Failed downloads or validation do not change the
+manifest. Repeating a completed import adds nothing.
+
+OSMS frames use `osms-` filenames and reserved negative asset IDs
+(`-1000000000 - source ID`), with provider, revision, URLs and hashes per entry.
+WebP decoding requires a row-shaped byte buffer. Identical frame images retain
+each distinct species label, so shared Super/Ultra art remains available when
+either name is selected by its map. Source names are exact, not guessed aliases.
+
+Restart through `tools/restart_engine.ps1` to load the additions, preserving
+session input capability and leaving gameplay Off. To roll back these sprites,
+stop the engine and restore the backed-up manifest; extra unlisted PNG files
+remain inactive and need not be deleted. Installation evidence and the original
+manifest are under `artifacts/osms-sprites-install-20261028/`.
+The installation adds 142 labeled frames for 19 names from 35 animations (137
+frames before shared-name duplication). All 335 named maps then have sprite
+coverage, including 125 empty maps. This is asset/loader coverage, not proof of
+native recognition or combat on every map. Existing Middle Forest III replay
+still yields 17 accepted matches across six frames with 130 variants.
+
 ## Reviewed single-map import
 
 Import a reviewed Classic revision from the repository root:

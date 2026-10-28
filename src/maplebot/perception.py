@@ -188,9 +188,10 @@ class TemplateDetector:
                         raise ValueError(f"Catalog image hash mismatch: {path.name}")
                     catalog_names.add(entry["name"])
                     catalog_frames += 1
-                    if digest in seen_catalog:
+                    identity = (digest, entry["name"])
+                    if identity in seen_catalog:
                         continue
-                    seen_catalog.add(digest)
+                    seen_catalog.add(identity)
                     name = f"catalog:{entry['name']}:{entry['animation']}-{entry['frame']}"
                 templates.extend(self._variants(kind, name, raw, path))
         self.templates = templates

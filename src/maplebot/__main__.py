@@ -49,9 +49,23 @@ def main() -> None:
 
     osms.add_argument("--commit", default=VERIFIED_COMMIT)
     osms.add_argument("--dry-run", action="store_true")
+    sprites = sub.add_parser("osms-sprites", help="Add missing sprites for selected OSMS maps")
+    sprites.add_argument("--dry-run", action="store_true")
     sub.add_parser("legacy-map-import", help="Explicitly import legacy Dream map populations")
     args = parser.parse_args()
     config = Config.load(args.config)
+    if args.command == "osms-sprites":
+        from .osms_sprites import import_sprites
+
+        root = Path(config.capture.data_dir)
+        source, revision = config.perception.spawn_source, config.perception.spawn_revision
+        if source != "osms-classic" or not revision.isalnum():
+            raise ValueError("Select a pinned OSMS dataset first")
+        print(json.dumps(import_sprites(
+            root / "templates", root / "spawn-metadata" / source / f"{revision}.json",
+            dry_run=args.dry_run
+        ), indent=2))
+        return
     if args.command == "osms-import":
         from .osms_import import import_osms
 
