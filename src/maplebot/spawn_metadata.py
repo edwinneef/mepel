@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlparse
@@ -82,3 +83,20 @@ def resolve_species(data: dict, entries: list[dict]) -> tuple[dict[str, set[int]
         if not ids:
             missing.append(key)
     return groups, missing
+
+
+def import_dataset(root: Path, source: Path, *, dry_run: bool = False) -> dict:
+    """Install an immutable, explicitly supplied revision in its own namespace."""
+    data = load_dataset(source)
+    target = root / data["sourceId"] / f"{data['revision']}.json"
+    content = (json.dumps(data, indent=2) + "\n").encode("utf-8")
+    if target.exists() and load_dataset(target) != data:
+        raise ValueError("Revision already exists with different contents; use a new revision")
+    changed = not target.exists()
+    if changed and not dry_run:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(f".{time.time_ns()}.tmp")
+        temporary.write_bytes(content)
+        temporary.replace(target)
+    return {"path": str(target), "source": data["sourceId"], "revision": data["revision"],
+            "maps": len(data["maps"]), "changed": changed, "dry_run": dry_run}

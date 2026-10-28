@@ -41,13 +41,28 @@ def main() -> None:
     selection.add_argument(
         "--max-level", type=int, help="Import all non-boss monster IDs through this level"
     )
+    spawn = sub.add_parser("spawn-import", help="Install a reviewed local spawn dataset")
+    spawn.add_argument("source", type=Path)
+    spawn.add_argument("--dry-run", action="store_true")
+    sub.add_parser("legacy-map-import", help="Explicitly import legacy Dream map populations")
     args = parser.parse_args()
     config = Config.load(args.config)
+    if args.command == "spawn-import":
+        from .spawn_metadata import import_dataset
+
+        print(json.dumps(import_dataset(
+            Path(config.capture.data_dir) / "spawn-metadata", args.source, dry_run=args.dry_run
+        ), indent=2))
+        return
+    if args.command == "legacy-map-import":
+        from .catalog import import_map_catalog
+
+        print(json.dumps(import_map_catalog(Path(config.capture.data_dir) / "templates"), indent=2))
+        return
     if args.command == "catalog":
         from .catalog import (
             STARTER_IDS,
             import_catalog,
-            import_map_catalog,
             monster_ids_through_level,
         )
 
@@ -61,8 +76,6 @@ def main() -> None:
             ids,
             actions=("stand", "move", "jump", "hit1"),
         )
-        if args.max_level is not None:
-            result["map_catalog"] = import_map_catalog(Path(config.capture.data_dir) / "templates")
         print(json.dumps(result, indent=2))
         return
     if args.command == "replay":

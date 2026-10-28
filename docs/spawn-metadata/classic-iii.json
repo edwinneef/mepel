@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "sourceId": "meowdb-classic",
+  "revision": "20261028-iii",
+  "provenance": {
+    "url": "https://meowdb.com/msclassic/maps/010003052",
+    "sha256": "5b407fec3c8ebf0b165407a02291b1240aea501c4de4290c174cb004f9f6119c",
+    "asOf": "2026-10-28"
+  },
+  "species": {
+    "snail": {
+      "sourceSpeciesId": "2",
+      "spriteName": "Snail"
+    },
+    "blue-snail": {
+      "sourceSpeciesId": "3",
+      "spriteName": "Blue Snail"
+    },
+    "red-snail": {
+      "sourceSpeciesId": "5",
+      "spriteName": "Red Snail"
+    },
+    "slime": {
+      "sourceSpeciesId": "7",
+      "spriteName": "Slime"
+    },
+    "pig": {
+      "sourceSpeciesId": "8",
+      "spriteName": "Pig"
+    },
+    "orange-mushroom": {
+      "sourceSpeciesId": "9",
+      "spriteName": "Orange Mushroom"
+    },
+    "ribbon-pig": {
+      "sourceSpeciesId": "10",
+      "spriteName": "Ribbon Pig"
+    },
+    "green-mushroom": {
+      "sourceSpeciesId": "13",
+      "spriteName": "Green Mushroom"
+    }
+  },
+  "maps": [
+    {
+      "mapId": "010003052",
+      "street": "Victoria Road",
+      "title": "Kerning City Middle Forest III",
+      "species": [
+        "snail",
+        "blue-snail",
+        "red-snail",
+        "slime",
+        "pig",
+        "orange-mushroom",
+        "ribbon-pig",
+        "green-mushroom"
+      ]
+    }
+  ]
+}

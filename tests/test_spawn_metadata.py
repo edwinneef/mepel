@@ -1,5 +1,6 @@
 import copy
 import json
+from pathlib import Path
 
 import pytest
 
@@ -51,3 +52,42 @@ def test_rejects_invalid_identity_provenance_and_crosswalk(dataset, change):
     change(dataset)
     with pytest.raises(ValueError):
         validate_dataset(dataset)
+
+
+def test_import_is_dry_runnable_idempotent_and_revision_immutable(tmp_path, dataset):
+    from maplebot.spawn_metadata import import_dataset
+
+    source = tmp_path / "reviewed.json"
+    source.write_text(json.dumps(dataset))
+    root = tmp_path / "store"
+    assert import_dataset(root, source, dry_run=True)["changed"]
+    assert not root.exists()
+    assert import_dataset(root, source)["changed"]
+    assert not import_dataset(root, source)["changed"]
+    original = (root / "classic/r1.json").read_bytes()
+    dataset["maps"][0]["title"] = "Changed"
+    source.write_text(json.dumps(dataset))
+    with pytest.raises(ValueError, match="Revision already exists"):
+        import_dataset(root, source)
+    assert (root / "classic/r1.json").read_bytes() == original
+
+
+def test_reviewed_classic_record():
+    data = load_dataset(Path("docs/spawn-metadata/classic-iii.json"))
+    assert data["maps"][0]["mapId"] == "010003052"
+    assert {m["spriteName"] for m in data["species"].values()} == {
+        "Snail", "Blue Snail", "Red Snail", "Slime", "Pig", "Orange Mushroom",
+        "Ribbon Pig", "Green Mushroom",
+    }
+
+
+def test_max_level_import_never_imports_populations(monkeypatch, tmp_path):
+    from maplebot.__main__ import main
+
+    monkeypatch.setattr("sys.argv", ["maplebot", "catalog", "--max-level", "10"])
+    monkeypatch.setattr("maplebot.catalog.monster_ids_through_level", lambda level: [10])
+    monkeypatch.setattr("maplebot.catalog.import_catalog", lambda *a, **kw: {})
+    def unexpected(*args, **kwargs):
+        pytest.fail("Sprite import must not import map populations")
+    monkeypatch.setattr("maplebot.catalog.import_map_catalog", unexpected)
+    main()
