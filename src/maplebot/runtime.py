@@ -835,11 +835,8 @@ class Application:
         if overlay := getattr(self, "overlay", None):
             if reason := overlay.block_reason():
                 return reason
-        if self.mode == "navigation":
-            feedback = self.navigation.feedback
-            if (not feedback or not feedback.motion_ok
-                    or time.perf_counter() - feedback.now > .5):
-                return "Navigation fused position is stale or uncertain"
+        if self.mode == "navigation" and not self.navigation.trusted():
+            return "Navigation fused position is stale or uncertain"
         if reason := self._input_setup_block_reason():
             return reason
         window = self.windows.get(self.hwnd)

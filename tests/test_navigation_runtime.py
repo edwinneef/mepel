@@ -138,3 +138,32 @@ def test_chord_cannot_exceed_existing_action_cap(controller):
     with pytest.raises(ValueError, match="duration"):
         control.submit_sequence([KeyHold("jump", .06, control.config.max_action_seconds)])
     assert backend.events == []
+
+
+def test_a_brief_marker_name_tag_disagreement_mid_jump_does_not_stop_the_route(app):
+    nav = preview(app)
+    app._command("nav_start", {"opt_in": True})
+    app.pending_at = 0
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (150, 400), "floor", True)
+    nav.tick(None, time.perf_counter())
+    assert app.mode == "navigation"
+    nav.agent.stage, nav.agent.takeoff_at = "flight", time.perf_counter()
+    nav.agreed_at = time.perf_counter()
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (200, 330), None, False)
+    nav.tick(None, time.perf_counter())
+    assert app.mode == "navigation" and app.stop_record is None
+    nav.agreed_at = time.perf_counter() - 1.0  # disagreement outlasted the grace
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (220, 300), None, False)
+    nav.tick(None, time.perf_counter())
+    assert app.mode == "capture" and app.stop_record.code == "PLAYER_UNCERTAIN"
+
+
+def test_disagreement_outside_flight_still_stops_at_once(app):
+    nav = preview(app)
+    app._command("nav_start", {"opt_in": True})
+    app.pending_at = 0
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (150, 400), "floor", True)
+    nav.tick(None, time.perf_counter())
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (150, 400), "floor", False)
+    nav.tick(None, time.perf_counter())
+    assert app.mode == "capture" and app.stop_record.code == "PLAYER_UNCERTAIN"

@@ -2,6 +2,7 @@
 
 import json
 import time
+from dataclasses import replace
 
 from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
@@ -9,6 +10,10 @@ from .navigation import RouteMap, map_hash
 from .navigation_evidence import build_evidence
 from .navigation_executor import Feedback, Navigator
 from .scheduler import SUSTAIN
+
+# While airborne the camera moves faster than its shift estimate and the minimap marker
+# moves in ~15 px steps, so marker and name tag can briefly disagree mid-jump.
+FLIGHT_GRACE_SECONDS = 0.8
 
 
 class NavigationRuntime:
@@ -18,6 +23,7 @@ class NavigationRuntime:
         self.previous = None
         self.ticket = self.lease = None
         self.resume_combat = False
+        self.agreed_at = float("-inf")
         self.reason = "Track a saved map, then load its navigation routes"
 
     def cancel(self, reason: str) -> None:
@@ -172,6 +178,8 @@ class NavigationRuntime:
                 abs(feet[i] - last_feet[i] - (screen[i] - last_screen[i] - shift[i])) <= 32
                 for i in (0, 1))
         self.previous = (now, feet, screen) if feet and screen else None
+        if motion:
+            self.agreed_at = now
         profile = json.loads((self.app.areas.directory / f"{self.graph.profile['id']}.json")
                              .read_text("utf-8"))
         self.feedback = Feedback(now, map_hash(profile), feet,
@@ -180,6 +188,19 @@ class NavigationRuntime:
                                  motion, max(0, time.perf_counter() - now),
                                  self.app._input_block_reason() is None
                                  if not self.app.capture_only else False)
+
+    def trusted(self) -> bool:
+        """Fresh agreeing feedback, or a brief marker-only stretch while a move is airborne.
+
+        Only a move already in flight may ride the minimap marker; the recorded corridor
+        and edge deadlines still apply to every frame.
+        """
+        f = self.feedback
+        if not f or time.perf_counter() - f.now > .5:
+            return False
+        return f.motion_ok or (
+            f.feet is not None and self.agent is not None and self.agent.stage == "flight"
+            and f.now - self.agreed_at <= FLIGHT_GRACE_SECONDS)
 
     def tick(self, suggestion: str | None, now: float) -> None:
         app = self.app
@@ -190,9 +211,11 @@ class NavigationRuntime:
         if not self.agent or not self.feedback:
             app._stop("PLAYER_UNCERTAIN", "Navigation feedback unavailable")
             return
-        if not self.feedback.motion_ok or time.perf_counter() - self.feedback.now > .5:
+        f = self.feedback
+        if not self.trusted():
             app._stop("PLAYER_UNCERTAIN", "Navigation fused feedback is stale or uncertain")
             return
+        airborne = not f.motion_ok
         if app.stop_requested.is_set() or app._input_block_reason():
             app._stop("FOCUS_LOSS", "Navigation focus/capture/input gate lost")
             return
@@ -204,8 +227,7 @@ class NavigationRuntime:
             app._start_sustain()
             self.agent = Navigator(self.graph, self.route, now,
                                    pulse=min(.12, app.config.input.max_action_seconds))
-        f = self.feedback
-        motion = self.agent.step(f)
+        motion = self.agent.step(replace(f, motion_ok=True) if airborne else f)
         if not self.agent.active:
             if self.agent.stage == "arrived" and self.resume_combat:
                 self._release()
