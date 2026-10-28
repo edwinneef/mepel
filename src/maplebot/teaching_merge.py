@@ -22,6 +22,10 @@ def signature(value: dict) -> str:
     first = samples[0]["t"] if samples else 0
     for sample in samples:
         sample["t"] = round(sample["t"] - first, 5)
+    # Recovery shifts the check log with the samples; compare it the same way.
+    for row in value.get("teacher", {}).get("log", []):
+        if type(row.get("t")) in (int, float):
+            row["t"] = round(row["t"] - first, 5)
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 

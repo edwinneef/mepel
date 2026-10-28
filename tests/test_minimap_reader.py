@@ -95,6 +95,15 @@ def test_translucent_grey_sky_is_ignored_when_matching_the_map(background, at):
     assert (fix.canvas.x, fix.canvas.y) == at
 
 
+def test_blue_sky_through_the_minimap_is_not_static_terrain():
+    image = view(((60, 50),))
+    image[76:102, 17:192] = (200, 150, 90)  # blue sky behind the translucent background
+    reader = AreaMinimap(image)
+    scrolled = image.copy()
+    scrolled[76:102, 17:192] = (40, 70, 60)  # the camera moved; dark trees show through
+    assert reader.read(scrolled).dot == (62.5, 52.5)
+
+
 def test_dark_saturated_background_is_not_static_terrain():
     image = view(((60, 50),))
     # Dark brown scenery through a translucent background was retained by the grey mask.

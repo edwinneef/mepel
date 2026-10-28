@@ -74,6 +74,11 @@ def build_evidence(profile: dict, directory: Path) -> dict:
             origin, start = previous
             if sources[start] == sources[i] and 0 < sample.t - samples[start].t <= 6:
                 between = [row for row in log if samples[start].t < row["t"] <= sample.t]
+                # Each sample has a check at its own time; without one (e.g. a log left on an
+                # older clock) the move's misses cannot be counted, so it proves nothing.
+                if not any(row["t"] == sample.t for row in between):
+                    previous = (surface, i)
+                    continue
                 points = samples[start:i + 1]
                 times = sorted({s.t for s in points}
                                | {r["t"] for r in between if r.get("dot") is not None})

@@ -78,10 +78,11 @@ def test_boundary_player_footprint_is_checked_between_endpoints():
     assert "boundary" in RouteMap(profile, evidence).disabled["up"]
 
 
-def teaching_evidence(tmp_path, *, older=True, stretch=1.0, checks=0.0):
+def teaching_evidence(tmp_path, *, older=True, stretch=1.0, checks=0.0, log_offset=0.0):
     """Teach a small map, save its log (times scaled by stretch) and build its evidence.
 
-    checks adds a readable position check at that interval between kept samples.
+    checks adds a readable position check at that interval between kept samples;
+    log_offset leaves the check log on another clock.
     """
     from dataclasses import asdict
 
@@ -100,6 +101,7 @@ def teaching_evidence(tmp_path, *, older=True, stretch=1.0, checks=0.0):
     def write_log(name, teacher):
         rows = [{"t": s.t * stretch, "kind": s.kind, "sample_dot": list(s.dot)}
                 for s in teacher.samples]
+        rows += [{**row, "t": row["t"] * stretch + log_offset} for row in teacher.log]
         if checks:
             first, last = rows[0]["t"], rows[-1]["t"]
             rows += [{"t": first + k * checks, "dot": [0, 0], "reason": "Player marker"}
@@ -130,6 +132,12 @@ def test_evidence_matches_a_newer_session_log_beside_older_logs(tmp_path):
     assert {(e["from"], e["to"]) for e in edges.values()} == {
         (link["from"], link["to"]) for link in profile["links"]}
     assert {e["source"] for e in edges.values()} == {"a-2.jsonl"}
+
+
+def test_moves_without_aligned_position_checks_prove_nothing(tmp_path):
+    _, aligned = teaching_evidence(tmp_path / "aligned", older=False)
+    _, shifted = teaching_evidence(tmp_path / "shifted", older=False, log_offset=-500)
+    assert aligned and shifted == {}
 
 
 def test_sparse_samples_are_continuous_only_when_checks_fill_the_gaps(tmp_path):

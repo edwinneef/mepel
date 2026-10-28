@@ -21,6 +21,7 @@ SEARCH = (400, 300)  # the minimap is anchored in the top-left corner
 NAVY = ((80, 40, 15), (120, 80, 50))  # BGR minimap background
 MIN_AGREEMENT = 0.85
 MIN_TERRAIN_VALUE = 80
+SKY_HUE = (95, 130)  # OpenCV hue band of blue sky seen through the minimap
 
 
 @dataclass(frozen=True)
@@ -129,6 +130,8 @@ class AreaMinimap:
         hsv = cv2.cvtColor(self.template, cv2.COLOR_BGR2HSV)
         # Bright scenery through grey gaps is just as transient as dark scenery.
         background = cv2.inRange(self.template, *NAVY) | np.uint8(hsv[..., 1] < 50) * 255
+        # Blue sky through the translucent background changes as the camera moves too.
+        background |= cv2.inRange(hsv[..., 0], *SKY_HUE)
         background = cv2.dilate(background, np.ones((3, 3), np.uint8)) > 0
         # Dark saturated scenery also shows through the minimap's translucent gaps.
         # Use brighter terrain for identity; dark-only references must stay unknown.

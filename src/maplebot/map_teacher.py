@@ -76,11 +76,14 @@ class MapTeacher:
                 raise ValueError("Invalid teaching sample time")
             teacher.samples.append(_Sample(t, item["kind"], tuple(item["dot"]),
                                            tuple(item["feet"])))
-        # A restart/resume must never invent a move across the interruption.
+        # A restart/resume must never invent a move across the interruption. The check log
+        # moves with the samples so each move keeps its own position checks.
         if teacher.samples:
             offset = time.perf_counter() - LINK_SECONDS - 2 - teacher.samples[-1].t
             teacher.samples = [replace(sample, t=sample.t + offset)
                                for sample in teacher.samples]
+            log = [{**row, "t": row["t"] + offset}
+                   if type(row.get("t")) in (int, float) else row for row in log]
         teacher.log = log
         teacher.identities = value.get("identities", {})
         if not isinstance(teacher.identities, dict):
