@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from maplebot.config import AgentConfig
@@ -199,6 +201,58 @@ def test_target_association_compensates_camera_translation():
     assert result.state == State.APPROACH
     assert result.target.box.x == 120
     assert result.action.kind == "right"
+
+
+def test_species_survives_animation_change_and_closer_crossing_enemy():
+    agent = Agent(AgentConfig())
+    mushroom = replace(entity(x=220), template="catalog:Green Mushroom:stand-0")
+    pig = replace(entity(x=220), template="catalog:Ribbon Pig:move-2")
+    moved = replace(mushroom, box=Rect(240, 100, 24, 28),
+                    template="catalog:Green Mushroom:move-1")
+    agent.start()
+    agent.step(scene([mushroom]), 0)
+    result = agent.step(scene([pig, moved]), .3)
+    assert result.target == moved
+    assert result.state == State.APPROACH
+
+
+def test_recorded_species_crossing_releases_and_resets_before_reacquisition():
+    # Saved check frames 4341 -> 4342: mushroom vanishes and pig crosses its expected box.
+    agent = Agent(AgentConfig(range_profile="classic_2h_sword"))
+    mushroom = Detection("monster", Rect(452, 308, 56, 52), 1,
+                         "catalog:Green Mushroom:stand-1")
+    pig = Detection("monster", Rect(482, 304, 66, 49), 1, "catalog:Ribbon Pig:move-2")
+    player = Detection("player", Rect(559, 299, 44, 64), 1)
+    agent.start()
+    agent.step(scene([mushroom], player), 0)
+    agent.last_distance, agent.stalled_steps = 107, 4
+    result = agent.step(scene([pig], player, shift=(32.7567, -.1355)), .3)
+    assert result.state == State.SEARCH and result.action.kind == "release"
+    assert result.target is None
+    assert agent.last_distance is None and agent.stalled_steps == 0
+    acquired = agent.step(scene([pig], player), .6)
+    assert acquired.target == pig and acquired.action.kind == "release"
+    assert agent.acquisitions == 2
+
+
+@pytest.mark.parametrize("outcome_status", ["held", "completed"])
+def test_stall_guard_counts_gap_observations_and_resets_on_progress(outcome_status):
+    agent = Agent(AgentConfig())
+    agent.start()
+    outcome = {"status": outcome_status, "action": "right",
+               "result": f"right {outcome_status}"}
+    agent.step(scene([entity(x=300)]), 0)
+    agent.step_input(PolicyInput(scene([entity(x=300)]), .1, outcome))
+    for index in range(4):
+        result = agent.step_input(PolicyInput(scene([entity(x=300)]), .2 + index, outcome))
+        assert result.state == State.APPROACH
+    assert agent.stalled_steps == 4
+    agent.step_input(PolicyInput(scene([entity(x=290)]), 5, outcome))
+    assert agent.stalled_steps == 0
+    for index in range(5):
+        result = agent.step_input(PolicyInput(scene([entity(x=290)]), 6 + index, outcome))
+    assert result.state == State.IDLE and result.action.kind == "release"
+    assert "5 observations" in result.reason
 
 
 def test_attack_limit_stops_without_assuming_success():

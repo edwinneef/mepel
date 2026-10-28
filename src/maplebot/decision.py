@@ -201,7 +201,16 @@ class Agent:
         if self.target is None:
             return self._search("Target tracking lost; waiting for a fresh target")
         expected = self.target.box.translated(*observation.camera_shift)
-        tracked = sorted(candidates, key=lambda item: math.dist(item.box.center, expected.center))
+        # Catalog animation frames share a species; proximity alone must not swap enemies.
+        def identity(item: Detection) -> str:
+            if item.template.startswith("catalog:"):
+                return item.template.rsplit(":", 1)[0]
+            return item.template
+
+        tracked = sorted(
+            (item for item in candidates if identity(item) == identity(self.target)),
+            key=lambda item: math.dist(item.box.center, expected.center),
+        )
         match = tracked[0] if tracked else None
         distance = math.dist(match.box.center, expected.center) if match else math.inf
         if len(tracked) > 1:
@@ -234,7 +243,7 @@ class Agent:
                 self.stalled_steps = 0
             if self.stalled_steps >= 5:
                 return self.stop(
-                    "No observed approach progress for 5 steps; check controls or terrain"
+                    "No observed approach progress: target gap failed to shrink for 5 observations"
                 )
             self.last_distance = abs(dx)
             self.state, self.facing = State.APPROACH, direction
