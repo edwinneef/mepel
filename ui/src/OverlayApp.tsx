@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { OverlayClient, freshDetections, isRunning } from './overlay';
 import type { OverlayAction } from './overlay';
-import type { AreaProfile, Detection, Rect } from './contracts';
+import type { AreaProfile, Rect } from './contracts';
+import { LiveDetectionBoxes } from './LiveDetectionBoxes';
+import { useDrawings } from './useDrawings';
 import { useOverlayLayout } from './overlayLayout';
 import { useViewport } from './useViewport';
 import { GameViewport } from './GameViewport';
@@ -13,6 +15,7 @@ import { AlarmBanner } from './AlarmBanner';
 import { SavedTerrainOverlay } from './SavedTerrainOverlay';
 import { BowmanSetup } from './BowmanSetup';
 import { CombatResults } from './CombatResults';
+import { AttackRangeOverlay } from './AttackRangeOverlay';
 import './overlay.css';
 
 export function OverlayApp({ client }: { client: OverlayClient }) {
@@ -24,6 +27,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
   const [tab, setTab] = useState('Bot');
   const [layers, setLayers] = useState(true);
   const [terrain, setTerrain] = useState(true);
+  const [attackRange, setAttackRange] = useState(true);
   const [action, setAction] = useState<OverlayAction>({ name: 'dry_run', payload: {}, label: 'Decision preview' });
   const [now, setNow] = useState(Date.now());
   const [map, setMap] = useState<AreaProfile | null>(null);
@@ -39,8 +43,10 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
   // Status can arrive between timer ticks; don't compare a new frame against
   // the previous tick and incorrectly classify it as coming from the future.
   const fresh = freshDetections(s, state.connected, Math.max(now, Date.now()));
-  const drawing = s?.live_detections === undefined ? s : s.live_detections;
-  const drawingFresh = freshDetections(drawing, state.connected, Math.max(now, Date.now()));
+  const fastDrawing = useDrawings(state.connected, s?.session_id);
+  const drawing = fastDrawing === undefined ? (s?.live_detections === undefined ? s : s.live_detections) : fastDrawing;
+  const drawingFresh = freshDetections(drawing, state.connected, Math.max(now, Date.now()))
+    && (!fastDrawing || Date.now() - (fastDrawing.frame.captured_at ?? 0) * 1000 <= 500);
   const disabled = !state.connected || state.busy || state.needsReload;
   const readinessKey = action.name === 'probe' ? `probe:${action.payload.action}`
     : action.name === 'arm' ? 'combat' : action.name === 'autopotter_live' ? 'potions' : 'preview';
@@ -114,11 +120,6 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
   const active = state.connected && fresh && running;
   const status = !state.connected ? 'DISCONNECTED' : s?.alarm.active ? 'BLOCKED' : starting ? 'STARTING'
     : active ? (s?.mode.includes('wait') || s?.mode === 'pending_arm' ? 'STARTING' : 'ON') : 'OFF';
-  const detection = (item: Detection, key: string, color: string) => <g key={key} stroke={color}>
-    <rect {...item.box} fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-    <text x={item.box.x} y={Math.max(14, item.box.y - 5)} fill={color} stroke="#091019" strokeWidth="3" paintOrder="stroke"
-      fontSize="13">{key} · {item.tracked ? 'tracked' : `${Math.round(item.confidence * 100)}% similarity`}</text>
-  </g>;
   const toolProps = s ? { snapshot: s, client, act, disabled, selected: view.selected, clear: view.clear, selectOnly: true,
     runMode: (action.name === 'arm' ? 'live' : 'preview') as 'live' | 'preview',
     setRunMode: (mode: 'live' | 'preview' | 'navigation') => choose(mode === 'live' ? 'arm' : 'dry_run', mode),
@@ -128,10 +129,10 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
     {layers && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
       viewBox={`0 0 ${drawing.frame.width} ${drawing.frame.height}`} preserveAspectRatio="none" aria-label="Live detections">
-      {terrain && <SavedTerrainOverlay map={map} position={position} now={Math.max(now, Date.now())} />}
-      {drawing.player && detection(drawing.player, 'Player', '#81edbb')}
-      {drawing.monsters?.map((item, i) => detection(item, `${item.kind} ${i + 1}`, '#ffbd72'))}
-      {drawing.target && detection(drawing.target, 'Target', '#ff6b89')}
+      {terrain && <SavedTerrainOverlay key={drawing.frame.source_id} map={map} position={position}
+        alignment={fastDrawing === undefined ? undefined : fastDrawing?.terrain ?? null} now={Math.max(now, Date.now())} />}
+      <LiveDetectionBoxes drawing={drawing} />
+      {attackRange && <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
     </svg>}
     <div className={`overlay-hud ${active ? 'on' : 'off'}`} role="status"
       style={layout.position('hud', { x: game.x + 14, y: game.y + 14 })}>
@@ -167,9 +168,10 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
         <p>{selectedGate?.reason}</p>
         <button className="primary master-toggle" disabled={disabled || (!running && !starting && selectedGate?.ready === false)} onClick={() => void toggle()}>Turn {running || starting ? 'Off' : 'On'} · F6</button>
         <p>On closes settings and starts the existing countdown. Focus the game. F8 always stops. Combat and navigation retain configured potion priority.</p>
-        <CombatResults evidence={s?.combat_evidence} />
+        <CombatResults evidence={s?.combat_evidence} potions={s?.potion_evidence} />
         {s && <GoBar snapshot={s} client={client} act={act} disabled={disabled} availableAreas={areas} selectOnly />}
         <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /> Show detection layers</label>
+        <label><input type="checkbox" checked={attackRange} onChange={e => setAttackRange(e.target.checked)} /> Show attack range</label>
         <label><input type="checkbox" checked={terrain} onChange={e => setTerrain(e.target.checked)} /> Show saved terrain and position</label>
         <p>{s?.capture_only ? 'Capture-only session · gameplay input locked' : 'Input-capable session · existing verification gates apply'}</p>
       </>}

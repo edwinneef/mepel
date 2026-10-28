@@ -104,6 +104,20 @@ def calibration_record(value: object) -> dict | None:
             "residual_px": residual, "pairs": pairs, "captured_at": captured_at}
 
 
+def public_map_record(value: object) -> dict:
+    """Where an imported area's geometry came from, and its world-to-area placement."""
+    map_id, digest = value["id"], value["sha256"]
+    if type(map_id) is not int or not 0 <= map_id <= 999_999_999:
+        raise ValueError("Invalid public map ID")
+    if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+        raise ValueError("Invalid public map digest")
+    world = {axis: [number(value["world"][axis][0]), number(value["world"][axis][1])]
+             for axis in ("x", "y")}
+    if not all(0.5 <= world[axis][0] <= 2 for axis in world):
+        raise ValueError("Invalid public map placement")
+    return {"id": map_id, "sha256": digest, "world": world}
+
+
 def validate_profile(value: object) -> tuple[dict, list[str]]:
     """Validate schema 1 or 2; the result is always schema 2.
 
@@ -208,6 +222,8 @@ def validate_profile(value: object) -> tuple[dict, list[str]]:
             warnings.append("Walk calibration removed: its reference view changed")
         if calibration:
             profile["minimap_calibration"] = calibration
+        if value.get("public_map") is not None:
+            profile["public_map"] = public_map_record(value["public_map"])
         reached = set(nodes[:1])
         while True:
             extended = reached | {b for a, b in edges if a in reached}

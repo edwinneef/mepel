@@ -1,7 +1,10 @@
+import type { PotionEvidence } from './potionEvidence';
+
 // Version 1 of the local Python engine contract. Native-pixel coordinates throughout.
 export interface Rect { x: number; y: number; width: number; height: number }
 export interface Detection {
   kind: string; box: Rect; confidence: number; template: string; tracked: boolean;
+  track_id?: string;
 }
 export interface Frame {
   id: string | null; source_id: string; sequence: number | null; captured_at: number | null;
@@ -66,13 +69,17 @@ export interface WindowInfo { hwnd: number; title: string; client: Rect; focused
 export interface LiveDetections {
   frame: Frame; player: Detection | null; monsters?: Detection[] | null;
   target?: Detection | null; position?: LivePosition | null;
+  display?: boolean;
+  terrain?: LivePosition & { alignment: { valid: boolean; [key: string]: unknown } } | null;
 }
 export interface Snapshot {
   schema_version: 1; session_id: string; instance_id: string; command_epoch: number;
   mode: string; state: string; reason: string; capture_only: boolean; calibrating: boolean;
   frame: Frame; preview_frame?: Frame; readiness: { preview: Gate; combat: Gate; potions: Gate; [activity: string]: Gate };
   attack_setup?: { minimum_px: number; maximum_px: number; measured: boolean; reason: string };
+  player_threshold?: number;
   combat_evidence?: CombatEvidence | null;
+  potion_evidence?: PotionEvidence | null;
   live_detections?: LiveDetections | null;
   health?: { camera: boolean; recognition: boolean; position: boolean; reason: string; warning?: string | null };
   calibration: { capture_verified?: boolean; controls_verified?: boolean; crop?: Rect };

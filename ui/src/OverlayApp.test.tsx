@@ -3,14 +3,45 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { OverlayApp } from './OverlayApp';
 import { OverlayClient } from './overlay';
 import type { OverlayEvent } from './overlay';
+import type { LiveDetections } from './contracts';
 import { json, snapshot } from './test-fixtures';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); delete window.mapleOverlay; });
 
+it('uses the fast drawing stream without replacing authoritative observations or reviving them on loss', async () => {
+  let listener: (event: OverlayEvent) => void = () => {};
+  const authoritative = snapshot();
+  let drawing: LiveDetections | null = { display: true,
+    frame: { ...authoritative.frame, source_id: `${authoritative.session_id}:source:1`, id: 'display:1' },
+    player: { ...authoritative.player!, track_id: 'player:1', box: { x: 100, y: 200, width: 40, height: 50 } } };
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    if (url === '/api/v1/drawings') return json(drawing);
+    if (String(url).startsWith('/api/v1/frame')) return new Response(new Blob(['image']));
+    if (url === '/api/v1/status') return json(authoritative);
+    const command = JSON.parse(String(options?.body));
+    return json(command.name === 'area_list' ? { areas: [] } : { ok: true });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:frame') });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
+    subscribe: callback => { listener = callback; return () => {}; } };
+  const client = new OverlayClient('token', fetcher);
+  render(<OverlayApp client={client} />);
+  await waitFor(() => expect(client.getState().connected).toBe(true));
+  act(() => listener({ type: 'game-bounds', value: { x: 0, y: 0, width: 1024, height: 768, visible: true } }));
+  await waitFor(() => expect(screen.getByLabelText('Detection boxes').querySelector('rect')?.getAttribute('x')).toBe('100'));
+  expect(client.getState().snapshot?.player?.box.x).toBe(450);
+  expect(screen.getByRole('button', { name: 'Turn On · F6' })).toBeTruthy();
+  drawing = null;
+  await waitFor(() => expect(screen.queryByLabelText('Detection boxes')).toBeNull());
+  expect(client.getState().snapshot?.player?.box.x).toBe(450);
+});
+
 it('draws the early detection packet and never falls back to old boxes after invalidation', async () => {
   let listener: (event: OverlayEvent) => void = () => {};
   const old = snapshot();
-  let current = snapshot({ live_detections: { frame: old.frame,
+  let current = snapshot({ attack_setup: { minimum_px: 0, maximum_px: 90, measured: false, reason: '' }, live_detections: { frame: old.frame,
     player: { ...old.player!, box: { x: 123, y: 234, width: 40, height: 50 } } } });
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
     if (String(url).startsWith('/api/v1/frame')) return new Response(new Blob(['image']));
@@ -28,9 +59,15 @@ it('draws the early detection packet and never falls back to old boxes after inv
   await waitFor(() => expect(client.getState().connected).toBe(true));
   act(() => listener({ type: 'game-bounds', value: { x: 0, y: 0, width: 1024, height: 768, visible: true } }));
   await waitFor(() => expect(screen.getByLabelText('Live detections').querySelector('rect')?.getAttribute('x')).toBe('123'));
+  expect(screen.getByLabelText('Configured attack range')).toBeTruthy();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Show attack range' }));
+  expect(screen.queryByLabelText('Configured attack range')).toBeNull();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Show attack range' }));
+  expect(screen.getByLabelText('Configured attack range')).toBeTruthy();
   current = snapshot({ live_detections: null });
   await act(async () => { await client.readStatus(); });
   expect(screen.queryByLabelText('Live detections')).toBeNull();
+  expect(screen.queryByLabelText('Configured attack range')).toBeNull();
   current = snapshot({ live_detections: { frame: { ...old.frame, captured_at: Date.now() / 1000 - 2 }, player: old.player } });
   await act(async () => { await client.readStatus(); });
   expect(screen.queryByLabelText('Live detections')).toBeNull();

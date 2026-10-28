@@ -47,3 +47,35 @@ it.each([
   const view = render(<svg><SavedTerrainOverlay map={map} position={{ ...position, ...change }} now={10100} /></svg>);
   expect(view.container.querySelector('g')).toBeNull();
 });
+
+it('bridges a short localization gap without claiming a current spatial match, then expires', () => {
+  const view = render(<svg><SavedTerrainOverlay map={map} position={position} now={10100} /></svg>);
+  const lost = { ...position, kind: 'unknown', projection: null, stale: true };
+  view.rerender(<svg><SavedTerrainOverlay map={map} position={lost} now={10600} /></svg>);
+  expect(view.container.querySelectorAll('line')).toHaveLength(2);
+  expect(screen.queryByText(/spatial match/)).toBeNull();
+  expect(screen.getByText(/brief hold/)).toBeTruthy();
+  view.rerender(<svg><SavedTerrainOverlay map={map} position={lost} now={10800} /></svg>);
+  expect(view.container.querySelector('g')).toBeNull();
+});
+
+it('discards retained terrain when the map or capture position is cleared', () => {
+  const view = render(<svg><SavedTerrainOverlay map={map} position={position} now={10100} /></svg>);
+  view.rerender(<svg><SavedTerrainOverlay map={map} position={null} now={10200} /></svg>);
+  expect(view.container.querySelector('g')).toBeNull();
+  view.rerender(<svg><SavedTerrainOverlay map={{ ...map, revision: 4 }} position={position} now={10300} /></svg>);
+  expect(view.container.querySelector('g')).toBeNull();
+});
+
+it('keeps freshly registered terrain without platform contact and clears on registration loss', () => {
+  const alignment = { ...position, kind: 'unknown', surface_id: null, alignment: { valid: true } };
+  const view = render(<svg><SavedTerrainOverlay map={map} position={null} alignment={alignment} now={10100} /></svg>);
+  expect(view.container.querySelectorAll('line')).toHaveLength(2);
+  expect(screen.queryByText(/spatial match/)).toBeNull();
+  view.rerender(<svg><SavedTerrainOverlay map={map} position={position} alignment={null} now={10200} /></svg>);
+  expect(view.container.querySelector('g')).toBeNull();
+  view.rerender(<svg><SavedTerrainOverlay map={map} alignment={{ ...alignment, alignment: { valid: false } }} now={10200} /></svg>);
+  expect(view.container.querySelector('g')).toBeNull();
+  view.rerender(<svg><SavedTerrainOverlay map={map} alignment={alignment} now={10600} /></svg>);
+  expect(view.container.querySelector('g')).toBeNull();
+});

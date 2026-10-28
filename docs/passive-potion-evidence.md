@@ -39,6 +39,17 @@ load or on an I/O error. Check both referenced PNGs and their matching decision
 rows before treating a recording as a complete visual pair. Passive evidence
 never confirms a probe or marks native potion recovery as verified automatically.
 
+**Bot > What happened > Passive potion evidence** shows the latest retained HP and
+MP observations separately, including queued, incomplete, observed-gain and
+no-observed-gain results. Empty or unavailable evidence stays explicitly pending.
+These session-wide observations may precede the displayed combat run. Details
+include the ticket, input result, before/after readings, frame names and recording
+directory; the panel does not check whether PNGs actually reached disk.
+**Save run evidence** includes all retained passive records alongside the original
+run fields, and also works when only passive evidence is retained. Accepted hits
+and controls are unchanged; the report does not verify basic fallback or potion
+causation and does not request another test.
+
 Focused offline validation:
 
 ```powershell
