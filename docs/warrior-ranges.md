@@ -97,3 +97,6 @@ saved frame pictures, plus the existing automatic clip
 `data/recordings/session-1793167027665898100-combat/` (including 112091).
 The operator's hit report closes the outstanding observation. No repeat run,
 extra recording or new control confirmation is needed for this demo.
+
+The [existing potion evidence audit](potion-evidence-audit.md) preserves accepted
+HP/MP confirmations and records the remaining automatic-recovery evidence gap.
