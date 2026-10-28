@@ -36,7 +36,7 @@ def validate_dataset(data: dict) -> None:
     species = data.get("species")
     if not isinstance(species, dict) or not species:
         raise ValueError("Missing canonical species crosswalk")
-    source_ids, names = set(), set()
+    source_ids = set()
     for key, mapping in species.items():
         if not isinstance(key, str) or not key or not isinstance(mapping, dict):
             raise ValueError("Invalid canonical species")
@@ -46,10 +46,9 @@ def validate_dataset(data: dict) -> None:
             raise ValueError("Species IDs must be nonempty strings")
         if not isinstance(sprite_name, str) or not sprite_name:
             raise ValueError("Missing explicit sprite-name mapping")
-        if source_id in source_ids or sprite_name in names:
+        if source_id in source_ids:
             raise ValueError("Conflicting species mapping")
         source_ids.add(source_id)
-        names.add(sprite_name)
     maps = data.get("maps")
     if not isinstance(maps, list) or not maps:
         raise ValueError("Missing map records")
@@ -64,7 +63,7 @@ def validate_dataset(data: dict) -> None:
         if any(not isinstance(record.get(k), str) or not record[k] for k in ("street", "title")):
             raise ValueError("Missing map title")
         keys = record.get("species")
-        if not isinstance(keys, list) or not keys or any(
+        if not isinstance(keys, list) or any(
             not isinstance(key, str) or key not in species for key in keys
         ):
             raise ValueError("Unknown or missing map species")
@@ -87,7 +86,12 @@ def resolve_species(data: dict, entries: list[dict]) -> tuple[dict[str, set[int]
 
 def import_dataset(root: Path, source: Path, *, dry_run: bool = False) -> dict:
     """Install an immutable, explicitly supplied revision in its own namespace."""
-    data = load_dataset(source)
+    return install_dataset(root, load_dataset(source), dry_run=dry_run)
+
+
+def install_dataset(root: Path, data: dict, *, dry_run: bool = False) -> dict:
+    """Validate before atomically installing an immutable revision."""
+    validate_dataset(data)
     target = root / data["sourceId"] / f"{data['revision']}.json"
     content = (json.dumps(data, indent=2) + "\n").encode("utf-8")
     if target.exists() and load_dataset(target) != data:

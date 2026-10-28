@@ -1,4 +1,4 @@
-"""Offline map-title recognition narrows sprite searches; unknown maps use all references."""
+"""Offline map-title recognition narrows sprite searches; unknown maps pause catalog searches."""
 
 import asyncio
 import json
@@ -52,6 +52,7 @@ class MapFilter:
         path = directory / "catalog" / "maps.json"
         self.source, self.revision = source, revision
         self.source_error = None
+        self.coverage_error = None
         self.profiles = []
         if source == "legacy-dream":
             self.profiles = json.loads(path.read_text("utf-8")) if path.exists() else []
@@ -64,12 +65,12 @@ class MapFilter:
                 )
                 if (data["sourceId"], data["revision"]) != (source, revision):
                     raise ValueError("Spawn metadata identity mismatch")
-                groups, missing = resolve_species(data, entries)
-                if missing:
-                    raise ValueError("Missing sprite coverage: " + ", ".join(missing))
+                groups, _ = resolve_species(data, entries)
                 self.profiles = [
                     {"id": p["mapId"], "streetName": p["street"], "name": p["title"],
-                     "monsters": set().union(*(groups[key] for key in p["species"]))}
+                     "monsters": set().union(*(groups[key] for key in p["species"])),
+                     "missing": sorted({data["species"][key]["spriteName"]
+                                        for key in p["species"] if not groups[key]})}
                     for p in data["maps"]
                 ]
             except (OSError, ValueError, TypeError) as error:
@@ -86,6 +87,7 @@ class MapFilter:
         self.held = False
 
     def match(self, text: str) -> tuple[str | None, set[str] | None]:
+        self.coverage_error = None
         # Windows OCR reads a run of Roman I glyphs as "Ill" or "IIl".
         text = re.sub(r"\bI[Il]*\b", lambda match: match[0].replace("l", "I"), text)
         numbers = re.findall(r"\d+|\b[IVX]+\b", text.upper())
@@ -125,6 +127,11 @@ class MapFilter:
         # Identically named maps share a union, so ambiguous titles cannot omit their mobs.
         longest = max(len(normalize(p["streetName"] + p["name"])) for p in matches)
         matches = [p for p in matches if len(normalize(p["streetName"] + p["name"])) == longest]
+        missing = sorted({name for p in matches for name in p.get("missing", [])})
+        if missing:
+            self.coverage_error = "Missing sprite coverage: " + ", ".join(missing)
+            self.taught = None
+            return matches[0]["name"], None
         return matches[0]["name"], {
             self.names[mob]
             for profile in matches
@@ -139,7 +146,8 @@ class MapFilter:
         unreadable title (collapsed minimap) keeps the set recognized on that map.
         """
         allowed = self._select(image)
-        self.held = allowed is None and taught_map and self.taught is not None
+        self.held = (allowed is None and taught_map and self.taught is not None
+                     and not self.coverage_error and not self.source_error)
         if not taught_map:
             self.taught = None
         elif allowed is not None:
@@ -173,6 +181,7 @@ class MapFilter:
         )
         if changed:
             self.allowed, self.title = None, None
+            self.coverage_error = None
         if self.pending is not None and self.pending.done():
             try:
                 text = self.pending.result()

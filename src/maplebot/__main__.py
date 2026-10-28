@@ -44,9 +44,24 @@ def main() -> None:
     spawn = sub.add_parser("spawn-import", help="Install a reviewed local spawn dataset")
     spawn.add_argument("source", type=Path)
     spawn.add_argument("--dry-run", action="store_true")
+    osms = sub.add_parser("osms-import", help="Import a pinned Classic population dataset")
+    from .osms_import import VERIFIED_COMMIT
+
+    osms.add_argument("--commit", default=VERIFIED_COMMIT)
+    osms.add_argument("--dry-run", action="store_true")
     sub.add_parser("legacy-map-import", help="Explicitly import legacy Dream map populations")
     args = parser.parse_args()
     config = Config.load(args.config)
+    if args.command == "osms-import":
+        from .osms_import import import_osms
+
+        root = Path(config.capture.data_dir)
+        manifest = root / "templates/catalog/manifest.json"
+        entries = json.loads(manifest.read_text("utf-8"))["entries"] if manifest.exists() else []
+        print(json.dumps(import_osms(
+            root / "spawn-metadata", entries, args.commit, dry_run=args.dry_run
+        ), indent=2))
+        return
     if args.command == "spawn-import":
         from .spawn_metadata import import_dataset
 

@@ -651,7 +651,9 @@ class TemplateDetector:
         self.catalog_info["map_filter_error"] = self.map_filter.error
         self.catalog_info["spawn_source"] = self.map_filter.source
         self.catalog_info["spawn_revision"] = self.map_filter.revision
-        self.catalog_info["spawn_error"] = self.map_filter.source_error or (
+        self.catalog_info["spawn_error"] = (
+            self.map_filter.source_error or self.map_filter.coverage_error
+        ) or (
             "Map unsupported or title unreadable in selected spawn dataset"
             if paused and self.map_filter.source != "legacy-dream" else None
         )

@@ -7,8 +7,8 @@ data_dir = "data"
 port = 8765
 
 [perception]
-spawn_source = "meowdb-classic"
-spawn_revision = "20261028-iii"
+spawn_source = "osms-classic"
+spawn_revision = "17dc5dc14cc1d1f05152362c1bbcffa068e8dc81"
 confidence = 0.90
 player_margin = 0.04
 max_candidates = 24

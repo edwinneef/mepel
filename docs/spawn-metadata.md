@@ -3,6 +3,43 @@
 Sprite assets and map populations are independent. `catalog --max-level` downloads
 sprites only. `legacy-map-import` explicitly refreshes the old Dream map cache.
 
+## Bulk Classic coverage (OSMS)
+
+`python -m maplebot osms-import --dry-run` downloads the publisher's map and monster
+JSON at the verified commit and reports covered, empty, and blocked maps without
+writing files. Run without `--dry-run` to install the immutable local revision.
+Use `--commit <full-lowercase-40-character-SHA>` to explicitly import another revision;
+there is no automatic refresh or runtime network request.
+
+The default commit is `17dc5dc14cc1d1f05152362c1bbcffa068e8dc81` from
+https://github.com/ohmi69/osms_datamine_dashboard (Public Release). Its 336 map
+records yield 335 named maps; one unnamed record is reported and excluded.
+IDs are padded to nine digits. Only titles and species are retained; terrain,
+spawn coordinates and routes are not imported. The provenance SHA256 covers the
+raw maps JSON, a zero byte, and the raw monsters JSON, in that order.
+
+Select `spawn_source = "osms-classic"` and the full commit as `spawn_revision`
+in `[perception]` while the engine is stopped, then restart through
+`tools/restart_engine.ps1`, preserving session input capability. Import alone
+does not activate the revision or modify sprites. Existing revisions remain intact.
+
+Species map by exact sprite name, including multiple source IDs with the same name.
+Missing sprites block only maps requiring them; same-title candidates require the
+complete union. Valid empty maps select no catalog monsters. An unsupported map
+or incomplete coverage never falls back to the full catalog. Recognizing a map
+with missing coverage discards any held previous map selection.
+
+With the installed catalog on 2026-10-28, 294 maps have complete coverage (125 are
+empty); 41 named maps need sprites. Metadata coverage does not establish native
+gameplay behavior or client compatibility for every map. Middle Forest III's
+eight species match the previously reviewed record.
+
+Rollback: stop the engine, restore the configuration backed up before activation,
+and restart in the same session mode. The previous `meowdb-classic/20261028-iii`
+revision remains available; imported OSMS data can remain inactive on disk.
+
+## Reviewed single-map import
+
 Import a reviewed Classic revision from the repository root:
 
 ```powershell

@@ -118,8 +118,14 @@ def test_selected_source_never_falls_back_to_legacy(tmp_path, dataset):
     for revision, references in [("missing", entries), ("r1", entries[2:])]:
         router = MapFilter(templates, references, "classic", revision)
         try:
-            assert router.required and router.source_error
-            assert router.match("Road Forest III") == (None, None)
+            assert router.required
+            if revision == "missing":
+                assert router.source_error
+                assert router.match("Road Forest III") == (None, None)
+            else:
+                assert not router.source_error
+                assert router.match("Road Forest III") == ("Forest III", None)
+                assert router.coverage_error == "Missing sprite coverage: Snail"
             assert router.allowed is None and router.taught is None and router.pending is None
         finally:
             router.close()
