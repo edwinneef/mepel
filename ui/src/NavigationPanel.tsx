@@ -18,7 +18,8 @@ export function NavigationPanel({ snapshot: s, client, disabled, act, onPreview,
   const nav = s.navigation;
   const map = s.position && s.position.area_id !== nav?.map?.area_id ? null : nav?.map;
   const route = nav?.route;
-  const from = origin || (nav?.active ? route?.origin : '') || (s.position?.surface_id && map?.nodes.some(n => n.id === s.position?.surface_id && !n.excluded)
+  // While the position briefly reads unknown, keep the previewed origin instead of jumping home.
+  const from = origin || (nav?.active || (route && !s.position?.surface_id) ? route?.origin : '') || (s.position?.surface_id && map?.nodes.some(n => n.id === s.position?.surface_id && !n.excluded)
     ? s.position.surface_id : map?.home ?? '');
   const name = (id: string) => {
     const label = map?.nodes.find(n => n.id === id)?.name ?? id;

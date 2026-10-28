@@ -28,6 +28,7 @@ class NavigationRuntime:
         self.ticket = self.lease = None
         self.resume_combat = False
         self.agreed_at = float("-inf")
+        self.confirmed: tuple[str, float] | None = None  # last agreed platform and its time
         self.reason = "Track a saved map, then load its navigation routes"
         self.proofs = MoveProofs(app.areas.directory)
         self.failed: set[str] = set()  # computed moves that failed this session
@@ -98,8 +99,13 @@ class NavigationRuntime:
         f = self.feedback
         # Before the countdown, a reading from the last ~3 fps frame is fresh enough;
         # while moving, the executor keeps its own 0.5 s limit.
-        if (not f or time.perf_counter() - f.now > FRESH_FRAME_SECONDS or not f.motion_ok
-                or f.surface != self.route.origin):
+        # The name tag drops out at some spots, so a platform agreed within the grace counts
+        # while the current frame shows no other surface.
+        recent = f is not None and ((f.motion_ok and f.surface == self.route.origin) or (
+            self.confirmed is not None and self.confirmed[0] == self.route.origin
+            and f.now - self.confirmed[1] <= FLIGHT_GRACE_SECONDS))
+        if (not f or time.perf_counter() - f.now > FRESH_FRAME_SECONDS or not recent
+                or f.surface not in (None, self.route.origin)):
             return "Waiting for fresh fused position on the previewed origin"
         if self.route.fingerprint != f.fingerprint:
             return "Map changed; preview again"
@@ -195,6 +201,10 @@ class NavigationRuntime:
         self.previous = (now, feet, screen) if fresh and feet and screen else None
         if motion:
             self.agreed_at = now
+        surface = (position.get("surface_id")
+                   if position and not position.get("provisional") else None)
+        if motion and surface:
+            self.confirmed = (surface, now)
         profile = json.loads((self.app.areas.directory / f"{self.graph.profile['id']}.json")
                              .read_text("utf-8"))
         self.feedback = Feedback(now, map_hash(profile), feet,
@@ -217,7 +227,7 @@ class NavigationRuntime:
             return False
         return f.motion_ok or (
             f.feet is not None and self.agent is not None
-            and self.agent.stage in {"approach", "flight"}
+            and self.agent.stage in {"settle_origin", "approach", "flight"}
             and f.now - self.agreed_at <= FLIGHT_GRACE_SECONDS)
 
     def tick(self, suggestion: str | None, now: float) -> None:

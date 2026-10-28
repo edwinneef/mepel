@@ -182,3 +182,20 @@ def test_a_brief_name_tag_dropout_while_walking_to_the_launch_point_is_ridden_ou
     nav.agreed_at = time.perf_counter() - 1.0  # the tag stayed missing past the grace
     nav.tick(None, time.perf_counter())
     assert app.mode == "capture" and app.stop_record.code == "PLAYER_UNCERTAIN"
+
+
+def test_start_and_settling_ride_out_a_name_tag_dropout_on_the_origin(app):
+    nav = preview(app)
+    now = time.perf_counter()
+    nav.confirmed = ("floor", now)  # agreed a moment ago; this frame lost the name tag
+    nav.feedback = Feedback(now, nav.graph.fingerprint, (150, 400), None, False)
+    assert nav.blocker() is None
+    nav.confirmed = ("floor", now - 2)
+    assert nav.blocker() == "Waiting for fresh fused position on the previewed origin"
+    nav.confirmed = ("floor", now)
+    app._command("nav_start", {"opt_in": True})
+    app.pending_at = 0
+    nav.agreed_at = time.perf_counter()
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (150, 400), None, False)
+    nav.tick(None, time.perf_counter())
+    assert app.mode == "navigation" and nav.agent.stage == "settle_origin"

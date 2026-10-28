@@ -100,6 +100,9 @@ class Navigator:
         if edge and f.now - self.edge_started >= 8:
             return self.stop("Edge deadline exhausted; no blind retry")
         if self.stage == "settle_origin":
+            if f.surface is None:  # name-tag dropout: wait, keys released, bounded by the runtime
+                self.settle_since = None
+                return Motion(release=True)
             if f.surface != origin:
                 return self.stop("Origin no longer matches the previewed route")
             if self._settled(f, origin):
