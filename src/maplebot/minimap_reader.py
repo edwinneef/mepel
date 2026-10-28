@@ -124,11 +124,11 @@ class AreaMinimap:
         self.size = reference.shape[:2]
         self.home = canvas
         self.template = reference[canvas.y:canvas.feet, canvas.x:canvas.x + canvas.width].copy()
-        # Minimap backgrounds (navy, or a dull grey sky) are translucent: scenery shows
+        # Minimap backgrounds (navy, or a grey sky) are translucent: scenery shows
         # through them while the camera scrolls. Only the opaque terrain identifies the map.
         hsv = cv2.cvtColor(self.template, cv2.COLOR_BGR2HSV)
-        background = cv2.inRange(self.template, *NAVY) | np.uint8(
-            (hsv[..., 1] < 50) & (hsv[..., 2] < 140)) * 255
+        # Bright scenery through grey gaps is just as transient as dark scenery.
+        background = cv2.inRange(self.template, *NAVY) | np.uint8(hsv[..., 1] < 50) * 255
         background = cv2.dilate(background, np.ones((3, 3), np.uint8)) > 0
         # Dark saturated scenery also shows through the minimap's translucent gaps.
         # Use brighter terrain for identity; dark-only references must stay unknown.

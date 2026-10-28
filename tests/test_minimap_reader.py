@@ -72,10 +72,12 @@ def test_minimap_without_navy_is_found_by_its_white_frame():
     assert AreaMinimap(image).read(image).dot == (102.5, 42.5)
 
 
-def test_translucent_grey_sky_is_ignored_when_matching_the_map():
+@pytest.mark.parametrize("background", [(82, 82, 82), (210, 200, 190)])
+@pytest.mark.parametrize("at", [(4, 72), (42, 92)])
+def test_translucent_grey_sky_is_ignored_when_matching_the_map(background, at):
     image = np.full((768, 1366, 3), SKY, np.uint8)
     image[71:143, 3:140] = 255
-    image[72:142, 4:139] = (82, 82, 82)  # translucent grey sky
+    image[72:142, 4:139] = background  # translucent grey sky, including bright scenery
     terrain = np.random.default_rng(6).integers(40, 141, (30, 135, 3), dtype=np.uint8)
     terrain[..., 2] = np.maximum(terrain[..., 2], 120)  # saturated, opaque rock
     image[112:142, 4:139] = terrain
@@ -83,7 +85,14 @@ def test_translucent_grey_sky_is_ignored_when_matching_the_map():
     reader = AreaMinimap(image)
     scrolled = image.copy()
     scrolled[72:112, 4:139] = (120, 110, 95)  # scenery behind the sky changed
-    assert reader.read(scrolled).reason == "Player marker on the taught map"
+    moved = np.full_like(scrolled, SKY)
+    x, y = at
+    moved[y - 1:y + 71, x - 1:x + 136] = 255
+    moved[y:y + 70, x:x + 135] = scrolled[72:142, 4:139]
+    fix = reader.read(moved)
+    assert fix.reason == "Player marker on the taught map"
+    assert fix.dot == (62.5, 45.5)
+    assert (fix.canvas.x, fix.canvas.y) == at
 
 
 def test_dark_saturated_background_is_not_static_terrain():
