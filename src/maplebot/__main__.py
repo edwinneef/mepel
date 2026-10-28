@@ -52,8 +52,27 @@ def main() -> None:
     sprites = sub.add_parser("osms-sprites", help="Add missing sprites for selected OSMS maps")
     sprites.add_argument("--dry-run", action="store_true")
     sub.add_parser("legacy-map-import", help="Explicitly import legacy Dream map populations")
+    import_map = sub.add_parser(
+        "import-map", help="Replace a saved area's geometry with its public map (engine stopped)"
+    )
+    import_map.add_argument("area", help="Saved area ID or exact name")
+    import_map.add_argument("--map-id", type=int, help="Public map ID when the name does not match")
+    import_map.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     config = Config.load(args.config)
+    if args.command == "import-map":
+        from .map_import import engine_running
+        from .map_import import import_map as run_import
+        from .profiles import AreaStore
+
+        if not args.dry_run and engine_running(config.debugger.port):
+            raise SystemExit("Stop the engine before importing a map; it holds the saved area")
+        root = Path(config.capture.data_dir)
+        result = run_import(AreaStore(root / "areas"), args.area,
+                            root / "templates" / "catalog" / "maps.json",
+                            map_id=args.map_id, dry_run=args.dry_run)
+        print(json.dumps(result, indent=2))
+        return
     if args.command == "osms-sprites":
         from .osms_sprites import import_sprites
 
