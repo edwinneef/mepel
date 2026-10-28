@@ -194,7 +194,8 @@ class TemplateDetector:
                     name = f"catalog:{entry['name']}:{entry['animation']}-{entry['frame']}"
                 templates.extend(self._variants(kind, name, raw, path))
         self.templates = templates
-        self.map_filter = MapFilter(self.directory, list(entries.values()))
+        self.map_filter = MapFilter(self.directory, list(entries.values()),
+                                    self.config.spawn_source, self.config.spawn_revision)
         self.nametags = [
             self.load_nametag(path) for path in sorted((self.directory / "nametag").glob("*.png"))
         ]
@@ -625,7 +626,7 @@ class TemplateDetector:
         floor = max(0.5, self.config.confidence - 0.15)
         allowed = self.map_filter.select(image, self.taught_map)
         # Searching every catalog species costs seconds per frame; wait for a readable map.
-        paused = allowed is None and bool(self.map_filter.profiles)
+        paused = allowed is None and self.map_filter.required
         if paused:
             allowed = set()
         templates = (
@@ -644,6 +645,12 @@ class TemplateDetector:
         )
         self.catalog_info["map_filter_held"] = held
         self.catalog_info["map_filter_error"] = self.map_filter.error
+        self.catalog_info["spawn_source"] = self.map_filter.source
+        self.catalog_info["spawn_revision"] = self.map_filter.revision
+        self.catalog_info["spawn_error"] = self.map_filter.source_error or (
+            "Map unsupported or title unreadable in selected spawn dataset"
+            if paused and self.map_filter.source != "legacy-dream" else None
+        )
         self.catalog_info["catalog_paused"] = paused
         self.catalog_info["active_variants"] = len(templates)
         player, monsters, failures, tag_confidence = self._observe_window(

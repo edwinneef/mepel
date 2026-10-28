@@ -91,3 +91,35 @@ def test_max_level_import_never_imports_populations(monkeypatch, tmp_path):
         pytest.fail("Sprite import must not import map populations")
     monkeypatch.setattr("maplebot.catalog.import_map_catalog", unexpected)
     main()
+
+
+def test_selected_source_never_falls_back_to_legacy(tmp_path, dataset):
+    from maplebot.map_filter import MapFilter
+    from maplebot.spawn_metadata import import_dataset
+
+    templates = tmp_path / "templates"
+    (templates / "catalog").mkdir(parents=True)
+    (templates / "catalog/maps.json").write_text(json.dumps([
+        {"id": 1, "streetName": "Road", "name": "Forest III", "monsters": [99]},
+    ]))
+    source = tmp_path / "reviewed.json"
+    source.write_text(json.dumps(dataset))
+    import_dataset(tmp_path / "spawn-metadata", source)
+    entries = [{"id": 10, "name": "Snail"}, {"id": 20, "name": "Snail"},
+               {"id": 99, "name": "Wrong"}]
+    router = MapFilter(templates, entries, "classic", "r1")
+    try:
+        assert router.match("Road Forest III") == ("Forest III", {"Snail"})
+        assert router.match("Road Forest II") == (None, None)
+        assert router.match("Road Forest I") == (None, None)
+        assert router.required
+    finally:
+        router.close()
+    for revision, references in [("missing", entries), ("r1", entries[2:])]:
+        router = MapFilter(templates, references, "classic", revision)
+        try:
+            assert router.required and router.source_error
+            assert router.match("Road Forest III") == (None, None)
+            assert router.allowed is None and router.taught is None and router.pending is None
+        finally:
+            router.close()

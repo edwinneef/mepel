@@ -86,6 +86,8 @@ class CommandGate:
 
 def catalog_warning(catalog: dict) -> str | None:
     """Explain catalog states that silently change what recognition can see."""
+    if catalog.get("spawn_error"):
+        return f"{catalog['spawn_error']}; monster catalog paused"
     if catalog.get("map_filter_error"):
         return f"Map name reader failed ({catalog['map_filter_error']}); monster catalog paused"
     if catalog.get("catalog_paused"):

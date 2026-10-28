@@ -10,6 +10,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .spawn_metadata import load_dataset, resolve_species
+
 
 def normalize(text: str) -> str:
     return "".join(character for character in text.casefold() if character.isalnum())
@@ -45,9 +47,34 @@ def read_title(image: np.ndarray) -> str:
 
 
 class MapFilter:
-    def __init__(self, directory: Path, entries: list[dict]):
+    def __init__(self, directory: Path, entries: list[dict],
+                 source: str = "legacy-dream", revision: str = ""):
         path = directory / "catalog" / "maps.json"
-        self.profiles = json.loads(path.read_text("utf-8")) if path.exists() else []
+        self.source, self.revision = source, revision
+        self.source_error = None
+        self.profiles = []
+        if source == "legacy-dream":
+            self.profiles = json.loads(path.read_text("utf-8")) if path.exists() else []
+        else:
+            try:
+                if not all(re.fullmatch(r"[a-zA-Z0-9_-]+", part) for part in (source, revision)):
+                    raise ValueError("Select a valid spawn source and revision")
+                data = load_dataset(
+                    directory.parent / "spawn-metadata" / source / f"{revision}.json"
+                )
+                if (data["sourceId"], data["revision"]) != (source, revision):
+                    raise ValueError("Spawn metadata identity mismatch")
+                groups, missing = resolve_species(data, entries)
+                if missing:
+                    raise ValueError("Missing sprite coverage: " + ", ".join(missing))
+                self.profiles = [
+                    {"id": p["mapId"], "streetName": p["street"], "name": p["title"],
+                     "monsters": set().union(*(groups[key] for key in p["species"]))}
+                    for p in data["maps"]
+                ]
+            except (OSError, ValueError, TypeError) as error:
+                self.source_error = str(error)
+        self.required = source != "legacy-dream" or bool(self.profiles)
         self.names = {entry["id"]: entry["name"] for entry in entries}
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="map-title")
         self.pending = None

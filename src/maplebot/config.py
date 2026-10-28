@@ -20,6 +20,8 @@ class DebuggerConfig:
 
 @dataclass(frozen=True)
 class PerceptionConfig:
+    spawn_source: str = "legacy-dream"
+    spawn_revision: str = ""
     confidence: float = 0.90
     player_margin: float = 0.04
     max_candidates: int = 24
