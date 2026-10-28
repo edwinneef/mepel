@@ -39,6 +39,21 @@ class Observation:
     camera_confidence: float = 0
 
 
+def masked_score(observed: np.ndarray, observed_gray: np.ndarray, reference: np.ndarray,
+                 reference_gray: np.ndarray) -> float:
+    """Sprite similarity over matching pixel lists: 0.6 color agreement + 0.4 structure."""
+    centered = reference_gray - reference_gray.mean()
+    energy = float((reference * reference).sum())
+    color = 1 - float(((observed - reference) ** 2).sum()) / max(
+        1e-6, np.sqrt(energy * float((observed * observed).sum()))
+    )
+    centered_observed = observed_gray - observed_gray.mean()
+    structure = float(centered @ centered_observed) / max(
+        1e-6, float(np.linalg.norm(centered) * np.linalg.norm(centered_observed))
+    )
+    return float(np.clip(0.6 * color + 0.4 * structure, 0, 1))
+
+
 class Detector(Protocol):
     def detect(self, image: Image, now: float | None = None) -> Observation: ...
 
@@ -152,6 +167,13 @@ class TemplateDetector:
         self.refreshed = float("-inf")
         # Last position, when it was last confirmed, and when evidence last supported it.
         self.track: tuple[Rect, float, float] | None = None
+        # Previous confident monster boxes (full frame) and the current search origin.
+        # Together with the player track they mark pixels that may cover a sprite.
+        self.previous_monsters: tuple[Rect, ...] = ()
+        self.origin = (0, 0)
+        self.occluders: tuple[Rect, ...] = ()
+        self.zones = np.zeros((1, 1), dtype=np.uint8)
+        self.zone_sums = cv2.integral(self.zones)
         self.camera = CameraTracker()
         # Set by the runtime when the taught area's minimap confirms the current map.
         self.taught_map = False
@@ -202,6 +224,7 @@ class TemplateDetector:
         ]
         self.fresh.clear()
         self.track = None
+        self.previous_monsters = ()
         self.camera = CameraTracker()
         self.catalog_info = {
             "nametags": len(self.nametags),
@@ -415,9 +438,25 @@ class TemplateDetector:
         # These sparse, color-selected samples are not an area/confidence estimate.
         # A few covered samples can still leave a strong full-mask match below.
         max_misses = (len(signature.colors) + 4) // 5
+        # Sprites next to the player or a previous monster may be partly covered. There,
+        # more samples may miss, and verification uses only the uncovered pixels.
+        occluders = self.occluders
+        relaxed = max(max_misses, len(signature.colors) // 2) if occluders else max_misses
+        height, width = template.image.shape[:2]
+
+        sums = self.zone_sums
+
+        def covered(ys: np.ndarray, xs: np.ndarray) -> np.ndarray:
+            if not occluders:
+                return np.zeros(len(xs), dtype=bool)
+            bottom = np.minimum(ys + height, sums.shape[0] - 1)
+            right = np.minimum(xs + width, sums.shape[1] - 1)
+            return (sums[bottom, right] - sums[ys, right] - sums[bottom, xs] + sums[ys, xs]) > 0
+
         proposals = []
         # Multiple seeds keep a covered proposal pixel from hiding an otherwise valid sprite.
-        for key in ranked[: max_misses + 1]:
+        # Three extra seeds are enough to find the visible part of a covered sprite.
+        for rank, key in enumerate(ranked[: max_misses + (4 if occluders else 1)]):
             buckets = [
                 order[boundaries[b] : boundaries[b + 1]]
                 for b in signature.buckets[key]
@@ -434,21 +473,32 @@ class TemplateDetector:
                 & (ys + template.image.shape[0] <= image.shape[0])
                 & (xs + template.image.shape[1] <= image.shape[1])
             )
+            if rank > max_misses:
+                # Extra seeds only matter where something may cover the sprite.
+                valid &= covered(ys, xs)
             proposals.append(ys[valid] * image.shape[1] + xs[valid])
         if not proposals:
             return []
         positions = np.unique(np.concatenate(proposals))
         ys, xs = positions // image.shape[1], positions % image.shape[1]
+        near = covered(ys, xs)
         misses = np.zeros(len(xs), dtype=np.uint8)
+        unexplained = np.zeros(len(xs), dtype=np.uint8)
         # Indexed color patterns propose exact native-pixel positions; full masks verify them.
         for key in ranked:
             if not len(xs):
                 return []
             dy, dx = signature.offsets[key]
             delta = image[ys + dy, xs + dx].astype(np.int16) - signature.colors[key]
-            misses += np.max(np.abs(delta), axis=1) > 12
-            valid = misses <= max_misses
-            ys, xs, misses = ys[valid], xs[valid], misses[valid]
+            wrong = np.max(np.abs(delta), axis=1) > 12
+            misses += wrong
+            if near.any():
+                # A differing sample inside a covering zone is explained, not a miss.
+                wrong &= self.zones[ys + dy, xs + dx] == 0
+            unexplained += wrong
+            valid = (unexplained <= max_misses) & (misses <= relaxed)
+            ys, xs, near = ys[valid], xs[valid], near[valid]
+            misses, unexplained = misses[valid], unexplained[valid]
         mask = template.mask != 0
         reference = template.image[
             anchor.y : anchor.y + anchor.height, anchor.x : anchor.x + anchor.width
@@ -456,26 +506,26 @@ class TemplateDetector:
         reference_gray = template.gray[
             anchor.y : anchor.y + anchor.height, anchor.x : anchor.x + anchor.width
         ][mask].astype(np.float32)
+        # Score every proposed position at once; same formula as masked_score().
+        rows, cols = np.nonzero(mask)
+        rows, cols = rows + anchor.y, cols + anchor.x
         centered = reference_gray - reference_gray.mean()
+        reference_norm = float(np.linalg.norm(centered))
         energy = float((reference * reference).sum())
+        confidences = np.empty(len(xs), dtype=np.float32)
+        for start in range(0, len(xs), 256):
+            py = ys[start:start + 256, None] + rows
+            px = xs[start:start + 256, None] + cols
+            observed = image[py, px].astype(np.float32)
+            observed_gray = gray[py, px].astype(np.float32)
+            color = 1 - ((observed - reference) ** 2).sum(axis=(1, 2)) / np.maximum(
+                1e-6, np.sqrt(energy * (observed * observed).sum(axis=(1, 2))))
+            centered_observed = observed_gray - observed_gray.mean(axis=1, keepdims=True)
+            structure = (centered_observed @ centered) / np.maximum(
+                1e-6, reference_norm * np.linalg.norm(centered_observed, axis=1))
+            confidences[start:start + 256] = np.clip(0.6 * color + 0.4 * structure, 0, 1)
         found = []
-        for x, y in zip(xs, ys, strict=True):
-            observed = image[
-                y + anchor.y : y + anchor.y + anchor.height,
-                x + anchor.x : x + anchor.x + anchor.width,
-            ][mask].astype(np.float32)
-            observed_gray = gray[
-                y + anchor.y : y + anchor.y + anchor.height,
-                x + anchor.x : x + anchor.x + anchor.width,
-            ][mask].astype(np.float32)
-            color = 1 - float(((observed - reference) ** 2).sum()) / max(
-                1e-6, np.sqrt(energy * float((observed * observed).sum()))
-            )
-            centered_observed = observed_gray - observed_gray.mean()
-            structure = float(centered @ centered_observed) / max(
-                1e-6, float(np.linalg.norm(centered) * np.linalg.norm(centered_observed))
-            )
-            confidence = float(np.clip(0.6 * color + 0.4 * structure, 0, 1))
+        for x, y, confidence in zip(xs, ys, confidences.tolist(), strict=True):
             if confidence >= floor:
                 found.append(
                     Detection(
@@ -603,12 +653,78 @@ class TemplateDetector:
             ] = 0
         return candidates
 
+    def _uncover(self, image: Image, gray: Image, candidates: list[Detection],
+                 templates: list[Template], player: Detection | None) -> list[Detection]:
+        """Rescore near-miss monsters that this frame's player or monsters partly cover.
+
+        Inside a covering box, pixels that differ from the sprite are ignored. Pixels outside
+        every covering box are an unbiased check: 15% of the sprite must lie there and
+        nearly all of it must match, so nothing is found inside a covering box alone.
+        """
+        confident = [item for item in candidates
+                     if item.kind == "monster" and item.confidence >= self.config.confidence]
+        # The player's box widened for a held weapon.
+        cover = [Rect(player.box.x - 40, player.box.y - 8, player.box.width + 80,
+                      player.box.height + 16)] if player else []
+        named: dict[str, list[Template]] = {}
+        for template in templates:
+            named.setdefault(template.name, []).append(template)
+        result = []
+        for item in candidates:
+            box = item.box
+            boxes = cover + [other.box for other in confident if other.box.iou(box) < 0.5]
+            if (item.kind != "monster" or item.confidence >= self.config.confidence
+                    or not any(other.iou(box) > 0 for other in boxes)):
+                result.append(item)
+                continue
+            # Mirrored variants share a name; keep the best uncovered score among them.
+            best = max((self._uncovered_score(image, gray, template, box, boxes)
+                        for template in named.get(item.template, [])), default=0.0)
+            if best > item.confidence:
+                item = replace(item, confidence=round(best, 6))
+            result.append(item)
+        return result
+
+    def _uncovered_score(self, image: Image, gray: Image, template: Template, box: Rect,
+                         boxes: list[Rect]) -> float:
+        if template.anchor is None or template.mask is None:
+            return 0.0
+        anchor, mask = template.anchor, template.mask != 0
+        top, left = box.y + anchor.y, box.x + anchor.x
+        if (top < 0 or left < 0 or top + anchor.height > image.shape[0]
+                or left + anchor.width > image.shape[1]):
+            return 0.0
+        zone = np.zeros(mask.shape, dtype=bool)
+        for other in boxes:
+            zone[max(0, other.y - top):max(0, other.y + other.height - top),
+                 max(0, other.x - left):max(0, other.x + other.width - left)] = True
+        crop = (slice(top, top + anchor.height), slice(left, left + anchor.width))
+        region = (slice(anchor.y, anchor.y + anchor.height),
+                  slice(anchor.x, anchor.x + anchor.width))
+        difference = np.max(np.abs(image[crop].astype(np.int16)
+                                   - template.image[region].astype(np.int16)), axis=2)
+        visible = mask & ~(zone & (difference > 40))
+        outside = mask & ~zone
+        if (np.count_nonzero(visible) < 0.4 * np.count_nonzero(mask)
+                or np.count_nonzero(outside) < 0.15 * np.count_nonzero(mask)
+                or np.mean(difference[outside] <= 24) < 0.85):
+            return 0.0
+        return masked_score(
+            image[crop][visible].astype(np.float32),
+            gray[crop][visible].astype(np.float32),
+            template.image[region][visible].astype(np.float32),
+            template.gray[region][visible].astype(np.float32),
+        )
+
     @staticmethod
     def _suppress(candidates: list[Detection]) -> list[Detection]:
         kept: list[Detection] = []
         for candidate in sorted(candidates, key=lambda item: item.confidence, reverse=True):
+            # Duplicate monster matches overlap almost fully (IoU >= 0.7 in the Middle Forest
+            # recordings); stacked monsters overlap less and must both survive.
+            limit = 0.5 if candidate.kind == "monster" else 0.25
             if not any(
-                item.kind == candidate.kind and item.box.iou(candidate.box) > 0.25 for item in kept
+                item.kind == candidate.kind and item.box.iou(candidate.box) > limit for item in kept
             ):
                 kept.append(candidate)
         return kept
@@ -665,6 +781,9 @@ class TemplateDetector:
         player, monsters, failures, tag_confidence = self._observe_window(
             image, now, templates, floor
         )
+        self.previous_monsters = tuple(
+            item.box for item in monsters if item.confidence >= self.config.confidence
+        )
         if player and not player.tracked and tag_confidence >= REFRESH_TAG_CONFIDENCE:
             self._refresh_sprite(image, player, monsters, now)
         shift, response = self.camera.update(image)
@@ -687,6 +806,7 @@ class TemplateDetector:
         self, image: Image, now: float, templates: list[Template], floor: float
     ) -> tuple[Detection | None, list[Detection], list[str], float]:
         window = self._window(image)
+        self.origin = (0, 0)
         if window is None:
             return self._observe(image, now, templates, floor)
         saved = self.track
@@ -694,7 +814,9 @@ class TemplateDetector:
         local = (saved[0].translated(-window.x, -window.y), saved[1], saved[2])
         self.track = local
         crop = image[window.y : window.y + window.height, window.x : window.x + window.width]
+        self.origin = (window.x, window.y)
         player, monsters, failures, tag_confidence = self._observe(crop, now, templates, floor)
+        self.origin = (0, 0)
         if player is None:
             self.track = saved  # Lost inside the window: search the whole frame.
             return self._observe(image, now, templates, floor)
@@ -711,6 +833,19 @@ class TemplateDetector:
         self, image: Image, now: float, templates: list[Template], floor: float
     ) -> tuple[Detection | None, list[Detection], list[str], float]:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        ox, oy = self.origin
+        # Covering zones: the player box widened for a held weapon, and previous monsters.
+        player = self.track[0] if self.track else None
+        self.occluders = ((Rect(player.x - 40, player.y - 8, player.width + 80,
+                                player.height + 16),) if player else ()) + tuple(
+            Rect(box.x - ox - 4, box.y - oy - 4, box.width + 8, box.height + 8)
+            for box in self.previous_monsters)
+        # Zone membership per pixel, and a summed table for "does a box touch a zone".
+        self.zones = np.zeros(image.shape[:2], dtype=np.uint8)
+        for box in self.occluders:
+            self.zones[max(0, box.y):max(0, box.y + box.height),
+                       max(0, box.x):max(0, box.x + box.width)] = 1
+        self.zone_sums = cv2.integral(self.zones)
         candidates = self._candidates(image, gray, templates, floor)
         kept = self._suppress(candidates)
         players = [item for item in kept if item.kind == "player"]
@@ -733,10 +868,12 @@ class TemplateDetector:
             player = self._follow(gray, players, now, failures)
         if player is None:
             failures.append("Player detection missing or below confidence threshold")
+        # With this frame's player known, rescore monsters it or other monsters partly cover.
+        kept = self._suppress(self._uncover(image, gray, candidates, templates, player))
         monsters = [
             item
             for item in kept
-            if item.kind == "monster" and (not player or item.box.iou(player.box) < 0.2)
+            if item.kind == "monster" and (not player or item.box.iou(player.box) < 0.5)
         ]
         if not monsters:
             failures.append("No visible monster template matches")

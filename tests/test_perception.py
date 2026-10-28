@@ -457,3 +457,62 @@ def test_search_window_size_is_validated_and_zero_disables_it(tmp_path):
         else:
             with pytest.raises(ValueError, match="roi_width"):
                 Config.load(path)
+
+
+
+def textured_monster(tmp_path, seed=71):
+    """A round, finely textured sprite, so overlapping copies cover only part of each other."""
+    directory = tmp_path / "monster"
+    directory.mkdir()
+    rng = np.random.default_rng(seed)
+    example = np.zeros((36, 36, 4), dtype=np.uint8)
+    example[:, :, :3] = rng.integers(20, 240, (36, 36, 3), dtype=np.uint8)
+    alpha = np.zeros((36, 36), dtype=np.uint8)
+    cv2.circle(alpha, (18, 18), 16, 255, -1)
+    example[:, :, 3] = alpha
+    example[example[:, :, 3] == 0, :3] = 0
+    cv2.imwrite(str(directory / "reference.png"), example)
+    return example
+
+
+def place(frame, example, x, y):
+    patch = frame[y:y + 36, x:x + 36]
+    patch[example[:, :, 3] != 0] = example[:, :, :3][example[:, :, 3] != 0]
+
+
+def strong(result):
+    return {item.box for item in result.monsters if item.confidence >= 0.9}
+
+
+def test_monster_behind_the_players_weapon_is_found_only_beside_the_player(tmp_path):
+    example = textured_monster(tmp_path)
+    hero = sprite(1)
+    (tmp_path / "player").mkdir()
+    cv2.imwrite(str(tmp_path / "player" / "pose.png"), hero)
+
+    def frame(player_x):
+        image = np.full((120, 220, 3), 80, dtype=np.uint8)
+        place(image, example, 60, 40)
+        image[50:62, 84:100] = (200, 200, 210)  # A blade across the monster's right side.
+        if player_x is not None:
+            image[44:72, player_x:player_x + 24] = hero
+        return image
+
+    box = Rect(60, 40, 36, 36)
+    # Unexplained damage to the sprite still fails verification.
+    assert box not in strong(TemplateDetector(tmp_path, PerceptionConfig()).detect(frame(None)))
+    # Beside the player, the blade explains the differing pixels.
+    assert box in strong(TemplateDetector(tmp_path, PerceptionConfig()).detect(frame(124)))
+    # Entirely within the player's reach, look-alike pixels alone never confirm a sprite.
+    assert box not in strong(TemplateDetector(tmp_path, PerceptionConfig()).detect(frame(80)))
+
+
+def test_stacked_monsters_of_one_species_are_both_kept(tmp_path):
+    example = textured_monster(tmp_path)
+    frame = np.full((120, 200, 3), 80, dtype=np.uint8)
+    place(frame, example, 60, 40)
+    place(frame, example, 80, 40)  # In front; the boxes overlap with IoU 0.29.
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    detector.detect(frame)
+    # Once the front monster is known, the search widens around it and finds the other.
+    assert strong(detector.detect(frame)) == {Rect(60, 40, 36, 36), Rect(80, 40, 36, 36)}
