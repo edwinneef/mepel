@@ -180,8 +180,10 @@ class NavigationRuntime:
         fresh = bool(fix and fix.dot is not None and player and not player.tracked
                      and player.confidence >= .9 and observation.camera_shift is not None
                      and observation.camera_confidence >= .35)
+        # The marker places the player even when the name tag drops out for a frame; only
+        # fresh agreement counts as trusted motion, and trusted() bounds marker-only stretches.
         feet = self.app.position.tracker.transform.to_area(*fix.dot) if (
-            fresh and self.app.position.tracker) else None
+            fix and fix.dot is not None and self.app.position.tracker) else None
         screen = (player.box.center[0], player.box.feet) if fresh else None
         motion = False
         if fresh and self.previous:
@@ -190,7 +192,7 @@ class NavigationRuntime:
             motion = 0 < now - last_time <= 1 and all(
                 abs(feet[i] - last_feet[i] - (screen[i] - last_screen[i] - shift[i])) <= 32
                 for i in (0, 1))
-        self.previous = (now, feet, screen) if feet and screen else None
+        self.previous = (now, feet, screen) if fresh and feet and screen else None
         if motion:
             self.agreed_at = now
         profile = json.loads((self.app.areas.directory / f"{self.graph.profile['id']}.json")
@@ -203,16 +205,19 @@ class NavigationRuntime:
                                  if not self.app.capture_only else False)
 
     def trusted(self) -> bool:
-        """Fresh agreeing feedback, or a brief marker-only stretch while a move is airborne.
+        """Fresh agreeing feedback, or a brief marker-only stretch while moving.
 
-        Only a move already in flight may ride the minimap marker; the recorded corridor
-        and edge deadlines still apply to every frame.
+        Walking to a launch point or flying may ride the minimap marker for
+        FLIGHT_GRACE_SECONDS: the name tag drops out at some spots (a ladder top on Middle
+        Forest III failed more than half its reads) and mid-jump. Settling never does, and
+        the corridor, boundary and edge deadlines still apply to every frame.
         """
         f = self.feedback
         if not f or time.perf_counter() - f.now > .5:
             return False
         return f.motion_ok or (
-            f.feet is not None and self.agent is not None and self.agent.stage == "flight"
+            f.feet is not None and self.agent is not None
+            and self.agent.stage in {"approach", "flight"}
             and f.now - self.agreed_at <= FLIGHT_GRACE_SECONDS)
 
     def tick(self, suggestion: str | None, now: float) -> None:

@@ -128,7 +128,8 @@ class Navigator:
             return Motion(release=True)
         if self.stage == "approach":
             rope = origin in {p["id"] for p in self.graph.profile["ropes"]}
-            if not rope and f.surface != origin:
+            # No surface for a frame is a name-tag dropout, bounded by the runtime's grace.
+            if not rope and f.surface not in (origin, None):
                 return self.stop("Lost launch platform before takeoff")
             if rope:
                 if not self.graph.on_surface(origin, f.feet):

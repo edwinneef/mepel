@@ -167,3 +167,18 @@ def test_disagreement_outside_flight_still_stops_at_once(app):
     nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (150, 400), "floor", False)
     nav.tick(None, time.perf_counter())
     assert app.mode == "capture" and app.stop_record.code == "PLAYER_UNCERTAIN"
+
+
+def test_a_brief_name_tag_dropout_while_walking_to_the_launch_point_is_ridden_out(app):
+    nav = preview(app)
+    app._command("nav_start", {"opt_in": True})
+    app.pending_at = 0
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (150, 400), "floor", True)
+    nav.tick(None, time.perf_counter())
+    nav.agent.stage, nav.agreed_at = "approach", time.perf_counter()
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (140, 400), None, False)
+    nav.tick(None, time.perf_counter())
+    assert app.mode == "navigation" and app.stop_record is None
+    nav.agreed_at = time.perf_counter() - 1.0  # the tag stayed missing past the grace
+    nav.tick(None, time.perf_counter())
+    assert app.mode == "capture" and app.stop_record.code == "PLAYER_UNCERTAIN"
