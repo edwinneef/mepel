@@ -652,20 +652,9 @@ class TemplateDetector:
         )
 
         coarse = cv2.pyrDown(gray) if any(t.anchor is not None for t in usable) else None
-        # Whole-frame score maps of templates without a sprite mask are the slowest single
-        # searches; they start first and in parallel, so they do not trail the others.
-        maps = {
-            id(template): (
-                self.pool.submit(cv2.matchTemplate, image, template.image, cv2.TM_SQDIFF_NORMED),
-                self.pool.submit(cv2.matchTemplate, gray, template.gray, cv2.TM_CCOEFF_NORMED),
-            )
-            for template in usable
-            if template.signature is None and template.anchor is None
-        } if len(usable) > 1 else {}
 
         def search(template: Template) -> list[Detection]:
-            return self._template_candidates(image, gray, template, floor, color_index, coarse,
-                                             maps.get(id(template)))
+            return self._template_candidates(image, gray, template, floor, color_index, coarse)
 
         # OpenCV releases the GIL, so templates match in parallel; map keeps template order.
         results = self.pool.map(search, usable) if len(usable) > 1 else map(search, usable)
@@ -674,7 +663,6 @@ class TemplateDetector:
     def _template_candidates(
         self, image: Image, gray: Image, template: Template, floor: float, color_index,
         coarse: Image | None = None,
-        maps: tuple[Future[Image], Future[Image]] | None = None,
     ) -> list[Detection]:
         if template.signature is not None:
             return self._sprite_candidates(image, gray, template, floor, color_index)
@@ -683,11 +671,8 @@ class TemplateDetector:
         height, width = template.gray.shape
         candidates: list[Detection] = []
         # Color helps distinguish similar silhouettes; correlation adds local structure.
-        if maps is None:
-            color = 1 - cv2.matchTemplate(image, template.image, cv2.TM_SQDIFF_NORMED)
-            structure = cv2.matchTemplate(gray, template.gray, cv2.TM_CCOEFF_NORMED)
-        else:
-            color, structure = 1 - maps[0].result(), maps[1].result()
+        structure = cv2.matchTemplate(gray, template.gray, cv2.TM_CCOEFF_NORMED)
+        color = self._color_where_possible(image, template, structure, floor)
         score = np.nan_to_num(0.6 * color + 0.4 * structure, copy=False,
                               nan=0, posinf=0, neginf=0)
         for _ in range(self.config.max_candidates):
@@ -707,6 +692,27 @@ class TemplateDetector:
                 max(0, x - width // 2) : x + width // 2 + 1,
             ] = 0
         return candidates
+
+    @staticmethod
+    def _color_where_possible(
+        image: Image, template: Template, structure: Image, floor: float
+    ) -> Image:
+        """1 - TM_SQDIFF_NORMED around positions whose structure can still reach the floor.
+
+        Elsewhere color stays 0: weighted at most 0.6 it could not lift those positions to
+        the floor, and the whole-frame color map is the slowest part of this search.
+        """
+        height, width = template.gray.shape
+        color = np.zeros_like(structure)
+        possible = np.uint8(structure >= (floor - COLOR_WEIGHT_CAP) / 0.4)
+        _, _, stats, _ = cv2.connectedComponentsWithStats(possible)
+        for x, y, w, h, _ in stats[1:]:
+            color[y : y + h, x : x + w] = 1 - cv2.matchTemplate(
+                image[y : y + h + height - 1, x : x + w + width - 1],
+                template.image,
+                cv2.TM_SQDIFF_NORMED,
+            )
+        return color
 
     def _uncover(self, image: Image, gray: Image, candidates: list[Detection],
                  templates: list[Template], player: Detection | None) -> list[Detection]:
