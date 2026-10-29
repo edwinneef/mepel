@@ -240,6 +240,15 @@ Unlabeled frames are excluded from accuracy metrics. Without labels, accuracy is
 
 ## Tests and reproducible checks
 
+For the usual edit/check loop, use `./tools/dev_cycle.ps1`. It runs focused
+navigation tests and lint without requiring the game. Choose test files with
+`-PythonTests`, or use `-Scope ui -UiTests client.test.ts` for a focused UI check.
+`-Scope all -BuildUi` checks both sides and builds the installed UI, backing up
+the previous assets first. Add `-Restart` only when the running engine needs the
+change (`-EnableGameplayInput` explicitly selects an input-capable restart).
+`-DryRun` lists the steps without running them. A failed step stops the sequence;
+timings and build backups go to `artifacts/dev-cycle/<timestamp>/`.
+
 ```powershell
 .venv\Scripts\python.exe -m pytest -q
 .venv\Scripts\ruff.exe check src tests tools
