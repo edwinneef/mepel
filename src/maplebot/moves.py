@@ -129,6 +129,9 @@ def generate(profile: dict) -> list[Move]:
 
     for rope in ropes:
         x, top, bottom = rope["start"]["x"], rope["start"]["y"], rope["end"]["y"]
+        top_exit = any(span(p)[0] <= x <= span(p)[1]
+                       and top - LEVEL_PX <= height(p, x) <= top + CLIMB_PX
+                       for p in platforms)
         for p in platforms:
             left, right = span(p)
             if left <= x <= right:
@@ -149,7 +152,8 @@ def generate(profile: dict) -> list[Move]:
             if abs(x - edge) > JUMP_GAP_PX + INSET_PX:
                 continue
             y = height(p, edge)
-            if top - JUMP_RISE_PX <= y < top and abs(x - edge) <= JUMP_GAP_PX + INSET_PX:
+            if (not top_exit and top - JUMP_RISE_PX <= y < top
+                    and abs(x - edge) <= JUMP_GAP_PX + INSET_PX):
                 landing = _point(p, _inside(p, edge))  # jump off the rope's top
                 add(rope["id"], p["id"], "jump", (x, top + CLIMB_PX / 2),
                     ((x + landing[0]) / 2, y - 40), landing)

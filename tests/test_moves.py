@@ -36,6 +36,17 @@ def test_hairline_gap_is_walked_and_wide_gap_is_jumped():
     assert ("c", "far") not in moves
 
 
+def test_supported_rope_top_uses_platform_before_upward_jump():
+    rope = {"id": "rope", "start": {"x": 500, "y": 300},
+            "end": {"x": 500, "y": 600}}
+    profile = {"platforms": [flat("top", 460, 540, 300),
+                             flat("higher", 570, 700, 240)], "ropes": [rope]}
+    pairs = kinds(profile)
+    assert pairs[("rope", "top")] == "climb"
+    assert ("rope", "higher") not in pairs
+    assert pairs[("top", "higher")] == "jump"
+
+
 def test_ropes_connect_their_foot_top_and_neighbours():
     rope = {"id": "rope", "name": "Rope", "start": {"x": 500, "y": 292},
             "end": {"x": 500, "y": 608}}
