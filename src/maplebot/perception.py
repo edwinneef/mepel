@@ -228,9 +228,11 @@ class CameraTracker:
     def __init__(self) -> None:
         self.previous: np.ndarray | None = None
         self.window: np.ndarray | None = None
+        self.previous_gray: np.ndarray | None = None
 
     def update(self, image: Image) -> tuple[tuple[float, float], float]:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        previous_gray, self.previous_gray = self.previous_gray, gray
         small = cv2.resize(gray, None, fx=0.5, fy=0.5).astype(np.float32)
         previous, self.previous = self.previous, small
         if previous is None or previous.shape != small.shape or float(small.std()) < 2:
@@ -239,7 +241,9 @@ class CameraTracker:
             self.window = cv2.createHanningWindow((small.shape[1], small.shape[0]), cv2.CV_32F)
         (dx, dy), response = cv2.phaseCorrelate(previous, small, self.window)
         if not np.isfinite([dx, dy, response]).all() or response < 0.35:
-            return (0, 0), 0
+            from .camera_motion import feature_translation
+
+            return feature_translation(previous_gray, gray, (dx * 2, dy * 2))
         if abs(dx * 2) > image.shape[1] * 0.2 or abs(dy * 2) > image.shape[0] * 0.2:
             return (0, 0), 0
         return (dx * 2, dy * 2), float(response)
