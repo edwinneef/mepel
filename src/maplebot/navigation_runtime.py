@@ -8,7 +8,7 @@ from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
 from .move_proofs import MoveProofs
 from .navigation import RouteMap, map_hash
-from .navigation_executor import Feedback, Navigator
+from .navigation_executor import Feedback, Navigator, distance
 from .scheduler import SUSTAIN
 
 # While airborne the camera moves faster than its shift estimate and the minimap marker
@@ -218,13 +218,22 @@ class NavigationRuntime:
         """Fresh agreeing feedback, or a brief marker-only stretch while moving.
 
         Walking to a launch point or flying may ride the minimap marker for
-        FLIGHT_GRACE_SECONDS: the name tag drops out at some spots (a ladder top on Middle
-        Forest III failed more than half its reads) and mid-jump. Settling never does, and
-        the corridor, boundary and edge deadlines still apply to every frame.
+        FLIGHT_GRACE_SECONDS. Drops and climbs may instead use the marker inside their
+        recorded corridor for the existing eight-second edge budget. Marker-only feedback
+        never confirms settling; corridor, boundary and freshness checks remain active.
         """
         f = self.feedback
         if not f or time.perf_counter() - f.now > .5:
             return False
+        agent = self.agent
+        if (f.feet is not None and agent is not None and agent.stage == "flight"
+                and agent.index < len(agent.route.edges)):
+            edge = agent.route.edges[agent.index]
+            if (edge.kind in {"drop", "climb"}
+                    and 0 <= f.now - agent.edge_started < 8
+                    and distance(f.feet, edge.trace) <= 64
+                    and not agent.graph.path_blocker((f.feet, f.feet))):
+                return True
         return f.motion_ok or (
             f.feet is not None and self.agent is not None
             and self.agent.stage in {"settle_origin", "approach", "flight"}
@@ -256,7 +265,7 @@ class NavigationRuntime:
             self.agent = Navigator(self.graph, self.route, now,
                                    pulse=min(.12, app.config.input.max_action_seconds))
             self.counted = 0
-        motion = self.agent.step(replace(f, motion_ok=True) if airborne else f)
+        motion = self.agent.step(replace(f, motion_ok=True, marker_only=True) if airborne else f)
         self._learn()
         if not self.agent.active:
             if self.agent.stage == "arrived" and self.resume_combat:

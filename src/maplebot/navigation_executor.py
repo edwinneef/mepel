@@ -16,6 +16,7 @@ class Feedback:
     motion_ok: bool
     age: float = 0
     focused: bool = True
+    marker_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,9 @@ class Navigator:
         return Motion(release=True)
 
     def _settled(self, feedback: Feedback, surface: str) -> bool:
+        if feedback.marker_only:
+            self.settle_since = None
+            return False
         steady = (self.last_feet is not None and feedback.feet is not None
                   and abs(feedback.feet[1] - self.last_feet[1]) <= 3
                   and abs(feedback.feet[0] - self.last_feet[0]) <= 8)
@@ -179,6 +183,9 @@ class Navigator:
                      and abs(f.feet[1] - edge.launch[1]) >= 16
                      and (f.feet[1] - edge.launch[1]) * (edge.landing[1] - edge.launch[1]) > 0)
         if on_target and self.departed:
+            if f.marker_only:
+                self.settle_since, self.rope_start = None, None
+                return Motion(release=True)
             if target_rope:
                 # Observe sustained aligned vertical progress; proximity alone is insufficient.
                 if self.settle_since is None:

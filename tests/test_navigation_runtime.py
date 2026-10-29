@@ -199,3 +199,23 @@ def test_start_and_settling_ride_out_a_name_tag_dropout_on_the_origin(app):
     nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (150, 400), None, False)
     nav.tick(None, time.perf_counter())
     assert app.mode == "navigation" and nav.agent.stage == "settle_origin"
+
+@pytest.mark.parametrize("kind", ["drop", "climb"])
+def test_marker_only_move_is_bounded_by_path_and_eight_seconds(app, kind):
+    from maplebot.navigation_executor import Navigator
+    nav = preview(app)
+    now = time.perf_counter()
+    nav.route = replace(nav.route, edges=(replace(nav.route.edges[0], kind=kind),))
+    nav.agent = Navigator(nav.graph, nav.route, now - 2)
+    nav.agent.stage = "flight"
+    edge = nav.route.edges[0]
+    nav.feedback = Feedback(now, nav.graph.fingerprint, edge.launch, None, False)
+    assert nav.trusted()
+    nav.feedback = replace(nav.feedback, feet=(10000, 10000))
+    assert not nav.trusted()
+    nav.feedback = replace(nav.feedback, feet=edge.launch)
+    nav.agent.edge_started = now - 8
+    assert not nav.trusted()
+    nav.agent.edge_started = now - 2
+    nav.agent.stage = "settle_origin"
+    assert not nav.trusted()

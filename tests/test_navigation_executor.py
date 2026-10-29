@@ -106,3 +106,13 @@ def test_rope_to_platform_approaches_recorded_height_before_entering_its_corrido
     assert nav.step(replace(f, now=.2, feet=(150, 330))).vertical == "up"
     assert nav.step(replace(f, now=.3, feet=(150, 280))).vertical == "down"
     assert nav.stage == "flight"
+
+def test_marker_only_destination_never_counts_as_settled():
+    nav, f = setup()
+    takeoff(nav, f)
+    for now in (1, 1.4, 1.8):
+        nav.step(replace(f, now=now, feet=(280, 300), surface="ledge", marker_only=True))
+    assert nav.completed == 0 and nav.stage == "flight"
+    for now in (2, 2.4):
+        nav.step(replace(f, now=now, feet=(280, 300), surface="ledge"))
+    assert nav.stage == "arrived"
