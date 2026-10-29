@@ -55,13 +55,33 @@ start the installed source once at the beginning of the new session.
    `tools/start_overlay.ps1 -WaitForEngine`. Keep this setup separate from test timing.
    Allow at most two minutes for setup. If a latched alarm, missing recognition,
    missing controls, wrong map/start position or focus prevents readiness, stop and
-   report the exact blocker. Do not focus the game, acknowledge alarms, travel,
+   report the exact blocker. Do not acknowledge alarms, travel,
    re-import, recalibrate or debug interactively.
 2. With Bot Off and the operator's already-focused game at the start spot, run once:
 
    ```powershell
    .venv/Scripts/python.exe -m tools.town_check --run --bundle artifacts/henesys-park-session/bundle.json
    ```
+
+   The overlay now starts with settings closed and leaves focus unchanged; F7
+   explicitly opens settings. For an operator-authorized focus handoff, add
+   `--focus --focus-click`. This requests focus once before readiness checks,
+   allowing one verified native title-bar click only if Windows declines normal
+   activation. It never clicks the gameplay area. Omit both flags to retain the
+   no-takeover behavior; `--check` and `--plan` never focus or click. Focus loss
+   during passive checks or movement still ends the batch without refocusing.
+   After a successful focus request, the checker observes for at most three seconds
+   for a different frame captured after the response. Older cached frames are logged
+   while waiting; the first new frame must pass the existing readiness checks. A
+   timeout, new unfocused frame, alarm or session change stops without refocusing.
+
+   Operator-approved recognition recovery: during an active route, a brief visual
+   miss releases and suspends all input for at most two seconds. Fresh matching
+   identity and consecutive agreeing position observations resume the same route;
+   route/edge clocks keep running. Focus, map, freshness, watchdog, F8, lease and
+   context failures still end the run. The checker may observe a paused recovery
+   using the engine's fresh marker, never the held display label as movement proof.
+   Sustained movement uses renewable holds; small positioning corrections remain taps.
 
    First: two seconds of passive, healthy, advancing fused feedback, with no input.
    Then exactly three route requests: `fh90 → fh190` via the ladder, `fh190 → rope1`

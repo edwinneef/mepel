@@ -22,6 +22,7 @@ from tools.navigation_check import ROUTE_SECONDS, Debugger
 TOWN_ID = 100000200
 ROOT = Path(__file__).resolve().parents[1]
 PROBE_SECONDS = 8
+FOCUS_FRAME_SECONDS = 3
 REUSED_CONTROLS = ("left", "right", "jump", "up", "down")
 
 
@@ -34,7 +35,7 @@ def profile_for_town(directory: Path) -> dict:
 
 
 def blocker(status: dict, profile: dict, *, session=None, settled=True,
-            allow_rope=False) -> str | None:
+            allow_rope=False, allow_recovery=False) -> str | None:
     if status.get("capture_only"):
         return "Capture-only session; use an explicitly input-capable restart"
     if session is not None and status.get("session_id") != session:
@@ -59,12 +60,26 @@ def blocker(status: dict, profile: dict, *, session=None, settled=True,
         return "Recognition frame is stale or unavailable"
     player = status.get("player") or {}
     confidence = player.get("confidence", 0)
-    if (not player or player.get("tracked") or not isinstance(confidence, (int, float))
-            or not math.isfinite(confidence) or confidence < .9):
+    threshold = status.get("player_threshold", .9)
+    if (type(threshold) not in (int, float) or not math.isfinite(threshold)
+            or not .5 <= threshold <= 1):
+        return "Player recognition threshold is invalid"
+    recovery = status.get("navigation", {}).get("recovery") or {}
+    observing_pause = (allow_recovery and not settled and status.get("mode") == "navigation"
+                       and recovery.get("active") is True
+                       and recovery.get("input_suspended") is True
+                       and recovery.get("marker_fresh") is True
+                       and recovery.get("map_hash") == map_hash(profile)
+                       and type(recovery.get("remaining_seconds")) in (int, float)
+                       and 0 < recovery["remaining_seconds"] <= 2)
+    if not observing_pause and (not player or player.get("tracked")
+            or not isinstance(confidence, (int, float))
+            or not math.isfinite(confidence) or confidence < threshold):
         return "Player is not freshly recognized"
-    if (position.get("stale") is not False or position.get("provisional")
-            or position.get("held") or not position.get("marker")
-            or not position.get("canvas") or not position.get("calibrated")):
+    if (position.get("provisional") or not position.get("canvas")
+            or not position.get("calibrated") or not observing_pause and (
+                position.get("stale") is not False or position.get("held")
+                or not position.get("marker"))):
         return "Park minimap/position is missing, stale or unconfirmed"
     if settled:
         if status.get("mode") != "capture":
@@ -130,7 +145,8 @@ def ladder_target(profile: dict, status: dict) -> str:
 
 def compact(status: dict) -> dict:
     return {k: status.get(k) for k in (
-        "session_id", "mode", "focused", "frame", "player", "position", "navigation",
+        "session_id", "mode", "focused", "frame", "player", "player_threshold", "position",
+        "navigation",
         "stop", "last_action", "active_probe", "action_outcome")}
 
 
@@ -141,11 +157,21 @@ class Check:
         self.rows = []
         self.started = False
 
-    def status(self, *, settled=False, allow_rope=False):
+    def status(self, *, settled=False, allow_rope=False, initial=None, allow_recovery=False):
         deadline = self.clock() + .8
-        value = self.api.status()
+        value = self.api.status() if initial is None else initial
+        # Recovery can finish on a processed frame before its encoded status is published.
+        # Wait for that publication; never treat an older display label as arrival evidence.
+        while (allow_recovery and value.get("navigation", {}).get("recovery", {})
+               .get("pending_publication")):
+            if self.clock() >= deadline:
+                raise RuntimeError("Post-recovery recognition publication did not advance")
+            if not value.get("focused") or value.get("session_id") != self.session:
+                raise RuntimeError("Focus/session lost while publishing recovery")
+            self.sleep(.03)
+            value = self.api.status()
         while problem := blocker(value, self.profile, session=self.session, settled=settled,
-                                  allow_rope=allow_rope):
+                                  allow_rope=allow_rope, allow_recovery=allow_recovery):
             position = value.get("position") or {}
             # Wait for a fresh pair/settled surface without issuing or renewing input.
             # A held UI label is never accepted; runtime still owns every dispatch gate.
@@ -163,6 +189,32 @@ class Check:
                 continue
             raise RuntimeError(problem)
         return value
+
+    def focus_frame(self, focused_at, previous_frame, samples):
+        """Observe a post-handoff capture without issuing another focus request."""
+        deadline = self.clock() + FOCUS_FRAME_SECONDS
+        while True:
+            sample = self.api.status()
+            samples.append({key: sample.get(key) for key in (
+                "session_id", "mode", "focused", "frame", "alarm")})
+            if sample.get("session_id") != self.session:
+                raise RuntimeError("Engine session changed during focus handoff")
+            if sample.get("alarm", {}).get("active"):
+                raise RuntimeError("Active alarm during focus handoff")
+            if (sample.get("capture_only") or sample.get("mode") != "capture"
+                    or sample.get("active_probe") or sample.get("area_editing")
+                    or sample.get("calibrating")):
+                raise RuntimeError("Bot must remain input-capable and Off during focus handoff")
+            frame = sample.get("frame") or {}
+            captured = frame.get("captured_at")
+            if (frame.get("available") and frame.get("id")
+                    and frame["id"] != previous_frame
+                    and type(captured) in (int, float) and math.isfinite(captured)
+                    and captured > focused_at):
+                return sample  # Normal readiness checks still decide whether this frame is safe.
+            if self.clock() >= deadline:
+                raise RuntimeError("No new capture after focus handoff; no movement started")
+            self.sleep(.05)
 
     def clip(self, row):
         try:
@@ -250,7 +302,7 @@ class Check:
             self.api.command("nav_go", {"target": target, "opt_in": True})
             while self.clock() - started < ROUTE_SECONDS:
                 self.sleep(.1)
-                sample = self.status()
+                sample = self.status(allow_recovery=True)
                 row["samples"].append(compact(sample))
                 if sample["mode"] not in {"navigation", "navigation_wait"}:
                     break
@@ -305,16 +357,32 @@ def validate_bundle(bundle: dict, profile: dict, initial: dict) -> None:
         raise RuntimeError(f"Saved engine control confirmations unavailable: {', '.join(missing)}")
 
 
-def run(api, profile, output: Path, *, bundle=None,
-        clock=time.monotonic, sleep=time.sleep) -> dict:
+def run(api, profile, output: Path, *, bundle=None, focus=False, focus_click=False,
+        clock=time.monotonic, sleep=time.sleep, wall_clock=time.time) -> dict:
     output.mkdir(parents=True, exist_ok=False)
     runner = Check(api, profile, clock=clock, sleep=sleep)
     result = {"town_id": TOWN_ID, "steps": runner.rows, "failure": None,
-              "movement_requested": False, "setup_seconds": 0, "test_seconds": 0}
+              "movement_requested": False, "focus_requested": False,
+              "setup_seconds": 0, "test_seconds": 0}
     began = clock()
     test_started = None
     try:
-        initial = runner.status(settled=True)
+        if focus_click and not focus:
+            raise ValueError("Focus click requires an explicit focus request")
+        before_focus = api.status() if focus else None
+        initial = None
+        if before_focus is not None and not before_focus.get("focused"):
+            runner.session = before_focus.get("session_id")
+            result["focus_requested"] = True
+            result["focus_response"] = api.command("focus_game", {"click_fallback": focus_click})
+            if not result["focus_response"].get("focused"):
+                raise RuntimeError("Game focus request failed; no movement started")
+            result["focus_confirmed_at"] = wall_clock()
+            result["focus_samples"] = []
+            initial = runner.focus_frame(result["focus_confirmed_at"],
+                                         (before_focus.get("frame") or {}).get("id"),
+                                         result["focus_samples"])
+        initial = runner.status(settled=True, initial=initial)
         result["before"] = compact(initial)
         runner.session = initial["session_id"]
         if problem := start_spot(initial, profile):
@@ -376,9 +444,17 @@ def main():
     mode.add_argument("--run", action="store_true")
     mode.add_argument("--plan", action="store_true", help="Print an offline routes-only bundle")
     parser.add_argument("--bundle", type=Path, help="Use pinned routes and accepted controls")
+    parser.add_argument("--focus", action="store_true",
+                        help="Request game focus once before --run readiness checks")
+    parser.add_argument("--focus-click", action="store_true",
+                        help="Allow one verified title-bar click if the focus request fails")
     args = parser.parse_args()
     if args.bundle and not args.run:
         parser.error("--bundle requires --run")
+    if args.focus_click and not args.focus:
+        parser.error("--focus-click requires --focus")
+    if args.focus and not args.run:
+        parser.error("--focus requires --run; --check and --plan remain read-only")
     output = ROOT / "artifacts/town-checks" / str(time.time_ns())
     initial = None
     try:
@@ -390,7 +466,7 @@ def main():
         bundle = json.loads(args.bundle.read_text("utf-8-sig")) if args.bundle else None
         api = Debugger()
         initial = api.status()
-        if not initial.get("focused"):
+        if not initial.get("focused") and args.check:
             raise RuntimeError("Game is not focused; stop without taking focus")
         if args.check:
             sample = api.status()
@@ -404,7 +480,8 @@ def main():
             if problem:
                 raise SystemExit(1)
             return
-        result = run(api, profile, output, bundle=bundle)
+        result = run(api, profile, output, bundle=bundle,
+                     focus=args.focus, focus_click=args.focus_click)
     except Exception as error:
         result = {"failure": str(error), "movement_requested": False,
                   "before": compact(initial) if initial else None}

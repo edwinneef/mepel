@@ -48,6 +48,72 @@ def test_preflight_fails_closed(profile, field, value, message):
     assert message in town.blocker(sample, profile, session="session")
 
 
+@pytest.mark.parametrize(("threshold", "confidence", "accepted"), [
+    (.85, .875421, True), (.90, .875421, False), (.85, .849, False),
+])
+def test_player_recognition_uses_engine_threshold(profile, threshold, confidence, accepted):
+    sample = status(profile)
+    sample["player_threshold"] = threshold
+    sample["player"]["confidence"] = confidence
+    assert (town.blocker(sample, profile) is None) is accepted
+
+
+@pytest.mark.parametrize("threshold", [float("nan"), .49, 1.01, True, "0.85"])
+def test_invalid_player_threshold_refuses_movement(profile, threshold):
+    sample = status(profile)
+    sample["player_threshold"] = threshold
+    assert "threshold is invalid" in town.blocker(sample, profile)
+
+
+@pytest.mark.parametrize("change", [None, "focus", "map", "stale", "unsuspended", "timeout"])
+def test_route_may_observe_engine_recovery_but_never_relaxes_other_gates(profile, change):
+    sample = status(profile)
+    sample["mode"] = "navigation"
+    sample["player"]["tracked"] = True
+    sample["navigation"]["recovery"] = {
+        "active": True, "input_suspended": True, "remaining_seconds": 1.5,
+        "marker_fresh": True, "map_hash": map_hash(profile)}
+    if change == "focus":
+        sample["focused"] = False
+    elif change == "map":
+        sample["position"]["area_id"] = "other"
+    elif change == "stale":
+        sample["frame"]["age_ms"] = 99999
+    elif change == "unsuspended":
+        sample["navigation"]["recovery"]["input_suspended"] = False
+    elif change == "timeout":
+        sample["navigation"]["recovery"]["remaining_seconds"] = 0
+    result = town.blocker(sample, profile, settled=False, allow_recovery=True)
+    assert (result is None) is (change is None)
+    assert town.blocker(sample, profile, settled=False) is not None
+
+
+def test_held_display_label_can_only_be_observed_with_paused_fresh_engine_marker(profile):
+    sample = status(profile)
+    sample["mode"] = "navigation"
+    sample["player"]["tracked"] = True
+    sample["position"].update(stale=True, held=True, marker=None, feet=None)
+    sample["navigation"]["recovery"] = {
+        "active": True, "input_suspended": True, "remaining_seconds": 1,
+        "marker_fresh": True, "map_hash": map_hash(profile)}
+    assert town.blocker(sample, profile, settled=False, allow_recovery=True) is None
+    sample["navigation"]["recovery"]["marker_fresh"] = False
+    assert town.blocker(sample, profile, settled=False, allow_recovery=True) is not None
+
+
+def test_post_recovery_status_waits_for_publication_without_commands(profile):
+    api = Api(profile)
+    pending, published = status(profile), status(profile)
+    pending["navigation"]["recovery"] = {"pending_publication": True}
+    published["navigation"]["recovery"] = {"pending_publication": False}
+    api.pending = [pending, published]
+    check = town.Check(api, profile, sleep=lambda _: None)
+    check.session = "session"
+    result = check.status(allow_recovery=True)
+    assert result["navigation"]["recovery"]["pending_publication"] is False
+    assert not api.calls
+
+
 @pytest.mark.parametrize("change", [
     {"stale": True}, {"provisional": True}, {"held": True}, {"marker": None},
     {"calibrated": False}, {"canvas": None}, {"kind": "unknown", "surface_id": None},
@@ -106,6 +172,7 @@ def run_check(monkeypatch):
         ticks[0] += seconds
 
     def run(api, profile, output, **kwargs):
+        kwargs.setdefault("wall_clock", lambda: 1000 + ticks[0])
         return town.run(api, profile, output, clock=lambda: ticks[0], sleep=sleep, **kwargs)
     return run
 
@@ -168,6 +235,169 @@ def test_plan_cli_never_constructs_debugger(profile, monkeypatch, tmp_path, caps
     plan = json.loads(capsys.readouterr().out)
     assert plan["targets"] == ["ledge", "ladder", "floor"]
     assert plan["stop_at_first_failure"] and plan["passive_seconds"] == 2
+
+
+@pytest.mark.parametrize("flags", [["--plan", "--focus"], ["--check", "--focus"],
+                                   ["--run", "--focus-click"]])
+def test_focus_flags_require_explicit_mutating_run(flags, monkeypatch):
+    import sys
+
+    monkeypatch.setattr(sys, "argv", ["town_check", *flags])
+    monkeypatch.setattr(town, "Debugger", lambda: pytest.fail("Invalid flags connected to engine"))
+    with pytest.raises(SystemExit) as error:
+        town.main()
+    assert error.value.code == 2
+
+
+def test_unfocused_default_never_requests_focus(profile, run_check, tmp_path):
+    api = Api(profile)
+    api.value["focused"] = False
+    result = run_check(api, profile, tmp_path / "default")
+    assert "not focused" in result["failure"]
+    assert not api.calls and not result["focus_requested"]
+
+
+@pytest.mark.parametrize("allow_click", [False, True])
+def test_opted_in_focus_runs_once_before_normal_bundle_checks(
+        profile, run_check, tmp_path, allow_click):
+    api = BundleApi(profile)
+    api.value["focused"] = False
+    command = api.command
+
+    def focus(name, payload=None):
+        if name == "focus_game":
+            api.calls.append((name, payload))
+            api.value["focused"] = True
+            api.value["frame"].update(id="focused:1", captured_at=1001)
+            return {"focused": True}
+        return command(name, payload)
+
+    api.command = focus
+    bundle = town.session_plan(profile, api.value["bindings"])
+    result = run_check(api, profile, tmp_path / "focus", bundle=bundle,
+                       focus=True, focus_click=allow_click)
+    assert result["failure"] is None
+    assert api.calls[0] == ("focus_game", {"click_fallback": allow_click})
+    assert sum(name == "focus_game" for name, _ in api.calls) == 1
+    assert [p["target"] for n, p in api.calls if n == "nav_go"] == bundle["targets"]
+
+
+def test_declined_focus_stops_without_movement_or_retry(profile, run_check, tmp_path):
+    api = Api(profile)
+    api.value["focused"] = False
+    result = run_check(api, profile, tmp_path / "declined", focus=True, focus_click=True)
+    assert "focus request failed" in result["failure"]
+    assert api.calls == [("focus_game", {"click_fallback": True})]
+    assert not result["movement_requested"]
+
+
+def test_focus_option_never_recovers_focus_during_a_route(profile, run_check, tmp_path):
+    api = BundleApi(profile)
+    command = api.command
+
+    def lose_focus(name, payload=None):
+        response = command(name, payload)
+        if name == "nav_go":
+            api.pending[1]["focused"] = False
+        return response
+
+    api.command = lose_focus
+    bundle = town.session_plan(profile, api.value["bindings"])
+    result = run_check(api, profile, tmp_path / "lost", bundle=bundle,
+                       focus=True, focus_click=True)
+    assert "not focused" in result["failure"]
+    assert not any(name == "focus_game" for name, _ in api.calls)
+    assert len(result["steps"]) == 1 and api.calls[-1][0] == "stop"
+
+
+@pytest.mark.parametrize("cached_focused", [False, True])
+def test_focus_waits_for_capture_after_handoff_before_bundle_readiness(
+        profile, run_check, tmp_path, cached_focused):
+    api = BundleApi(profile)
+    api.value["focused"] = False
+    api.value["frame"].update(id="old:1", captured_at=999)
+    command = api.command
+
+    def focus(name, payload=None):
+        if name == "focus_game":
+            api.calls.append((name, payload))
+            cached, focused = copy.deepcopy(api.value), copy.deepcopy(api.value)
+            cached["focused"] = cached_focused
+            focused["focused"] = True
+            focused["frame"].update(id="new:2", captured_at=1001)
+            api.pending = [cached, cached, focused]
+            return {"focused": True}
+        return command(name, payload)
+
+    api.command = focus
+    bundle = town.session_plan(profile, api.value["bindings"])
+    result = run_check(api, profile, tmp_path / "handoff", bundle=bundle,
+                       focus=True, focus_click=True)
+    assert result["failure"] is None
+    assert [s["frame"]["id"] for s in result["focus_samples"]] == ["old:1", "old:1", "new:2"]
+    assert result["setup_seconds"] >= 2.1
+    assert sum(name == "focus_game" for name, _ in api.calls) == 1
+    assert [p["target"] for n, p in api.calls if n == "nav_go"] == bundle["targets"]
+
+
+@pytest.mark.parametrize("change", ["unchanged", "same-id", "missing-time", "nan-time"])
+def test_focus_timeout_preserves_samples_without_refocus_or_movement(
+        profile, run_check, tmp_path, change):
+    api = Api(profile)
+    api.value["focused"] = False
+    api.value["frame"].update(id="old:1", captured_at=999)
+
+    def focus(name, payload=None):
+        api.calls.append((name, payload))
+        api.value["focused"] = True
+        if change == "same-id":
+            api.value["frame"]["captured_at"] = 1001
+        elif change in {"missing-time", "nan-time"}:
+            api.value["frame"].update(id="new:2", captured_at=None if change == "missing-time"
+                                      else float("nan"))
+        return {"focused": True}
+
+    api.command = focus
+    result = run_check(api, profile, tmp_path / change, focus=True, focus_click=True)
+    assert "No new capture after focus handoff" in result["failure"]
+    assert town.FOCUS_FRAME_SECONDS <= result["setup_seconds"] <= town.FOCUS_FRAME_SECONDS + .1
+    assert result["focus_samples"] and not result["movement_requested"]
+    assert api.calls == [("focus_game", {"click_fallback": True})]
+
+
+@pytest.mark.parametrize(("change", "message"), [
+    ("focus", "not focused"), ("map", "Wrong tracked map"),
+    ("player", "not freshly recognized"), ("frame", "stale"),
+    ("session", "session changed"), ("alarm", "Active alarm"), ("mode", "remain input-capable"),
+])
+def test_post_focus_capture_still_requires_every_readiness_gate(
+        profile, run_check, tmp_path, change, message):
+    api = Api(profile)
+    api.value["focused"] = False
+
+    def focus(name, payload=None):
+        api.calls.append((name, payload))
+        api.value["focused"] = change != "focus"
+        api.value["frame"].update(id="new:2", captured_at=1001)
+        if change == "map":
+            api.value["position"]["area_id"] = "other"
+        elif change == "player":
+            api.value["player"] = None
+        elif change == "frame":
+            api.value["frame"]["age_ms"] = 99999
+        elif change == "session":
+            api.value["session_id"] = "other"
+        elif change == "alarm":
+            api.value["alarm"] = {"active": True}
+        elif change == "mode":
+            api.value["mode"] = "navigation"
+        return {"focused": True}
+
+    api.command = focus
+    result = run_check(api, profile, tmp_path / change, focus=True, focus_click=True)
+    assert message in result["failure"]
+    assert not result["movement_requested"]
+    assert api.calls == [("focus_game", {"click_fallback": True})]
 
 
 def test_bundle_stops_on_first_route_failure_and_refuses_unchanged_repeat(
