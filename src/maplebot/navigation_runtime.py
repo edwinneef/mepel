@@ -8,7 +8,7 @@ from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
 from .move_proofs import MoveProofs
 from .navigation import RouteMap, map_hash
-from .navigation_executor import Feedback, Navigator, distance
+from .navigation_executor import EdgeStep, Feedback, Navigator, distance
 from .scheduler import SUSTAIN
 
 # While airborne the camera moves faster than its shift estimate and the minimap marker
@@ -87,17 +87,12 @@ class NavigationRuntime:
         return self.snapshot()
 
     def blocker(self) -> str | None:
-        app = self.app
-        if app.capture_only:
-            return "Capture-only session: navigation input locked"
         if not self.route or not self.graph:
-            return "Preview an evidenced route first"
-        if (app.position is not None and map_hash(app.position.profile) != self.graph.fingerprint):
-            return "Stop tracking and reload the changed map before navigation"
-        if app.area_editing or app.calibrating or app.active_probe is not None:
-            return "Finish editing, selection or control probing first"
-        if app.alarm.snapshot()["active"]:
-            return "Acknowledge the active alarm first"
+            return "Preview an evidenced route first" if not self.app.capture_only else (
+                "Capture-only session: navigation input locked")
+        return self._gate(self._route_controls())
+
+    def _route_controls(self) -> set[str]:
         controls = {"left", "right"}
         for edge in self.route.edges:
             controls.update({"jump"} if edge.kind == "jump" else
@@ -106,22 +101,44 @@ class NavigationRuntime:
             if (edge.kind == "climb" and edge.landing[1] < edge.launch[1]
                     and edge.source not in {r["id"] for r in self.graph.profile["ropes"]}):
                 controls.add("jump")
+        return controls
+
+    def _gate(self, controls: set[str], *, edge: bool = False) -> str | None:
+        app = self.app
+        if app.capture_only:
+            return "Capture-only session: navigation input locked"
+        if (app.position is not None and map_hash(app.position.profile) != self.graph.fingerprint):
+            return "Stop tracking and reload the changed map before navigation"
+        if app.area_editing or app.calibrating or app.active_probe is not None:
+            return "Finish editing, selection or control probing first"
+        if app.alarm.snapshot()["active"]:
+            return "Acknowledge the active alarm first"
         missing = controls - app.probed
         if missing:
             return "Verify navigation controls: " + ", ".join(sorted(missing))
         f = self.feedback
-        # Before the countdown, a reading from the last ~3 fps frame is fresh enough;
-        # while moving, the executor keeps its own 0.5 s limit.
-        # The name tag drops out at some spots, so a platform agreed within the grace counts
-        # while the current frame shows no other surface.
-        recent = f is not None and ((f.motion_ok and f.surface == self.route.origin) or (
-            self.confirmed is not None and self.confirmed[0] == self.route.origin
-            and f.now - self.confirmed[1] <= FLIGHT_GRACE_SECONDS))
-        if (not f or time.perf_counter() - f.now > FRESH_FRAME_SECONDS or not recent
-                or f.surface not in (None, self.route.origin)):
-            return "Waiting for fresh fused position on the previewed origin"
-        if self.route.fingerprint != f.fingerprint:
-            return "Map changed; preview again"
+        if edge:
+            if not f or f.feet is None or time.perf_counter() - f.now > FRESH_FRAME_SECONDS:
+                return "Waiting for a fresh minimap marker"
+            if EdgeStep(self.graph, f.now).side(f.feet[0]) is None:
+                return "Player marker is not at a map edge"
+            if f.motion_ok and f.surface is not None:
+                return "Player is already recognized; no edge step needed"
+            if f.fingerprint != self.graph.fingerprint:
+                return "Map changed; preview again"
+        else:
+            # Before the countdown, a reading from the last ~3 fps frame is fresh enough;
+            # while moving, the executor keeps its own 0.5 s limit.
+            # The name tag drops out at some spots, so a platform agreed within the grace
+            # counts while the current frame shows no other surface.
+            recent = f is not None and ((f.motion_ok and f.surface == self.route.origin) or (
+                self.confirmed is not None and self.confirmed[0] == self.route.origin
+                and f.now - self.confirmed[1] <= FLIGHT_GRACE_SECONDS))
+            if (not f or time.perf_counter() - f.now > FRESH_FRAME_SECONDS or not recent
+                    or f.surface not in (None, self.route.origin)):
+                return "Waiting for fresh fused position on the previewed origin"
+            if self.route.fingerprint != f.fingerprint:
+                return "Map changed; preview again"
         if app.config.input.max_action_seconds < .08:
             return "Configured action cap is too short for a navigation chord"
         movement = {getattr(app.config.input, key) for key in
@@ -147,9 +164,20 @@ class NavigationRuntime:
         self.route = self.graph.plan(f.surface, target, origin_feet=f.feet)
         return self.start(context, opt_in)
 
-    def start(self, context, opt_in: bool) -> dict:
+    def edge(self, context, opt_in: bool) -> dict:
+        """Walk inward from a map end where the camera clips the name tag, then stop."""
+        if self.app.position is not None:
+            self.refresh()
+        if not self.graph:
+            raise ValueError("Track a saved map first")
+        blocker = self._gate({"left", "right"}, edge=True)
+        if blocker:
+            raise ValueError(blocker)
+        return self.start(context, opt_in, edge=True)
+
+    def start(self, context, opt_in: bool, *, edge: bool = False) -> dict:
         app = self.app
-        blocker = self.blocker()
+        blocker = None if edge else self.blocker()
         if blocker:
             raise ValueError(blocker)
         if opt_in is not True:
@@ -160,8 +188,9 @@ class NavigationRuntime:
                 context.validate(app.command_epoch - 1)
             app.stop_requested.clear()
             app.mode, app.pending_at = "navigation_wait", time.perf_counter() + 3
-        self.agent = Navigator(self.graph, self.route, time.perf_counter(),
-                               pulse=min(.12, app.config.input.max_action_seconds))
+        pulse = min(.12, app.config.input.max_action_seconds)
+        self.agent = (EdgeStep(self.graph, time.perf_counter(), pulse=pulse) if edge else
+                      Navigator(self.graph, self.route, time.perf_counter(), pulse=pulse))
         self.reason = "Focus the game; navigation countdown is bounded and cancelable"
         return self.snapshot()
 
@@ -239,6 +268,9 @@ class NavigationRuntime:
         if not f or time.perf_counter() - f.now > .5:
             return False
         agent = self.agent
+        if isinstance(agent, EdgeStep):
+            # Marker-only by design; EdgeStep bounds its own time, direction and progress.
+            return f.feet is not None and agent.active
         if (f.feet is not None and agent is not None and agent.stage == "flight"
                 and agent.index < len(agent.route.edges)):
             edge = agent.route.edges[agent.index]
@@ -275,11 +307,17 @@ class NavigationRuntime:
             app._clear_stop_banner()
             app.mode = "navigation"
             app._start_sustain()
-            self.agent = Navigator(self.graph, self.route, now,
-                                   pulse=min(.12, app.config.input.max_action_seconds))
+            pulse = min(.12, app.config.input.max_action_seconds)
+            self.agent = (EdgeStep(self.graph, now, pulse=pulse)
+                          if isinstance(self.agent, EdgeStep)
+                          else Navigator(self.graph, self.route, now, pulse=pulse))
             self.counted = 0
-        motion = self.agent.step(replace(f, motion_ok=True, marker_only=True) if airborne else f)
-        self._learn()
+        if isinstance(self.agent, EdgeStep):
+            motion = self.agent.step(f)
+        else:
+            motion = self.agent.step(replace(f, motion_ok=True, marker_only=True)
+                                     if airborne else f)
+            self._learn()
         if not self.agent.active:
             if self.agent.stage == "arrived" and self.resume_combat:
                 self._release()
@@ -351,4 +389,6 @@ class NavigationRuntime:
         return {**value, "map": self.graph.snapshot() if self.graph else None,
                 **({"stage": "countdown", "reason": self.reason, "active": True}
                    if self.app.mode == "navigation_wait" else {}),
-                "ready": self.blocker() is None, "blocker": self.blocker()}
+                "ready": self.blocker() is None, "blocker": self.blocker(),
+                "edge_blocker": self._gate({"left", "right"}, edge=True) if self.graph
+                else "Track a saved map first"}

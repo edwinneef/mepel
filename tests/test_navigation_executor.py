@@ -5,7 +5,7 @@ from test_navigation import fixture
 
 from maplebot.decision import Action
 from maplebot.navigation import Edge, Route, RouteMap, map_hash
-from maplebot.navigation_executor import Feedback, Navigator
+from maplebot.navigation_executor import EdgeStep, Feedback, Navigator
 from maplebot.scheduler import Arbiter
 
 
@@ -142,3 +142,41 @@ def test_marker_only_destination_never_counts_as_settled():
     for now in (2, 2.4):
         nav.step(replace(f, now=now, feet=(280, 300), surface="ledge"))
     assert nav.stage == "arrived"
+
+
+def edge_step(feet=(450, 400)):
+    profile, evidence = fixture()
+    graph = RouteMap(profile, evidence)
+    return EdgeStep(graph, 0), Feedback(0, graph.fingerprint, feet, None, False)
+
+
+def test_edge_step_walks_inward_on_the_marker_until_the_name_tag_returns():
+    step, f = edge_step()
+    assert [hold.action for hold in step.step(f).holds] == ["left"]
+    assert [hold.action for hold in step.step(replace(f, now=.3, feet=(440, 400))).holds] == [
+        "left"]
+    assert step.step(replace(f, now=.6, feet=(430, 400), surface="floor",
+                             motion_ok=True)).release
+    assert step.stage == "arrived"
+    left, f = edge_step((120, 400))
+    assert [hold.action for hold in left.step(f).holds] == ["right"]
+
+
+@pytest.mark.parametrize(("frames", "reason"), [
+    ([(0, 300)], "not at a map edge"),
+    ([(0, 450), (.8, 449), (1.6, 448)], "No inward movement"),
+    ([(0, 450), (.3, 380)], "Left the map edge"),
+    ([(0, 455 - 8 * i) for i in range(1)] + [(.5 * i, 455 - 8 * i) for i in range(1, 9)],
+     "deadline"),
+])
+def test_edge_step_stops_without_progress_away_from_edges_or_after_its_deadline(frames, reason):
+    step, f = edge_step()
+    for now, x in frames:
+        motion = step.step(replace(f, now=now, feet=(x, 400)))
+    assert motion.release and step.stage == "stopped" and reason in step.reason
+
+
+def test_edge_step_needs_a_fresh_marker_and_focus():
+    for changes in ({"age": .6}, {"focused": False}, {"feet": None}, {"fingerprint": "x"}):
+        step, f = edge_step()
+        assert step.step(replace(f, **changes)).release and step.stage == "stopped"

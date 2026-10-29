@@ -1087,6 +1087,8 @@ class Application:
             return self.navigation.go(
                 context, str(payload.get("target", "")), payload.get("opt_in") is True
             )
+        if name == "nav_edge":
+            return self.navigation.edge(context, payload.get("opt_in") is True)
         if name in {"nav_refresh", "nav_preview", "nav_start"}:
             if name == "nav_start":
                 return self.navigation.start(context, payload.get("opt_in") is True)

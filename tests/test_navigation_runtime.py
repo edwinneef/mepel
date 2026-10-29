@@ -248,3 +248,33 @@ def test_focus_game_is_off_only_and_never_sends_gameplay_input(app):
     app.mode = "navigation"
     with pytest.raises(ValueError, match="Stop gameplay"):
         app._command("focus_game", {})
+
+
+def test_edge_step_starts_only_at_a_map_end_and_stops_once_the_name_tag_returns(app):
+    nav = preview(app)
+    nav.route = None
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (300, 400), None, False)
+    with pytest.raises(ValueError, match="not at a map edge"):
+        app._command("nav_edge", {"opt_in": True})
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (450, 400), None, False)
+    with pytest.raises(ValueError, match="opt-in"):
+        app._command("nav_edge", {})
+    app._command("nav_edge", {"opt_in": True})
+    assert app.mode == "navigation_wait" and nav.snapshot()["stage"] == "countdown"
+    app.pending_at = 0
+    nav.feedback = replace(nav.feedback, now=time.perf_counter())
+    nav.tick(None, time.perf_counter())
+    assert app.mode == "navigation" and nav.ticket is not None
+    nav.ticket = None
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (430, 400), "floor", True)
+    nav.tick(None, time.perf_counter())
+    assert app.mode == "capture" and nav.agent.stage == "arrived"
+
+
+def test_capture_only_cannot_start_an_edge_step(app):
+    nav = preview(app)
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (450, 400), None, False)
+    app.capture_only = True
+    with pytest.raises(ValueError, match="Capture-only"):
+        app._command("nav_edge", {"opt_in": True})
+    assert app.controller.backend.events == []

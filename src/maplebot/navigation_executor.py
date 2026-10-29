@@ -26,6 +26,12 @@ class Motion:
     release: bool = False
 
 
+# Near a map end the camera clamps, so the player reaches the screen edge and the name tag
+# is cut off; inside this band of the hunting boundary a short inward walk restores it.
+EDGE_ZONE = 160
+EDGE_SECONDS = 4
+
+
 def distance(point: tuple, trace: tuple) -> float:
     best = math.inf
     for a, b in zip(trace, trace[1:], strict=False):
@@ -256,3 +262,77 @@ class Navigator:
                 "edge": self.route.edges[self.index].id if self.index < len(self.route.edges)
                 else None, "budget": {"route_seconds": 60, "edge_seconds": 8, "edges": 8},
                 "route": self.route.snapshot()}
+
+
+class EdgeStep:
+    """Walk inward from a map end until the clipped name tag is recognized again.
+
+    The minimap marker is the only position evidence, so the walk is flat (no jump or
+    vertical keys), short, and stops on recognition, stalled progress or the deadline.
+    """
+
+    def __init__(self, graph: RouteMap, now: float, *, pulse: float = .12) -> None:
+        if not math.isfinite(now) or not 0 < pulse <= .25:
+            raise ValueError("Invalid navigation clock or input pulse")
+        boundary = graph.profile["boundary"]
+        self.graph, self.pulse = graph, pulse
+        self.low = boundary["x"] + EDGE_ZONE
+        self.high = boundary["x"] + boundary["width"] - EDGE_ZONE
+        self.started = self.progress_at = now
+        self.last_time = float("-inf")
+        self.direction: str | None = None
+        self.best = 0.0
+        self.stage, self.reason = "edge", "Walking inward from the map edge to show the name tag"
+
+    @property
+    def active(self) -> bool:
+        return self.stage not in {"stopped", "arrived"}
+
+    def stop(self, reason: str) -> Motion:
+        self.stage, self.reason = "stopped", reason
+        return Motion(release=True)
+
+    def pause_for_potion(self) -> Motion:
+        self.reason = "Potion priority; movement released; waiting for fresh feedback"
+        return Motion(release=True)
+
+    def side(self, x: float) -> str | None:
+        """The inward direction from a map end, or None away from both ends."""
+        return "left" if x >= self.high else "right" if x <= self.low else None
+
+    def step(self, f: Feedback) -> Motion:
+        if not self.active:
+            return Motion(release=True)
+        if not math.isfinite(f.now) or f.now <= self.last_time:
+            return self.stop("Non-increasing navigation observation")
+        self.last_time = f.now
+        if (f.fingerprint != self.graph.fingerprint or not f.focused
+                or not math.isfinite(f.age) or not 0 <= f.age <= .5 or f.feet is None
+                or not all(math.isfinite(v) for v in f.feet)):
+            return self.stop("Fresh minimap marker, map revision or focus lost")
+        if f.motion_ok and f.surface is not None:
+            self.stage, self.reason = "arrived", "Name tag recognized again; keys released"
+            return Motion(release=True)
+        if f.now - self.started >= EDGE_SECONDS:
+            return self.stop("Edge step deadline exhausted; name tag still not recognized")
+        x = f.feet[0]
+        if self.direction is None:
+            self.direction, self.best = self.side(x), x
+            if self.direction is None:
+                return self.stop("Player marker is not at a map edge")
+        if (x - self.best) * (1 if self.direction == "right" else -1) >= 8:
+            self.best, self.progress_at = x, f.now
+        elif f.now - self.progress_at >= 1.5:
+            return self.stop("No inward movement at the map edge")
+        if self.low + 48 < x < self.high - 48:
+            return self.stop("Left the map edge; name tag still not recognized")
+        ahead = (x + (40 if self.direction == "right" else -40), f.feet[1])
+        blocker = self.graph.path_blocker((f.feet, ahead))
+        if blocker:
+            return self.stop(blocker)
+        return Motion((KeyHold(self.direction, self.pulse),))
+
+    def snapshot(self) -> dict:
+        return {"stage": self.stage, "reason": self.reason, "active": self.active,
+                "target": None, "direction": self.direction, "route": None,
+                "budget": {"edge_seconds": EDGE_SECONDS, "zone_px": EDGE_ZONE}}

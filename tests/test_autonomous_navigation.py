@@ -48,3 +48,21 @@ def test_jump_confirmation_waits_for_agreeing_landing(monkeypatch):
     result = runner.jump_check(Api())
     assert result['passed'] and result['height_range'] == 70
     assert commands == ['probe', 'clip', 'confirm_probe', 'stop']
+
+
+@pytest.mark.parametrize(('stage', 'recognized'), [('arrived', True), ('stopped', False)])
+def test_edge_step_reports_whether_the_engine_recognized_the_player(monkeypatch, stage,
+                                                                    recognized):
+    from tools import autonomous_navigation as runner
+    states = iter([{'mode': 'navigation_wait'}, {'mode': 'navigation'},
+                   {'mode': 'capture', 'navigation': {'stage': stage}}])
+    commands = []
+    class Api:
+        def status(self):
+            return next(states)
+        def command(self, name, payload=None):
+            commands.append((name, payload))
+            return {}
+    monkeypatch.setattr(runner.time, 'sleep', lambda _: None)
+    assert runner.edge_step(Api()) is recognized
+    assert commands == [('nav_edge', {'opt_in': True})]

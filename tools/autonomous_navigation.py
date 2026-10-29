@@ -66,6 +66,19 @@ def post(api, route):
         return json.load(response)
 
 
+def edge_step(api, timeout=12):
+    """One bounded engine edge step when a map end clips the name tag; True on recognition."""
+    api.command('nav_edge', {'opt_in': True})
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(.25)
+        s = api.status()
+        if s['mode'] == 'capture':
+            return (s.get('navigation') or {}).get('stage') == 'arrived'
+    api.command('stop')
+    raise RuntimeError('Edge step did not finish; input stopped')
+
+
 def prepare(api, area, reviewed_incident=None):
     def handoff():
         epoch = api.status()['command_epoch']
@@ -80,11 +93,20 @@ def prepare(api, area, reviewed_incident=None):
     if not api.command('focus_game', {'click_fallback': True}).get('focused'):
         raise RuntimeError('Game focus request failed')
     deadline = time.monotonic() + 8
+    stepped = False
     while time.monotonic() < deadline:
         s = api.status()
         p = s.get('position') or {}
         if p.get('area_id') != area:
             raise RuntimeError('Unexpected tracked map')
+        # Knockback can pin the player at a map end where the camera clips the name tag.
+        blocker = ((s.get('navigation') or {}).get('edge_blocker') or '')
+        if (not stepped and s.get('focused') and not s.get('player')
+                and time.monotonic() > deadline - 6 and not blocker):
+            stepped = True
+            if edge_step(api):
+                deadline = time.monotonic() + 8
+            continue
         if s.get('focused') and s.get('player') and p.get('surface_id'):
             alarm = s.get('alarm') or {}
             if alarm.get('active'):
