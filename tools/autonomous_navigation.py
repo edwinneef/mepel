@@ -20,10 +20,15 @@ def idle_seconds():
     return ((ctypes.windll.kernel32.GetTickCount() - info.tick) & 0xffffffff) / 1000
 
 
-def wait_idle(idle=idle_seconds, clock=time.monotonic, sleep=time.sleep, timeout=None):
+def wait_idle(idle=idle_seconds, clock=time.monotonic, sleep=time.sleep, timeout=None,
+              cancelled=lambda: False):
     # User activity is a pause, not a failed gameplay test requiring a new revision.
     deadline = clock() + timeout if timeout is not None else None
-    while idle() < 10:
+    while True:
+        if cancelled():
+            raise RuntimeError('Operator state changed; pending focus handoff canceled')
+        if idle() >= 10:
+            return
         if deadline is not None and clock() >= deadline:
             raise RuntimeError("User remains active; validation paused without taking focus")
         sleep(.25)
@@ -37,13 +42,16 @@ def post(api, route):
 
 
 def prepare(api, area, reviewed_incident=None):
-    wait_idle()
+    def handoff():
+        epoch = api.status()['command_epoch']
+        wait_idle(cancelled=lambda: api.status()['command_epoch'] != epoch)
+    handoff()
     if api.status()['mode'] != 'capture':
         raise RuntimeError('Bot must be Off before autonomous validation')
     post(api, 'overlay_close')
     time.sleep(1)
     api.command('position_start', {'area_id': area})
-    wait_idle()
+    handoff()
     if not api.command('focus_game', {'click_fallback': True}).get('focused'):
         raise RuntimeError('Game focus request failed')
     deadline = time.monotonic() + 8

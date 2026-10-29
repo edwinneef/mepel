@@ -20,6 +20,11 @@ def test_active_user_causes_bounded_pause():
     assert now[0] == 2
 
 
+def test_stop_cancels_handoff_even_when_idle_threshold_is_met():
+    with pytest.raises(RuntimeError, match='pending focus handoff canceled'):
+        wait_idle(idle=lambda: 10, cancelled=lambda: True)
+
+
 def test_jump_confirmation_waits_for_agreeing_landing(monkeypatch):
     from tools import autonomous_navigation as runner
     def snapshot(mode, height, surface):
