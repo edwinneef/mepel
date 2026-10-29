@@ -14,6 +14,7 @@ from maplebot.public_map import (
     identify,
     layout,
     locate,
+    match_score,
     picture_offset,
     world_transform,
 )
@@ -33,6 +34,51 @@ def test_picture_offset_finds_the_picture_even_when_it_overhangs():
     captured = np.zeros((45, 80, 3), np.uint8)
     captured[:37, 12:72] = image[3:, :, :3]  # placed at (12, -3): top rows cut off
     assert picture_offset(captured, image) == pytest.approx((12, -3), abs=.25)
+
+
+def clipped_picture():
+    image = np.random.default_rng(41).integers(20, 240, (80, 300, 4), dtype=np.uint8)
+    image[..., 3] = 255
+    return image, image[20:60, 110:240, :3].copy()
+
+
+def test_client_clipped_public_picture_registers_without_resizing():
+    image, captured = clipped_picture()
+    assert picture_offset(captured, image) == (-110, -20)
+    assert match_score(captured, image) == 0
+
+
+def test_clipped_wrong_map_has_no_registration_or_identity_score():
+    image, captured = clipped_picture()
+    captured = np.random.default_rng(81).integers(0, 255, captured.shape, dtype=np.uint8)
+    with pytest.raises(ValueError, match="Clipped minimap"):
+        picture_offset(captured, image)
+    assert match_score(captured, image) == float("inf")
+
+
+def test_clipped_repeated_terrain_is_ambiguous():
+    patch = np.random.default_rng(4).integers(20, 240, (14, 14, 4), dtype=np.uint8)
+    patch[..., 3] = 255
+    image = np.tile(patch, (6, 22, 1))
+    captured = image[14:70, 112:252, :3].copy()
+    with pytest.raises(ValueError, match="unique public terrain"):
+        picture_offset(captured, image)
+
+
+def test_one_local_clipped_landmark_cannot_place_a_map():
+    image, _ = clipped_picture()
+    image[..., 3] = 0
+    image[28:56, 140:168, 3] = 255
+    captured = image[20:60, 110:240, :3].copy()
+    with pytest.raises(ValueError, match="three separate"):
+        picture_offset(captured, image)
+
+
+def test_conflicting_clipped_landmark_offsets_are_rejected():
+    image, captured = clipped_picture()
+    captured[:, 65:] = image[25:65, 175:240, :3]
+    with pytest.raises(ValueError, match="landmarks disagree"):
+        picture_offset(captured, image)
 
 
 def test_world_transform_follows_minimap_math():

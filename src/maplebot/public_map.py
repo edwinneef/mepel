@@ -52,11 +52,48 @@ def _refine(scores: np.ndarray, at: tuple[int, int]) -> tuple[float, float]:
     return result[0], result[1]
 
 
+def _clipped_offset(captured: np.ndarray, image: np.ndarray) -> tuple[float, float]:
+    """Register a client-clipped picture from distinct, unique opaque landmarks."""
+    size = 14
+    matches = []
+    if min(captured.shape[:2]) < size:
+        raise ValueError("Captured minimap has too little visible terrain")
+    target = captured.astype(np.float32)
+    for y in range(0, image.shape[0] - size + 1, size // 2):
+        for x in range(0, image.shape[1] - size + 1, size // 2):
+            patch = image[y:y + size, x:x + size]
+            mask = (patch[..., 3] > 200).astype(np.uint8)
+            pixels = patch[..., :3][mask.astype(bool)]
+            if len(pixels) < 70 or pixels.std(axis=0).max() < 20:
+                continue
+            scores = cv2.matchTemplate(target, patch[..., :3].astype(np.float32),
+                                       cv2.TM_CCOEFF_NORMED, mask=cv2.merge([mask] * 3))
+            scores = np.clip(np.nan_to_num(scores, nan=-1, posinf=-1, neginf=-1), -1, 1)
+            _, best, _, (mx, my) = cv2.minMaxLoc(scores)
+            scores[max(0, my - size // 2):my + size // 2 + 1,
+                   max(0, mx - size // 2):mx + size // 2 + 1] = -1
+            if best >= .90 and best - float(scores.max()) >= .05:
+                matches.append((mx - x, my - y, x, y))
+    if not matches:
+        raise ValueError("Clipped minimap has no unique public terrain landmarks")
+    offset = tuple(float(np.median([row[a] for row in matches])) for a in (0, 1))
+    if any(max(abs(row[a] - offset[a]) for a in (0, 1)) > 2 for row in matches):
+        raise ValueError("Clipped minimap terrain landmarks disagree")
+    separate = []
+    for row in matches:
+        if all(abs(row[2] - old[2]) >= size or abs(row[3] - old[3]) >= size
+               for old in separate):
+            separate.append(row)
+    if len(separate) < 3 or np.ptp([row[2] for row in separate]) < 40:
+        raise ValueError("Clipped minimap needs three separate, spread-out terrain landmarks")
+    return offset
+
+
 def picture_offset(captured: np.ndarray, image: np.ndarray) -> tuple[float, float]:
     """Where the public picture's top-left sits in the captured minimap canvas."""
     padded = cv2.copyMakeBorder(captured, _PAD, _PAD, _PAD, _PAD, cv2.BORDER_CONSTANT, value=0)
     if (padded.shape[0] < image.shape[0] or padded.shape[1] < image.shape[1]):
-        raise ValueError("Captured minimap is far smaller than the public picture")
+        return _clipped_offset(captured, image)
     mask = (image[..., 3] > 200).astype(np.float32)
     if np.count_nonzero(mask) < 200:
         raise ValueError("Public minimap picture is almost transparent")
@@ -97,7 +134,18 @@ def match_score(captured: np.ndarray, image: np.ndarray) -> float:
     """Mean squared colour distance at the best placement; lower is a better map match."""
     padded = cv2.copyMakeBorder(captured, _PAD, _PAD, _PAD, _PAD, cv2.BORDER_CONSTANT, value=0)
     if padded.shape[0] < image.shape[0] or padded.shape[1] < image.shape[1]:
-        return float("inf")
+        try:
+            x, y = (round(v) for v in _clipped_offset(captured, image))
+        except ValueError:
+            return float("inf")
+        sx, sy, cx, cy = max(0, -x), max(0, -y), max(0, x), max(0, y)
+        w, h = min(image.shape[1] - sx, captured.shape[1] - cx), min(
+            image.shape[0] - sy, captured.shape[0] - cy)
+        public, live = image[sy:sy + h, sx:sx + w], captured[cy:cy + h, cx:cx + w]
+        keep = public[..., 3] > 200
+        if np.count_nonzero(keep) < 200:
+            return float("inf")
+        return float(np.mean((public[..., :3][keep].astype(float) - live[keep]) ** 2))
     mask = (image[..., 3] > 200).astype(np.float32)
     scores = cv2.matchTemplate(padded.astype(np.float32), image[..., :3].astype(np.float32),
                                cv2.TM_SQDIFF, mask=cv2.merge([mask] * 3))
