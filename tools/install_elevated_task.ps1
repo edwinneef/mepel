@@ -32,7 +32,7 @@ if ($Uninstall) {
 $pwsh = (Get-Command pwsh).Source
 # No -NoExit: the window closes with the engine, so restarts never leave elevated windows.
 $action = New-ScheduledTaskAction -Execute $pwsh -WorkingDirectory $root `
-    -Argument "-NoProfile -File `"$root\run.ps1`" -EnableGameplayInput -InTask"
+    -Argument "-NoProfile -WindowStyle Hidden -File `"$root\run.ps1`" -EnableGameplayInput -InTask"
 $principal = New-ScheduledTaskPrincipal -UserId $identity.Name -LogonType Interactive `
     -RunLevel Highest
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `

@@ -50,9 +50,9 @@ if ($EnableGameplayInput -and (Get-ScheduledTask -TaskName 'MapleBot' -ErrorActi
     [Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Run .\tools\install_elevated_task.ps1 once to register the elevated MapleBot task.'
 } else {
-    $arguments = @('-NoExit', '-File', "$root\run.ps1")
+    $arguments = @('-NoProfile', '-WindowStyle', 'Hidden', '-File', "$root\run.ps1")
     if ($EnableGameplayInput) { $arguments += '-EnableGameplayInput' }
-    $process = Start-Process pwsh -ArgumentList $arguments -WorkingDirectory $root -PassThru
+    $process = Start-Process pwsh -WindowStyle Hidden -ArgumentList $arguments -WorkingDirectory $root -PassThru
 }
 
 $deadline = (Get-Date).AddSeconds(120)
