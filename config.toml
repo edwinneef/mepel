@@ -10,11 +10,11 @@ port = 8765
 [perception]
 spawn_source = "osms-classic"
 spawn_revision = "17dc5dc14cc1d1f05152362c1bbcffa068e8dc81"
-confidence = 0.90
+confidence = 0.85
 player_margin = 0.04
 max_candidates = 24
 # Name tag text match; teach it with Add name tag.
-nametag_confidence = 0.90
+nametag_confidence = 0.85
 # When the player is briefly hidden (grass, another player walking through),
 # weaker evidence is accepted only near the last tracked position. Each frame with
 # evidence extends tracking; it ends after track_seconds without evidence or
