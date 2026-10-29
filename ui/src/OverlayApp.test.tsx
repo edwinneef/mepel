@@ -197,7 +197,8 @@ it('records a 30 second clip from the Bot tab and shows the countdown while it r
   vi.stubGlobal('fetch', fetcher);
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:frame') });
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
-  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), subscribe: () => () => {} };
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
+    subscribe: callback => { callback({ type: 'panel', value: true }); return () => {}; } };
   const client = new OverlayClient('token', fetcher);
   render(<OverlayApp client={client} />);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Record 30 s' }).hasAttribute('disabled')).toBe(false));
