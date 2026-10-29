@@ -98,6 +98,11 @@ def find_canvas(image: np.ndarray) -> Rect | None:
     Maps whose minimap art has no navy background use the window's white frame.
     """
     region = image[:SEARCH[1], :SEARCH[0]]
+    # Translucent scenery can split navy into narrow components inside the window.
+    # A complete enclosing frame establishes the full picture extent.
+    framed = _framed_canvas(region)
+    if framed is not None:
+        return framed
     navy = cv2.inRange(region, *NAVY)
     navy = cv2.morphologyEx(navy, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
     count, _, stats, _ = cv2.connectedComponentsWithStats(navy)

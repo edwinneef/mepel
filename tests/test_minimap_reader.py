@@ -151,3 +151,16 @@ def test_dark_only_reference_cannot_supply_identity_evidence():
     image[72:136, 13:196] = (25, 45, 70)
     with pytest.raises(ValueError, match="too little terrain"):
         AreaMinimap(image)
+
+
+def test_frame_bounds_win_over_partial_navy_background():
+    import cv2
+    import numpy as np
+
+    from maplebot.geometry import Rect
+    from maplebot.minimap_reader import find_canvas
+    image = np.zeros((300, 400, 3), dtype=np.uint8)
+    image[72:173, 4:208] = (45, 70, 50)
+    image[72:173, 6:81] = (100, 60, 30)
+    cv2.rectangle(image, (3, 71), (208, 173), (255, 255, 255), 1)
+    assert find_canvas(image) == Rect(4, 72, 204, 101)
