@@ -66,6 +66,22 @@ class SpriteSignature:
     colors: np.ndarray
     buckets: tuple[np.ndarray, ...]
 
+    @cached_property
+    def bucket_owners(self) -> tuple[np.ndarray, np.ndarray]:
+        """Every bucket's color bins in one array, and the sample each bin belongs to."""
+        return np.concatenate(self.buckets), np.repeat(
+            np.arange(len(self.buckets)), [len(bins) for bins in self.buckets])
+
+    @cached_property
+    def color_ranges(self) -> tuple[np.ndarray, np.ndarray]:
+        """Per sample and BGR channel (plus an ignored fourth byte): the lowest value within
+        12 of the sample, and the span of accepted values above it."""
+        low = np.zeros((len(self.colors), 4), dtype=np.uint8)
+        span = np.full((len(self.colors), 4), 255, dtype=np.uint8)
+        low[:, :3] = np.maximum(self.colors - 12, 0)
+        span[:, :3] = np.minimum(self.colors + 12, 255) - low[:, :3]
+        return low, span
+
 
 @dataclass(frozen=True)
 class Template:
@@ -443,12 +459,16 @@ class TemplateDetector:
         return SpriteSignature(offsets, values, tuple(buckets))
 
     @staticmethod
-    def _color_index(image: Image) -> tuple[np.ndarray, np.ndarray]:
+    def _color_index(image: Image) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Pixels sorted by 4-bit color code, the code boundaries, and every pixel's BGR
+        bytes packed into one uint32, in row order."""
         colors = image.astype(np.uint16) >> 4
         codes = ((colors[:, :, 0] << 8) | (colors[:, :, 1] << 4) | colors[:, :, 2]).ravel()
         order = np.argsort(codes, kind="stable")
         boundaries = np.concatenate(([0], np.cumsum(np.bincount(codes, minlength=4096))))
-        return order, boundaries
+        packed = np.zeros((image.shape[0] * image.shape[1], 4), dtype=np.uint8)
+        packed[:, :3] = image.reshape(-1, 3)
+        return order, boundaries, packed.view(np.uint32).reshape(-1)
 
     def _sprite_candidates(
         self,
@@ -456,12 +476,14 @@ class TemplateDetector:
         gray: Image,
         template: Template,
         floor: float,
-        index: tuple[np.ndarray, np.ndarray],
+        index: tuple[np.ndarray, np.ndarray, np.ndarray],
     ) -> list[Detection]:
         signature, anchor = template.signature, template.anchor
         assert signature is not None and anchor is not None and template.mask is not None
-        order, boundaries = index
-        sizes = [int((boundaries[bins + 1] - boundaries[bins]).sum()) for bins in signature.buckets]
+        order, boundaries, packed = index
+        bins, owners = signature.bucket_owners
+        sizes = np.bincount(owners, weights=boundaries[bins + 1] - boundaries[bins],
+                            minlength=len(signature.buckets)).astype(np.int64)
         ranked = np.argsort(sizes)
         # These sparse, color-selected samples are not an area/confidence estimate.
         # A few covered samples can still leave a strong full-mask match below.
@@ -481,52 +503,67 @@ class TemplateDetector:
             right = np.minimum(xs + width, sums.shape[1] - 1)
             return (sums[bottom, right] - sums[ys, right] - sums[bottom, xs] + sums[ys, xs]) > 0
 
-        proposals = []
         # Multiple seeds keep a covered proposal pixel from hiding an otherwise valid sprite.
         # Three extra seeds are enough to find the visible part of a covered sprite.
-        for rank, key in enumerate(ranked[: max_misses + (4 if occluders else 1)]):
-            buckets = [
-                order[boundaries[b] : boundaries[b + 1]]
-                for b in signature.buckets[key]
-                if boundaries[b + 1] > boundaries[b]
-            ]
-            if not buckets:
-                continue
-            pixels = np.concatenate(buckets)
-            ys = pixels // image.shape[1] - signature.offsets[key, 0]
-            xs = pixels % image.shape[1] - signature.offsets[key, 1]
-            valid = (
-                (ys >= 0)
-                & (xs >= 0)
-                & (ys + template.image.shape[0] <= image.shape[0])
-                & (xs + template.image.shape[1] <= image.shape[1])
-            )
-            if rank > max_misses:
-                # Extra seeds only matter where something may cover the sprite.
-                valid &= covered(ys, xs)
-            proposals.append(ys[valid] * image.shape[1] + xs[valid])
-        if not proposals:
+        seeds = ranked[: max_misses + (4 if occluders else 1)]
+        seed_bins = np.concatenate([signature.buckets[key] for key in seeds])
+        starts = boundaries[seed_bins]
+        lengths = boundaries[seed_bins + 1] - starts
+        if not lengths.sum():
             return []
-        positions = np.unique(np.concatenate(proposals))
-        ys, xs = positions // image.shape[1], positions % image.shape[1]
-        near = covered(ys, xs)
-        misses = np.zeros(len(xs), dtype=np.uint8)
-        unexplained = np.zeros(len(xs), dtype=np.uint8)
+        # Every pixel of every seed's color bins, and the seed rank it was found by.
+        owner = np.repeat(np.arange(len(seed_bins)), lengths)
+        pixels = order[starts[owner] + np.arange(len(owner))
+                       - np.repeat(np.cumsum(lengths) - lengths, lengths)]
+        rank = np.repeat(np.arange(len(seeds)),
+                         [len(signature.buckets[key]) for key in seeds])[owner]
+        ys = pixels // image.shape[1] - signature.offsets[seeds[rank], 0]
+        xs = pixels % image.shape[1] - signature.offsets[seeds[rank], 1]
+        valid = (
+            (ys >= 0)
+            & (xs >= 0)
+            & (ys + template.image.shape[0] <= image.shape[0])
+            & (xs + template.image.shape[1] <= image.shape[1])
+        )
+        extra = valid & (rank > max_misses)
+        if extra.any():
+            # Extra seeds only matter where something may cover the sprite.
+            valid[extra] = covered(ys[extra], xs[extra])
+        proposed = ys[valid] * image.shape[1] + xs[valid]
+        if len(proposed) > 8192:
+            marked = np.zeros(image.shape[0] * image.shape[1], dtype=bool)
+            marked[proposed] = True
+            positions = np.flatnonzero(marked)  # Sorted and unique, like np.unique.
+        else:
+            positions = np.unique(proposed)
+        misses = np.zeros(len(positions), dtype=np.int16)
+        unexplained = np.zeros(len(positions), dtype=np.int16)
+        samples = signature.offsets[:, 0] * image.shape[1] + signature.offsets[:, 1]
+        zones = self.zones.reshape(-1)
+        low, span = signature.color_ranges
         # Indexed color patterns propose exact native-pixel positions; full masks verify them.
-        for key in ranked:
-            if not len(xs):
+        # Miss counts only grow, so checking samples in blocks, in any order, drops the same
+        # positions as checking them one at a time, with far fewer array operations. Every
+        # position matches one of the seeds that proposed it, so rarer non-seed samples go
+        # first: they rule out background positions before the seeds are checked.
+        block = max_misses + 1
+        checks = np.concatenate((ranked[block:], ranked[:block]))
+        for start in range(0, len(checks), block):
+            if not len(positions):
                 return []
-            dy, dx = signature.offsets[key]
-            delta = image[ys + dy, xs + dx].astype(np.int16) - signature.colors[key]
-            wrong = np.max(np.abs(delta), axis=1) > 12
-            misses += wrong
-            if near.any():
+            keys = checks[start : start + block]
+            at = positions[:, None] + samples[keys]
+            # A channel more than 12 from the sample wraps past the span when offset by low.
+            observed = packed[at].view(np.uint8).reshape(*at.shape, 4)
+            wrong = ((observed - low[keys]) > span[keys]).any(axis=2)
+            misses += wrong.sum(axis=1, dtype=np.int16)
+            if occluders:
                 # A differing sample inside a covering zone is explained, not a miss.
-                wrong &= self.zones[ys + dy, xs + dx] == 0
-            unexplained += wrong
+                wrong &= zones[at] == 0
+            unexplained += wrong.sum(axis=1, dtype=np.int16)
             valid = (unexplained <= max_misses) & (misses <= relaxed)
-            ys, xs, near = ys[valid], xs[valid], near[valid]
-            misses, unexplained = misses[valid], unexplained[valid]
+            positions, misses, unexplained = positions[valid], misses[valid], unexplained[valid]
+        ys, xs = positions // image.shape[1], positions % image.shape[1]
         mask = template.mask != 0
         reference = template.image[
             anchor.y : anchor.y + anchor.height, anchor.x : anchor.x + anchor.width

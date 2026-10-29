@@ -7,6 +7,10 @@ frame so the asynchronous OCR cannot make two runs differ.
 
     python tools/perception_benchmark.py --write artifacts/perception/golden.jsonl
     python tools/perception_benchmark.py --compare artifacts/perception/golden.jsonl
+
+The recordings hold no monsters, so --composite "<map name>" instead pastes that map's catalog
+sprites into the first recorded clip (walking, overlapping the player and each other, and cut
+by the search window) with the map filter fixed to the map's species.
 """
 
 import argparse
@@ -19,6 +23,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from maplebot.config import PerceptionConfig
 from maplebot.perception import CameraTracker, Observation, TemplateDetector
@@ -59,6 +64,46 @@ def sources(data: Path, limit: int | None) -> list[tuple[str, list[tuple[Path, f
         found.append(("screenshots", [(path, index * 10.0, True)
                                       for index, path in enumerate(shots)]))
     return found
+
+
+def composite_source(data: Path, detector: TemplateDetector, title: str, count: int
+                     ) -> tuple[str, list[tuple[str, np.ndarray, float, bool]], set[str]]:
+    """Recorded frames with one map's catalog sprites pasted in, and that map's species."""
+    profile = next(p for p in detector.map_filter.profiles if p["name"] == title)
+    manifest = json.loads((data / "templates" / "catalog" / "manifest.json").read_text("utf-8"))
+    entries: dict[str, list[dict]] = defaultdict(list)
+    for entry in manifest["entries"]:
+        if entry["id"] in profile["monsters"]:
+            entries[entry["name"]].append(entry)
+    species = sorted(entries)
+    sprites = [
+        [cv2.imread(str(data / "templates" / "catalog" / entry["file"]), cv2.IMREAD_UNCHANGED)
+         for entry in sorted(entries[name], key=lambda e: (e["animation"], e["frame"]))[:4]]
+        for name in species
+    ]
+    _, recorded = sources(data, count)[0]
+    # (x, feet y, mirrored, walks): beside and over the player near (656, 549), stacked
+    # pairs, a higher platform and one cut by the right edge of the search window.
+    places = [(560, 549, False, True), (640, 552, True, False), (720, 549, True, True),
+              (735, 551, False, False), (420, 549, False, True), (850, 470, True, True),
+              (330, 420, False, False), (990, 549, True, True)]
+    frames = []
+    for index, (path, now, _) in enumerate(recorded):
+        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        for slot, (x, feet, mirrored, walks) in enumerate(places):
+            options = sprites[slot % len(sprites)]
+            sprite = options[(index // 2 + slot) % len(options)]
+            sprite = cv2.flip(sprite, 1) if mirrored else sprite
+            height, width = sprite.shape[:2]
+            left = x + ((index * 4) % 60 - 30 if walks else 0)
+            top = feet - height
+            alpha = sprite[:, :, 3:4].astype(np.float32) / 255
+            patch = image[top : top + height, left : left + width]
+            patch[:] = np.round(sprite[:, :, :3] * alpha + patch * (1 - alpha)).astype(np.uint8)
+        frames.append((path.name, image, now, True))
+    allowed = {detector.map_filter.names[key] for key in profile["monsters"]
+               if key in detector.map_filter.names}
+    return f"composite-{title}", frames, allowed
 
 
 def reset(detector: TemplateDetector) -> None:
@@ -134,6 +179,7 @@ def main() -> None:
     parser.add_argument("--tolerance", type=float, default=1e-4)
     parser.add_argument("--stages", action="store_true", help="Also time detector stages")
     parser.add_argument("--report", type=Path, help="Write the timing summary as JSON")
+    parser.add_argument("--composite", help="Time monster search on this map's pasted sprites")
     args = parser.parse_args()
 
     began = time.perf_counter()
@@ -158,17 +204,26 @@ def main() -> None:
         expected = [json.loads(line) for line in args.compare.read_text("utf-8").splitlines()]
     outputs, mismatches, per_source = [], [], {}
     all_ms: list[float] = []
-    for name, frames in sources(args.data, args.limit):
+    if args.composite:
+        name, frames, allowed = composite_source(
+            args.data, detector, args.composite, args.limit or 40)
+        detector.map_filter.select = lambda image, taught_map=False: set(allowed)
+        runs = [(name, frames)]
+    else:
+        runs = [(name, [(path.name, path, now, monsters) for path, now, monsters in frames])
+                for name, frames in sources(args.data, args.limit)]
+    for name, frames in runs:
         reset(detector)
         timings = []
-        for path, now, monsters in frames:
-            image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        for label, source, now, monsters in frames:
+            image = (cv2.imread(str(source), cv2.IMREAD_COLOR)
+                     if isinstance(source, Path) else source)
             detector.taught_map = True
             settle_map(detector, image)
             start = time.perf_counter()
             observation = detector.detect(image, now, monsters=monsters)
             timings.append((time.perf_counter() - start) * 1000)
-            record = {"frame": f"{name}/{path.name}", **summary(observation)}
+            record = {"frame": f"{name}/{label}", **summary(observation)}
             if expected:
                 index = len(outputs)
                 reference = expected[index] if index < len(expected) else None
