@@ -146,13 +146,26 @@ def main():
     mode.add_argument("--run", action="store_true")
     parser.add_argument("--routes", type=int, default=6, help="at most this many routes")
     parser.add_argument("--targets", help="comma-separated platform IDs, in order")
+    parser.add_argument("--focus", action="store_true",
+                        help="Request game focus through the engine before --run")
     args = parser.parse_args()
+    if args.focus and not args.run:
+        parser.error("--focus requires --run; --check remains read-only")
     api = Debugger()
     if args.check:
         status = api.status()
         print(json.dumps({"ready": readiness(status), "input_sent": False,
                           "targets": targets(status) if not readiness(status) else []}))
         return
+    if args.focus:
+        result = api.command("focus_game")
+        if not result.get("focused"):
+            raise RuntimeError("Windows declined game focus; no navigation started")
+        deadline = time.monotonic() + 3
+        while not api.status().get("focused"):
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Game focus was not confirmed; no navigation started")
+            time.sleep(.1)
     output = (Path(__file__).resolve().parents[1] / "artifacts" / "navigation-checks"
               / time.strftime("%Y%m%d-%H%M%S"))
     result = run(api, output, limit=max(1, args.routes),

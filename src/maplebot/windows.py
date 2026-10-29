@@ -23,6 +23,8 @@ class Windows:
             raise RuntimeError("Live capture requires Windows; replay works without Win32")
         self.api = ctypes.WinDLL("user32", use_last_error=True)
         self.api.GetForegroundWindow.restype = wintypes.HWND
+        self.api.SetForegroundWindow.argtypes = [wintypes.HWND]
+        self.api.SetForegroundWindow.restype = wintypes.BOOL
         self.api.GetWindowTextLengthW.argtypes = [wintypes.HWND]
         self.api.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
         self.api.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
@@ -65,6 +67,13 @@ class Windows:
             self.api.GetForegroundWindow() == hwnd,
             self.api.GetDpiForWindow(hwnd),
         )
+
+    def focus(self, hwnd: int) -> bool:
+        """One ordinary focus request; never synthesize keys or bypass Windows restrictions."""
+        window = self.get(hwnd)
+        if not window.focused:
+            self.api.SetForegroundWindow(hwnd)
+        return self.api.GetForegroundWindow() == hwnd
 
     def list(self) -> list[Window]:
         found: list[Window] = []

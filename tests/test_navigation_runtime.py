@@ -219,3 +219,11 @@ def test_marker_only_move_is_bounded_by_path_and_eight_seconds(app, kind):
     nav.agent.edge_started = now - 2
     nav.agent.stage = "settle_origin"
     assert not nav.trusted()
+
+def test_focus_game_is_off_only_and_never_sends_gameplay_input(app):
+    app.windows.focus = lambda hwnd: True
+    assert app._command("focus_game", {}) == {"focused": True, "input_sent": False}
+    assert not app.controller.backend.events
+    app.mode = "navigation"
+    with pytest.raises(ValueError, match="Stop gameplay"):
+        app._command("focus_game", {})

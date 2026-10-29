@@ -1259,6 +1259,15 @@ class Application:
             return png(self.frozen[payload["id"]][0])
         if name == "windows":
             return [asdict(window) for window in self.windows.list()]
+        if name == "focus_game":
+            if self.mode != "capture" or self.active_probe is not None:
+                raise ValueError("Stop gameplay before requesting focus")
+            if not self.hwnd:
+                raise ValueError("Connect the game window before requesting focus")
+            window = self.windows.get(self.hwnd)
+            if self.config.capture.window_title.casefold() not in window.title.casefold():
+                raise ValueError("Attached window does not match the configured game")
+            return {"focused": self.windows.focus(self.hwnd), "input_sent": False}
         if name == "connect_saved_window":
             connected = self.connect_saved_window()
             return {

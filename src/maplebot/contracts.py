@@ -8,7 +8,7 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 COMMANDS = frozenset({
-    "windows", "attach", "manual", "connect_saved_window", "freeze", "resume_view",
+    "windows", "focus_game", "attach", "manual", "connect_saved_window", "freeze", "resume_view",
     "crop", "reset_crop", "confirm_capture", "template", "reload_templates", "save",
     "record", "clip", "dry_run", "arm", "stop", "pause", "probe", "confirm_probe",
     "reject_probe", "acknowledge", "restart_capture", "restart_bot", "shutdown_bot",
