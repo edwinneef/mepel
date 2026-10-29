@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 
 export interface PanelPoint { x: number; y: number }
-export type PanelName = 'hud' | 'terrain' | 'settings';
+export type PanelName = 'hud' | 'settings';
 type Positions = Partial<Record<PanelName, PanelPoint>>;
 const storageKey = 'maple-overlay-panel-positions-v1';
 
@@ -13,7 +13,7 @@ export function keepHandleVisible(point: PanelPoint, width: number, height: numb
 function readPositions(): Positions {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
-    return Object.fromEntries(['hud', 'terrain', 'settings'].flatMap(name => {
+    return Object.fromEntries(['hud', 'settings'].flatMap(name => {
       const point = saved?.[name];
       return point && Number.isFinite(point.x) && Number.isFinite(point.y) ? [[name, point]] : [];
     }));
