@@ -126,7 +126,8 @@ class Navigator:
                 try:
                     self.route = self.graph.plan(f.surface, self.route.target,
                                                  max_edges=max(1, 8 - self.completed),
-                                                 trusted_only=self.trusted_only)
+                                                 trusted_only=self.trusted_only,
+                                                 origin_feet=f.feet)
                 except ValueError as error:
                     return self.stop(str(error))
                 self.replans += 1

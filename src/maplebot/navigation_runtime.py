@@ -131,7 +131,7 @@ class NavigationRuntime:
             )
         if f.surface == target:
             raise ValueError("You are already on that platform")
-        self.route = self.graph.plan(f.surface, target)
+        self.route = self.graph.plan(f.surface, target, origin_feet=f.feet)
         return self.start(context, opt_in)
 
     def start(self, context, opt_in: bool) -> dict:
@@ -161,7 +161,7 @@ class NavigationRuntime:
         if not self.graph or not f or not f.surface:
             return "Rotation: current platform unknown"
         try:
-            self.route = self.graph.plan(f.surface, target, trusted_only=True)
+            self.route = self.graph.plan(f.surface, target, trusted_only=True, origin_feet=f.feet)
         except ValueError as error:
             return f"Rotation: {error}"
         blocker = self.blocker()

@@ -34,6 +34,17 @@ def test_routes_use_only_evidenced_round_trip_surfaces():
         graph.plan("floor", "island")
 
 
+def test_plan_checks_approach_from_actual_feet_before_sending_input():
+    profile, evidence = fixture()
+    profile['zones'] = [{'id': 'portal', 'kind': 'portal',
+                         'rect': {'x': 85, 'y': 390, 'width': 5, 'height': 10}}]
+    evidence['map_hash'] = map_hash(profile)
+    graph = RouteMap(profile, evidence)
+    assert graph.plan('floor', 'ledge', origin_feet=(150, 400)).edges
+    with pytest.raises(ValueError, match='safe route'):
+        graph.plan('floor', 'ledge', origin_feet=(40, 400))
+
+
 @pytest.mark.parametrize("kind", ["avoid", "portal"])
 def test_full_movement_trace_respects_zones_and_disables_stranded_destinations(kind):
     profile, evidence = fixture()

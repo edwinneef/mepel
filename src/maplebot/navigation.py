@@ -208,7 +208,7 @@ class RouteMap:
         return None
 
     def plan(self, origin: str, target: str, *, max_edges: int = 8,
-             trusted_only: bool = False) -> Route:
+             trusted_only: bool = False, origin_feet: tuple | None = None) -> Route:
         excluded = self.trusted_excluded if trusted_only else self.excluded
         for key in (origin, target):
             if key not in self.nodes or key in excluded:
@@ -216,9 +216,9 @@ class RouteMap:
                                  + (" over proven moves" if trusted_only else ""))
         if not 1 <= max_edges <= 8:
             raise ValueError("Route edge budget must be between one and eight")
-        queue, seen = deque([(origin, ())]), {origin}
+        queue, seen = deque([(origin, (), origin_feet)]), set()
         while queue:
-            node, path = queue.popleft()
+            node, path, feet = queue.popleft()
             if node == target:
                 return Route(self.profile["id"], self.profile["revision"], self.fingerprint,
                              origin, target, path)
@@ -227,9 +227,13 @@ class RouteMap:
             for edge in self.edges.values():
                 if trusted_only and edge.id not in self.proven:
                     continue
-                if edge.source == node and edge.target not in seen:
-                    seen.add(edge.target)
-                    queue.append((edge.target, (*path, edge)))
+                if edge.source != node or edge.id in seen:
+                    continue
+                if feet is not None and self.path_blocker((feet, edge.launch)):
+                    continue
+                # Arrivals on one platform may be on opposite sides of a portal.
+                seen.add(edge.id)
+                queue.append((edge.target, (*path, edge), edge.landing))
         raise ValueError("No evidenced safe route within the eight-edge budget")
 
     def verify(self, route: Route) -> None:
