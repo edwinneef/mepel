@@ -1660,8 +1660,11 @@ class Application:
         # Moving between platforms and idle map tracking never target a monster;
         # skipping that search keeps position fresh enough to start a route.
         # Combat and dry runs always search.
-        self.monster_search = not (self.mode in {"navigation", "navigation_wait"} or (
-            self.mode == "capture" and self.position is not None))
+        movement_probe = (self.mode.startswith("probe") and self.active_probe is not None
+                          and self.active_probe.action in {"left", "right", "up", "down", "jump"})
+        self.monster_search = not (
+            movement_probe or self.mode in {"navigation", "navigation_wait"}
+            or (self.mode == "capture" and self.position is not None))
         perception_began = time.perf_counter()
         observation = self.detector.detect(image, now, monsters=self.monster_search)
         perception_ms = (time.perf_counter() - perception_began) * 1000

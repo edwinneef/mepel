@@ -784,7 +784,7 @@ class TemplateDetector:
         self.catalog_info["catalog_paused"] = paused
         self.catalog_info["active_variants"] = len(templates)
         player, monsters, failures, tag_confidence = self._observe_window(
-            image, now, templates, floor
+            image, now, templates, floor, player_only=not monsters
         )
         self.previous_monsters = tuple(
             item.box for item in monsters if item.confidence >= self.config.confidence
@@ -794,11 +794,15 @@ class TemplateDetector:
         shift, response = self.camera.update(image)
         return Observation(player, monsters, failures, shift, response)
 
-    def _window(self, image: Image) -> Rect | None:
+    def _window(self, image: Image, *, player_only: bool = False) -> Rect | None:
         """Region around the tracked player, or None when the whole frame must be searched."""
         width, height = self.config.roi_width, self.config.roi_height
         if self.track is None or not width or not height:
             return None
+        if player_only:
+            # Movement does not need the surrounding enemy search area. A miss still
+            # falls back to the complete frame with the same recognition thresholds.
+            width, height = min(width, 350), min(height, 240)
         if width >= image.shape[1] and height >= image.shape[0]:
             return None
         cx, cy = self.track[0].center
@@ -808,9 +812,10 @@ class TemplateDetector:
         return Rect(x, y, width, height)
 
     def _observe_window(
-        self, image: Image, now: float, templates: list[Template], floor: float
+        self, image: Image, now: float, templates: list[Template], floor: float,
+        *, player_only: bool = False,
     ) -> tuple[Detection | None, list[Detection], list[str], float]:
-        window = self._window(image)
+        window = self._window(image, player_only=player_only)
         self.origin = (0, 0)
         if window is None:
             return self._observe(image, now, templates, floor)

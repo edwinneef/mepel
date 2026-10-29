@@ -434,7 +434,8 @@ def test_search_window_follows_the_player_and_reports_full_frame_coordinates(tmp
     assert [m.box for m in second.monsters if m.confidence >= 0.9] == [Rect(470, 300, 24, 28)]
 
 
-def test_search_window_falls_back_to_the_whole_frame_when_the_player_jumps_away(tmp_path):
+@pytest.mark.parametrize("monsters", [False, True])
+def test_search_window_falls_back_to_the_whole_frame_when_the_player_jumps_away(tmp_path, monsters):
     player, _ = templates(tmp_path)
     detector = TemplateDetector(tmp_path, PerceptionConfig(roi_width=200, roi_height=200))
     frame = np.full((400, 600, 3), 30, dtype=np.uint8)
@@ -442,7 +443,7 @@ def test_search_window_falls_back_to_the_whole_frame_when_the_player_jumps_away(
     assert detector.detect(frame, 0.0).player.box == Rect(100, 300, 24, 28)
     frame[300:328, 100:124] = 30
     frame[40:68, 500:524] = player
-    moved = detector.detect(frame, 0.3)
+    moved = detector.detect(frame, 0.3, monsters=monsters)
     assert moved.player is not None and moved.player.box == Rect(500, 40, 24, 28)
 
 

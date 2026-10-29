@@ -1689,6 +1689,7 @@ def test_potion_preempts_renewed_movement_before_its_keypress(potion_app):
 @pytest.mark.parametrize("mode, tracking, search", [
     ("capture", False, True), ("live", True, True), ("dry_run", True, True),
     ("navigation", False, False), ("navigation_wait", False, False), ("capture", True, False),
+    ("probe_confirm", False, False),
 ])
 def test_monster_search_is_skipped_while_tracking_idle_or_navigating(
         app, monkeypatch, mode, tracking, search):
@@ -1703,6 +1704,9 @@ def test_monster_search_is_skipped_while_tracking_idle_or_navigating(
     monkeypatch.setattr(app.detector, "detect", detect)
     monkeypatch.setattr(app, "_stop", lambda *args, **kwargs: None)
     app.mode = mode
+    if mode == "probe_confirm":
+        from maplebot.runtime import ProbeState
+        app.active_probe = ProbeState(1, 1, "jump", "awaiting_confirmation", "test")
     if tracking:
         app.position = type("Position", (), {"read_map": lambda self, image: None})()
     app._process(app.image, time.perf_counter())
