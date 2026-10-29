@@ -110,7 +110,22 @@ else app.whenReady().then(async () => {
     win.webContents.on('render-process-gone', () => { void stop(); app.quit(); });
     win.on('unresponsive', () => { void stop(); });
     win.on('close', () => { void stop(); });
-    await win.loadURL(`${base}/?overlay=1`);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await win.loadURL(`${base}/?overlay=1`);
+        break;
+      } catch (error) {
+        if (quitting || win.isDestroyed()) return;
+        if (attempt >= 2 || !/ERR_FAILED|ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET/.test(error.message)) throw error;
+        // Startup only: no lease or hotkeys exist yet. A transient engine/renderer
+        // restart may abort the first navigation; never carry an action across it.
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const html = await (await fetch(base, { signal: AbortSignal.timeout(3000) })).text();
+        token = html.match(/name="debug-token" content="([^"]+)"/)?.[1];
+        if (!token) throw error;
+        await stop();
+      }
+    }
     // DWM must know the visible layered window before the engine can verify affinity.
     win.showInactive();
     win.setContentProtection(true);
@@ -144,7 +159,11 @@ else app.whenReady().then(async () => {
       ['F9', () => send('layers')],
     ]) if (!globalShortcut.register(key, action)) throw new Error(`${key} is already registered by another app`);
     setInterval(poll, 300);
-  } catch (error) { await stop(); dialog.showErrorBox('Maple Overlay', error.message); app.quit(); }
+  } catch (error) {
+    await stop();
+    if (!quitting) dialog.showErrorBox('Maple Overlay', error.message);
+    app.quit();
+  }
 });
 app.on('second-instance', () => { app.relaunch(); app.quit(); });
 app.on('before-quit', event => {
