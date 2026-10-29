@@ -111,6 +111,9 @@ REFRESH_TAG_CONFIDENCE = 0.97
 REFRESH_SECONDS = 3.0
 # Upper bound of the 0.6-weighted color term, with slack for floating-point rounding.
 COLOR_WEIGHT_CAP = 0.6 * 1.001
+# Half-resolution proposal score below which sprite search stops. Across 1698 recorded
+# frames every accepted sprite proposed at 0.57 or more; lower proposals were background.
+COARSE_FLOOR = 0.45
 # Search radius around the last confirmed position: base plus walking speed, capped.
 TRACK_RADIUS, TRACK_SPEED, TRACK_MAX_RADIUS = 12, 240, 80
 
@@ -584,23 +587,34 @@ class TemplateDetector:
         proposals = np.nan_to_num(proposals, copy=False, nan=-1, posinf=-1, neginf=-1)
         found = []
         bounds = Rect(0, 0, image.shape[1], image.shape[0])
+        full_height, full_width = template.image.shape[:2]
         for _ in range(self.config.max_candidates):
             _, peak, _, (cx, cy) = cv2.minMaxLoc(proposals)
-            if peak < 0.25:
+            if peak < COARSE_FLOOR:
                 break
             x, y = cx * 2, cy * 2
             left, top = max(0, x - 4), max(0, y - 4)
             right = min(image.shape[1], x + anchor.width + 4)
             bottom = min(image.shape[0], y + anchor.height + 4)
-            structure = cv2.matchTemplate(
-                gray[top:bottom, left:right],
-                reference_gray,
-                cv2.TM_CCOEFF_NORMED,
-                mask=template.mask,
-            )
-            finite = structure[np.isfinite(structure)]
+            # A box from this crop is only kept inside the frame; skip crops where none fits.
+            fits = (max(0, left - anchor.x)
+                    <= min(right - anchor.width, image.shape[1] - full_width + anchor.x) - anchor.x
+                    and max(0, top - anchor.y)
+                    <= min(bottom - anchor.height, image.shape[0] - full_height + anchor.y)
+                    - anchor.y)
+            structure = None
+            if fits:
+                structure = cv2.matchTemplate(
+                    gray[top:bottom, left:right],
+                    reference_gray,
+                    cv2.TM_CCOEFF_NORMED,
+                    mask=template.mask,
+                )
+                # NaN (a flat crop) would score 0; -1 keeps it below every floor.
+                cv2.patchNaNs(structure, -1)
             # Color agreement is at most 1, so weak structure alone rules the crop out.
-            if finite.size and COLOR_WEIGHT_CAP + 0.4 * float(finite.max()) >= floor:
+            if (structure is not None
+                    and COLOR_WEIGHT_CAP + 0.4 * cv2.minMaxLoc(structure)[1] >= floor):
                 color = 1 - cv2.matchTemplate(
                     image[top:bottom, left:right], reference, cv2.TM_SQDIFF_NORMED,
                     mask=template.mask,
