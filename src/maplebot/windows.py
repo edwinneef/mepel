@@ -78,6 +78,11 @@ class Windows:
         if self._wait_foreground(hwnd):
             return True
         if click_fallback:
+            self.api.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                            ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+            # Raise only the attached game without activation, movement or resizing.
+            if not self.api.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x13):
+                raise RuntimeError("Could not expose game title bar; no focus click sent")
             self._click_caption(hwnd)
             return self._wait_foreground(hwnd)
         return False
