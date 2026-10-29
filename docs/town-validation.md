@@ -1,5 +1,9 @@
 # Town movement validation
 
+For the prepared follow-up using the saved calibration and accepted controls, use
+[the single Henesys Park session bundle](henesys-park-session.md). It is offline
+preparation; live work waits for an explicit new session request.
+
 Develop and check changes while the bot is Off. The ordinary offline loop is
 `./tools/dev_cycle.ps1`: focused launcher, town-check and navigation tests plus
 lint, with no game dependency. Select `-PythonTests` or `-Scope ui -UiTests` to

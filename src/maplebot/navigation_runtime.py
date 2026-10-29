@@ -37,6 +37,8 @@ class NavigationRuntime:
         self.failed_map: str | None = None
         self.counted = 0
         self.pending_proofs: list[tuple[str, str, str]] = []
+        self.last_feedback_failure = None
+        self.last_input_refusal = None
 
     def cancel(self, reason: str) -> None:
         if self.agent and self.agent.active:
@@ -185,6 +187,7 @@ class NavigationRuntime:
         if opt_in is not True:
             raise ValueError("Explicit supervision opt-in is required for a bounded route")
         app._stop("OPERATOR_STOP", "Preparing navigation; focus the game within 3 seconds")
+        self.last_feedback_failure = self.last_input_refusal = None
         with app.stop_lock:
             if context is not None:
                 context.validate(app.command_epoch - 1)
@@ -282,8 +285,32 @@ class NavigationRuntime:
         recorded corridor for the existing eight-second edge budget. Marker-only feedback
         never confirms settling; corridor, boundary and freshness checks remain active.
         """
-        f = self.feedback
-        if not f or time.perf_counter() - f.now > .5:
+        return self.feedback_status()["trusted"]
+
+    def feedback_status(self) -> dict:
+        """Evaluate one feedback/time pair, retaining the existing movement predicates."""
+        f, now = self.feedback, time.perf_counter()
+        trusted = self._trusted_feedback(f, now)
+        return {"trusted": trusted, "observed_at": f.now if f else None,
+                "age_ms": round((now - f.now) * 1000, 3) if f else None,
+                "motion_ok": bool(f and f.motion_ok), "marker_present": bool(f and f.feet),
+                "agreement_age_ms": round((f.now - self.agreed_at) * 1000, 3)
+                if f and self.agreed_at != float("-inf") else None,
+                "surface": f.surface if f else None, "focused": f.focused if f else None,
+                "stage": self.agent.stage if self.agent else None,
+                "reason": (None if trusted else "unavailable" if not f else
+                           "stale" if now - f.now > .5 else "motion_or_marker_uncertain")}
+
+    def feedback_block_reason(self) -> str | None:
+        value = self.feedback_status()
+        if value["trusted"]:
+            return None
+        self.last_feedback_failure = value
+        return ("Navigation fused position is stale or uncertain: "
+                + json.dumps(value, sort_keys=True))
+
+    def _trusted_feedback(self, f, now: float) -> bool:
+        if not f or now - f.now > .5:
             return False
         agent = self.agent
         if isinstance(agent, EdgeStep):
@@ -312,8 +339,8 @@ class NavigationRuntime:
             app._stop("PLAYER_UNCERTAIN", "Navigation feedback unavailable")
             return
         f = self.feedback
-        if not self.trusted():
-            app._stop("PLAYER_UNCERTAIN", "Navigation fused feedback is stale or uncertain")
+        if reason := self.feedback_block_reason():
+            app._stop("PLAYER_UNCERTAIN", reason)
             return
         airborne = not f.motion_ok
         if app.stop_requested.is_set() or app._input_block_reason():
@@ -405,6 +432,9 @@ class NavigationRuntime:
             "stage": "preview" if self.route else "idle", "reason": self.reason,
             "active": False, "route": self.route.snapshot() if self.route else None}
         return {**value, "map": self.graph.snapshot() if self.graph else None,
+                "feedback": self.feedback_status(),
+                "last_feedback_failure": self.last_feedback_failure,
+                "last_input_refusal": self.last_input_refusal,
                 **({"stage": "countdown", "reason": self.reason, "active": True}
                    if self.app.mode == "navigation_wait" else {}),
                 "ready": self.blocker() is None, "blocker": self.blocker(),

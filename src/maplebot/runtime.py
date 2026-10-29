@@ -819,14 +819,20 @@ class Application:
             self.history.appendleft({"time": round(time.time(), 3), "reason": reason})
 
     def _input_safe(self) -> bool:
-        return self._input_block_reason() is None
+        reason = self._input_block_reason()
+        if reason and self.mode == "navigation":
+            # Keep the actual controller callback's refusal even if a fresh frame arrives
+            # before its stop callback. Rechecking then can erase the cause of the stop.
+            self.navigation.last_input_refusal = reason
+        return reason is None
 
     def _input_block_reason(self) -> str | None:
         if overlay := getattr(self, "overlay", None):
             if reason := overlay.block_reason():
                 return reason
-        if self.mode == "navigation" and not self.navigation.trusted():
-            return "Navigation fused position is stale or uncertain"
+        if self.mode == "navigation":
+            if reason := self.navigation.feedback_block_reason():
+                return reason
         if reason := self._input_setup_block_reason():
             return reason
         window = self.windows.get(self.hwnd)
@@ -866,7 +872,8 @@ class Application:
         if code == "FOCUS_LOSS":
             # The watchdog only sees a failed gate; name which one failed.
             try:
-                detail = self._input_block_reason()
+                detail = (self.navigation.last_input_refusal
+                          if self.mode == "navigation" else None) or self._input_block_reason()
             except Exception as error:
                 detail = str(error)
             if detail:

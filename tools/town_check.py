@@ -1,6 +1,7 @@
 """Mushroom Park movement checks through existing engine commands; never takes focus.
 
---check sends no commands and writes no files. --run saves every attempt, including
+--plan is entirely offline. --check reads the engine without commands or file writes.
+--run saves every attempt, including
 preflight refusals. A failed movement cannot repeat against unchanged code/map/bindings.
 """
 
@@ -9,8 +10,10 @@ import hashlib
 import json
 import math
 import time
+from dataclasses import asdict
 from pathlib import Path
 
+from maplebot.config import Config
 from maplebot.contracts import FRESH_FRAME_SECONDS
 from maplebot.live_position import STALE_SECONDS
 from maplebot.navigation import RouteMap, map_hash, surface_y
@@ -19,6 +22,7 @@ from tools.navigation_check import ROUTE_SECONDS, Debugger
 TOWN_ID = 100000200
 ROOT = Path(__file__).resolve().parents[1]
 PROBE_SECONDS = 8
+REUSED_CONTROLS = ("left", "right", "jump", "up", "down")
 
 
 def profile_for_town(directory: Path) -> dict:
@@ -166,6 +170,22 @@ class Check:
         except Exception as error:
             row["clip_error"] = str(error)
 
+    def feedback_preflight(self, samples):
+        """Observe two seconds without input; never hide an unhealthy sample by retrying."""
+        began = self.clock()
+        while True:
+            sample = self.status(settled=True)
+            feedback = sample.get("navigation", {}).get("feedback") or {}
+            samples.append(compact(sample))
+            if not all(feedback.get(k) is True for k in ("trusted", "motion_ok", "focused")):
+                raise RuntimeError(f"Passive navigation feedback is not ready: {feedback}")
+            if self.clock() - began >= 2:
+                stamps = {s["navigation"]["feedback"].get("observed_at") for s in samples}
+                if None in stamps or len(stamps) < 2:
+                    raise RuntimeError("Passive navigation feedback did not advance")
+                return samples
+            self.sleep(.1)
+
     def probe(self, action):
         before = self.status(settled=True)
         ready = before.get("readiness", {}).get(f"probe:{action}", {})
@@ -254,7 +274,39 @@ def code_revision(profile: dict, status: dict) -> str:
     return digest.hexdigest()
 
 
-def run(api, profile, output: Path, *, clock=time.monotonic, sleep=time.sleep) -> dict:
+def session_plan(profile: dict, bindings: dict) -> dict:
+    """Plan against saved geometry only; no debugger, capture or keyboard access."""
+    fit = profile["public_map"]["world"]
+    feet = [3190 * fit["x"][0] + fit["x"][1], 574 * fit["y"][0] + fit["y"][1]]
+    platforms = [p for p in profile["platforms"]
+                 if min(p["start"]["x"], p["end"]["x"]) <= feet[0]
+                 <= max(p["start"]["x"], p["end"]["x"])]
+    origin = min(platforms, key=lambda p: abs(surface_y(p, feet[0]) - feet[1]))
+    if abs(surface_y(origin, feet[0]) - feet[1]) > 20:
+        raise ValueError("Saved geometry has no start platform at world x3190, y574")
+    sample = {"position": {"surface_id": origin["id"], "feet": feet}, "bindings": bindings}
+    target, rope = ladder_round_trip(profile, sample)
+    return {"schema_version": 1, "town_id": TOWN_ID, "area_id": profile["id"],
+            "map_revision": profile["revision"], "map_hash": map_hash(profile),
+            "revision": code_revision(profile, sample), "bindings": bindings.copy(),
+            "start_world": [3190, 574], "targets": [target, rope, origin["id"]],
+            "required_controls": list(REUSED_CONTROLS), "passive_seconds": 2,
+            "route_seconds_each": ROUTE_SECONDS, "stop_at_first_failure": True}
+
+
+def validate_bundle(bundle: dict, profile: dict, initial: dict) -> None:
+    if not isinstance(initial.get("bindings"), dict):
+        raise RuntimeError("Engine bindings are unavailable")
+    if bundle != session_plan(profile, initial.get("bindings")):
+        raise RuntimeError("Session bundle differs from current code/map/bindings; prepare offline")
+    missing = [a for a in REUSED_CONTROLS
+               if initial.get("probes", {}).get(a, {}).get("confirmed") is not True]
+    if missing:
+        raise RuntimeError(f"Saved engine control confirmations unavailable: {', '.join(missing)}")
+
+
+def run(api, profile, output: Path, *, bundle=None,
+        clock=time.monotonic, sleep=time.sleep) -> dict:
     output.mkdir(parents=True, exist_ok=False)
     runner = Check(api, profile, clock=clock, sleep=sleep)
     result = {"town_id": TOWN_ID, "steps": runner.rows, "failure": None,
@@ -269,16 +321,25 @@ def run(api, profile, output: Path, *, clock=time.monotonic, sleep=time.sleep) -
             raise RuntimeError(problem)
         target, rope = ladder_round_trip(profile, initial)
         origin = initial["position"]["surface_id"]
+        if bundle is not None:
+            validate_bundle(bundle, profile, initial)
+            if [target, rope, origin] != bundle["targets"]:
+                raise RuntimeError("Current start platform differs from the session bundle")
         revision = result["revision"] = code_revision(profile, initial)
         for previous in output.parent.glob("*/result.json"):
             old = json.loads(previous.read_text("utf-8"))
             if (old.get("failure") and old.get("movement_requested")
                     and old.get("revision") == revision):
                 raise RuntimeError(f"Unchanged failed movement; inspect {previous} and fix cause")
+        if bundle is not None:
+            result["bundle"] = bundle
+            result["passive_feedback"] = []
+            runner.feedback_preflight(result["passive_feedback"])
         result["setup_seconds"] = round(clock() - began, 3)
         test_started = clock()
-        for action in ("left", "right", "jump"):
-            runner.probe(action)
+        if bundle is None:
+            for action in ("left", "right", "jump"):
+                runner.probe(action)
         runner.route(target)
         runner.route(rope)
         runner.route(origin, from_rope=rope)
@@ -313,15 +374,24 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true")
     mode.add_argument("--run", action="store_true")
+    mode.add_argument("--plan", action="store_true", help="Print an offline routes-only bundle")
+    parser.add_argument("--bundle", type=Path, help="Use pinned routes and accepted controls")
     args = parser.parse_args()
+    if args.bundle and not args.run:
+        parser.error("--bundle requires --run")
     output = ROOT / "artifacts/town-checks" / str(time.time_ns())
     initial = None
     try:
+        profile = profile_for_town(ROOT / "data/areas")
+        if args.plan:
+            config = Config.load(ROOT / "config.toml")
+            print(json.dumps(session_plan(profile, asdict(config.input)), indent=2))
+            return
+        bundle = json.loads(args.bundle.read_text("utf-8-sig")) if args.bundle else None
         api = Debugger()
         initial = api.status()
         if not initial.get("focused"):
             raise RuntimeError("Game is not focused; stop without taking focus")
-        profile = profile_for_town(ROOT / "data/areas")
         if args.check:
             sample = api.status()
             problem = blocker(sample, profile)
@@ -334,7 +404,7 @@ def main():
             if problem:
                 raise SystemExit(1)
             return
-        result = run(api, profile, output)
+        result = run(api, profile, output, bundle=bundle)
     except Exception as error:
         result = {"failure": str(error), "movement_requested": False,
                   "before": compact(initial) if initial else None}

@@ -105,9 +105,90 @@ def run_check(monkeypatch):
     def sleep(seconds):
         ticks[0] += seconds
 
-    def run(api, profile, output):
-        return town.run(api, profile, output, clock=lambda: ticks[0], sleep=sleep)
+    def run(api, profile, output, **kwargs):
+        return town.run(api, profile, output, clock=lambda: ticks[0], sleep=sleep, **kwargs)
     return run
+
+
+class BundleApi(Api):
+    def __init__(self, profile):
+        super().__init__(profile)
+        self.value["bindings"] = {"left": "left"}
+        self.value["probes"] = {a: {"confirmed": True} for a in town.REUSED_CONTROLS}
+        self.value["navigation"]["feedback"] = {
+            "trusted": True, "motion_ok": True, "focused": True, "observed_at": 0}
+        self.frames = 0
+
+    def status(self):
+        value = super().status()
+        self.frames += 1
+        value["navigation"]["feedback"]["observed_at"] = self.frames
+        return value
+
+
+def test_bundle_runs_only_three_routes_after_passive_feedback(profile, run_check, tmp_path):
+    api = BundleApi(profile)
+    bundle = town.session_plan(profile, api.value["bindings"])
+    result = run_check(api, profile, tmp_path / "bundled", bundle=bundle)
+    assert result["failure"] is None
+    assert result["setup_seconds"] >= 2 and len(result["steps"]) == 3
+    assert not any(name == "probe" for name, _ in api.calls)
+    assert [p["target"] for n, p in api.calls if n == "nav_go"] == bundle["targets"]
+
+
+@pytest.mark.parametrize("change", ["bundle", "bindings", "confirmation", "feedback", "frozen"])
+def test_bundle_preflight_refuses_without_commands(profile, run_check, tmp_path, change):
+    api = BundleApi(profile)
+    bundle = town.session_plan(profile, api.value["bindings"])
+    if change == "bundle":
+        bundle["revision"] = "old-code"
+    elif change == "bindings":
+        api.value["bindings"]["left"] = "different"
+    elif change == "confirmation":
+        api.value["probes"]["up"]["confirmed"] = False
+    elif change == "feedback":
+        api.value["navigation"]["feedback"]["trusted"] = False
+    else:
+        api.status = lambda: copy.deepcopy(api.value)
+    result = run_check(api, profile, tmp_path / change, bundle=bundle)
+    assert result["failure"] and not result["movement_requested"] and not api.calls
+    if change == "feedback":
+        assert result["passive_feedback"][0]["navigation"]["feedback"]["trusted"] is False
+
+
+def test_plan_cli_never_constructs_debugger(profile, monkeypatch, tmp_path, capsys):
+    import sys
+
+    monkeypatch.setattr(town, "ROOT", tmp_path)
+    monkeypatch.setattr(town, "profile_for_town", lambda _: profile)
+    monkeypatch.setattr(town, "Debugger", lambda: pytest.fail("Offline plan connected to engine"))
+    (tmp_path / "config.toml").write_text("")
+    monkeypatch.setattr(sys, "argv", ["town_check", "--plan"])
+    town.main()
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["targets"] == ["ledge", "ladder", "floor"]
+    assert plan["stop_at_first_failure"] and plan["passive_seconds"] == 2
+
+
+def test_bundle_stops_on_first_route_failure_and_refuses_unchanged_repeat(
+        profile, run_check, tmp_path):
+    api = BundleApi(profile)
+    bundle = town.session_plan(profile, api.value["bindings"])
+    command = api.command
+
+    def fail_first_route(name, payload=None):
+        result = command(name, payload)
+        if name == "nav_go":
+            api.pending[1]["focused"] = False
+        return result
+
+    api.command = fail_first_route
+    result = run_check(api, profile, tmp_path / "failed", bundle=bundle)
+    assert "not focused" in result["failure"] and len(result["steps"]) == 1
+    assert result["steps"][0]["clip"] and api.calls[-1][0] == "stop"
+    api = BundleApi(profile)
+    result = run_check(api, profile, tmp_path / "repeat", bundle=bundle)
+    assert "Unchanged failed movement" in result["failure"] and not api.calls
 
 
 def test_real_planner_requires_ladder_and_return_path(profile):

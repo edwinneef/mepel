@@ -14,6 +14,64 @@ from maplebot.navigation_executor import Feedback
 app, controller = _app, _controller
 
 
+@pytest.mark.parametrize(("age", "motion", "feet", "reason"), [
+    (.507, True, (150, 400), "stale"),
+    (.1, False, (150, 400), "motion_or_marker_uncertain"),
+    (.1, False, None, "motion_or_marker_uncertain"),
+])
+def test_feedback_refusal_records_the_decision_pair(app, monkeypatch, age, motion, feet, reason):
+    from types import SimpleNamespace
+
+    from maplebot import navigation_runtime
+    nav = preview(app)
+    monkeypatch.setattr(navigation_runtime, "time", SimpleNamespace(perf_counter=lambda: 100))
+    nav.feedback = replace(nav.feedback, now=100 - age, motion_ok=motion, feet=feet)
+    app.mode = "navigation"
+    message = app._input_block_reason()
+    assert reason in message
+    refused = nav.last_feedback_failure.copy()
+    assert refused["reason"] == reason and refused["age_ms"] == round(age * 1000, 3)
+    nav.feedback = replace(nav.feedback, now=100, motion_ok=True, feet=(150, 400))
+    assert nav.trusted()
+    assert nav.snapshot()["last_feedback_failure"] == refused
+    assert app.controller.backend.events == []
+
+
+def test_feedback_boundary_and_physical_focus_gate_are_unchanged(app, monkeypatch):
+    from types import SimpleNamespace
+
+    from maplebot import navigation_runtime
+    nav = preview(app)
+    monkeypatch.setattr(navigation_runtime, "time", SimpleNamespace(perf_counter=lambda: 100))
+    nav.feedback = replace(nav.feedback, now=99.5)
+    assert nav.trusted()
+    nav.feedback = replace(nav.feedback, now=99.499)
+    assert not nav.trusted()
+    nav.feedback = replace(nav.feedback, now=100)
+    app.mode = "navigation"
+    app.windows.window = replace(app.windows.window, focused=False)
+    assert "Click the actual game window" in app._input_block_reason()
+    assert app.controller.backend.events == []
+
+
+def test_controller_refusal_survives_a_new_frame_before_stop_callback(app, monkeypatch):
+    from types import SimpleNamespace
+
+    from maplebot import navigation_runtime
+    nav = preview(app)
+    monkeypatch.setattr(navigation_runtime, "time", SimpleNamespace(perf_counter=lambda: 100))
+    nav.feedback = replace(nav.feedback, now=99.493)
+    app.mode = "navigation"
+    assert not app._input_safe()
+    refusal = nav.last_input_refusal
+    nav.feedback = replace(nav.feedback, now=100)
+    assert app._input_safe()
+    app._controller_stop("FOCUS_LOSS", "Target focus, geometry, or visibility lost")
+    assert refusal in app.stop_record.message and '"age_ms": 507.0' in refusal
+    assert nav.snapshot()["last_input_refusal"] == refusal
+    assert app.controller.backend.events == []
+
+
 def preview(app):
     profile, evidence = fixture()
     nav = app.navigation
