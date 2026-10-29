@@ -5,8 +5,9 @@ import json
 import os
 import time
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
+from functools import cached_property
 from pathlib import Path
 from typing import Protocol
 
@@ -76,6 +77,16 @@ class Template:
     mask: Image | None = None
     signature: SpriteSignature | None = None
 
+    @cached_property
+    def anchored(self) -> tuple[Image, Image, Image]:
+        """The anchor crop in color and gray, and its half-resolution gray proposal."""
+        anchor = self.anchor
+        assert anchor is not None
+        rows = slice(anchor.y, anchor.y + anchor.height)
+        cols = slice(anchor.x, anchor.x + anchor.width)
+        gray = self.gray[rows, cols]
+        return self.image[rows, cols], gray, cv2.pyrDown(gray)
+
 
 @dataclass(frozen=True)
 class NameTag:
@@ -98,6 +109,8 @@ NAMETAG_FEET_GAP = 2
 # Only a clean, unobstructed tag may refresh the in-memory player sprite.
 REFRESH_TAG_CONFIDENCE = 0.97
 REFRESH_SECONDS = 3.0
+# Upper bound of the 0.6-weighted color term, with slack for floating-point rounding.
+COLOR_WEIGHT_CAP = 0.6 * 1.001
 # Search radius around the last confirmed position: base plus walking speed, capped.
 TRACK_RADIUS, TRACK_SPEED, TRACK_MAX_RADIUS = 12, 240, 80
 
@@ -117,15 +130,18 @@ def nametag_parts(image: Image) -> tuple[Image, int, tuple[int, int]]:
     return np.float32(text[top:bottom, left:right]), int(ys.min()) - top, (left, top)
 
 
-def text_overlap(gray: Image, text: Image) -> Image:
+def text_overlap(gray: Image, text: Image, near_white: Image | None = None) -> Image:
     """F1 overlap between the glyph mask and near-white pixels at every position.
 
     The frame is padded left and right so a tag running off the edge still scores; its
-    hidden glyphs count as missing. Index x maps to tag x - (width - 1).
+    hidden glyphs count as missing. Index x maps to tag x - (width - 1). `near_white` is
+    float32(gray >= NAMETAG_TEXT) when the caller already computed it.
     """
     height, width = text.shape
+    if near_white is None:
+        near_white = np.float32(gray >= NAMETAG_TEXT)
     observed = cv2.copyMakeBorder(
-        np.float32(gray >= NAMETAG_TEXT), 0, 0, width - 1, width - 1, cv2.BORDER_CONSTANT, value=0
+        near_white, 0, 0, width - 1, width - 1, cv2.BORDER_CONSTANT, value=0
     )
     shared = cv2.matchTemplate(observed, text, cv2.TM_CCORR)
     counts = cv2.boxFilter(
@@ -142,6 +158,7 @@ def text_overlap(gray: Image, text: Image) -> Image:
 class CameraTracker:
     def __init__(self) -> None:
         self.previous: np.ndarray | None = None
+        self.window: np.ndarray | None = None
 
     def update(self, image: Image) -> tuple[tuple[float, float], float]:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -149,8 +166,9 @@ class CameraTracker:
         previous, self.previous = self.previous, small
         if previous is None or previous.shape != small.shape or float(small.std()) < 2:
             return (0, 0), 0
-        window = cv2.createHanningWindow((small.shape[1], small.shape[0]), cv2.CV_32F)
-        (dx, dy), response = cv2.phaseCorrelate(previous, small, window)
+        if self.window is None or self.window.shape != small.shape:
+            self.window = cv2.createHanningWindow((small.shape[1], small.shape[0]), cv2.CV_32F)
+        (dx, dy), response = cv2.phaseCorrelate(previous, small, self.window)
         if not np.isfinite([dx, dy, response]).all() or response < 0.35:
             return (0, 0), 0
         if abs(dx * 2) > image.shape[1] * 0.2 or abs(dy * 2) > image.shape[0] * 0.2:
@@ -181,6 +199,8 @@ class TemplateDetector:
         self.camera = CameraTracker()
         # Set by the runtime when the taught area's minimap confirms the current map.
         self.taught_map = False
+        # Active templates for the last (templates, allowed species, monsters) selection.
+        self.active: tuple[list[Template], tuple, list[Template]] | None = None
         self.pool = ThreadPoolExecutor(
             max_workers=min(8, os.cpu_count() or 1), thread_name_prefix="match"
         )
@@ -322,13 +342,14 @@ class TemplateDetector:
             tuple(meta["frame"]) if meta.get("frame") else None,
         )
 
-    def nametag_matches(self, gray: Image, tag: NameTag, floor: float) -> list[Detection]:
+    def nametag_matches(self, gray: Image, tag: NameTag, floor: float,
+                        near_white: Image | None = None) -> list[Detection]:
         """Glyph-shape matches. Text on a light background (chat rows, clouds outside
         the box) adds near-white pixels around the glyphs and lowers the score."""
         height, width = tag.text.shape
         if height > gray.shape[0] or width > gray.shape[1]:
             return []
-        score = text_overlap(gray, tag.text)
+        score = text_overlap(gray, tag.text, near_white)
         decoys = tag.decoys if tag.frame == (gray.shape[1], gray.shape[0]) else ()
         found = []
         for _ in range(self.config.max_candidates):
@@ -553,20 +574,14 @@ class TemplateDetector:
     ) -> list[Detection]:
         anchor = template.anchor
         assert anchor is not None and template.mask is not None
-        reference = template.image[
-            anchor.y : anchor.y + anchor.height, anchor.x : anchor.x + anchor.width
-        ]
-        reference_gray = template.gray[
-            anchor.y : anchor.y + anchor.height, anchor.x : anchor.x + anchor.width
-        ]
+        reference, reference_gray, reference_coarse = template.anchored
         # Half-resolution grayscale proposals, then masked verification in native crops.
         coarse = cv2.pyrDown(gray) if coarse is None else coarse
-        reference_coarse = cv2.pyrDown(reference_gray)
         if (reference_coarse.shape[0] > coarse.shape[0]
                 or reference_coarse.shape[1] > coarse.shape[1]):
             return []
         proposals = cv2.matchTemplate(coarse, reference_coarse, cv2.TM_CCOEFF_NORMED)
-        proposals = np.nan_to_num(proposals, nan=-1, posinf=-1, neginf=-1)
+        proposals = np.nan_to_num(proposals, copy=False, nan=-1, posinf=-1, neginf=-1)
         found = []
         bounds = Rect(0, 0, image.shape[1], image.shape[0])
         for _ in range(self.config.max_candidates):
@@ -577,27 +592,32 @@ class TemplateDetector:
             left, top = max(0, x - 4), max(0, y - 4)
             right = min(image.shape[1], x + anchor.width + 4)
             bottom = min(image.shape[0], y + anchor.height + 4)
-            color = 1 - cv2.matchTemplate(
-                image[top:bottom, left:right], reference, cv2.TM_SQDIFF_NORMED, mask=template.mask
-            )
             structure = cv2.matchTemplate(
                 gray[top:bottom, left:right],
                 reference_gray,
                 cv2.TM_CCOEFF_NORMED,
                 mask=template.mask,
             )
-            score = np.nan_to_num(0.6 * color + 0.4 * structure, nan=0, posinf=0, neginf=0)
-            _, confidence, _, (dx, dy) = cv2.minMaxLoc(score)
-            box = Rect(
-                left + dx - anchor.x,
-                top + dy - anchor.y,
-                template.image.shape[1],
-                template.image.shape[0],
-            )
-            if confidence >= floor and bounds.contains(box):
-                found.append(
-                    Detection(template.kind, box, round(float(confidence), 6), template.name)
+            finite = structure[np.isfinite(structure)]
+            # Color agreement is at most 1, so weak structure alone rules the crop out.
+            if finite.size and COLOR_WEIGHT_CAP + 0.4 * float(finite.max()) >= floor:
+                color = 1 - cv2.matchTemplate(
+                    image[top:bottom, left:right], reference, cv2.TM_SQDIFF_NORMED,
+                    mask=template.mask,
                 )
+                score = np.nan_to_num(0.6 * color + 0.4 * structure, copy=False,
+                                      nan=0, posinf=0, neginf=0)
+                _, confidence, _, (dx, dy) = cv2.minMaxLoc(score)
+                box = Rect(
+                    left + dx - anchor.x,
+                    top + dy - anchor.y,
+                    template.image.shape[1],
+                    template.image.shape[0],
+                )
+                if confidence >= floor and bounds.contains(box):
+                    found.append(
+                        Detection(template.kind, box, round(float(confidence), 6), template.name)
+                    )
             proposals[
                 max(0, cy - anchor.height // 4) : cy + anchor.height // 4 + 1,
                 max(0, cx - anchor.width // 4) : cx + anchor.width // 4 + 1,
@@ -638,7 +658,8 @@ class TemplateDetector:
         # Color helps distinguish similar silhouettes; correlation adds local structure.
         color = 1 - cv2.matchTemplate(image, template.image, cv2.TM_SQDIFF_NORMED)
         structure = cv2.matchTemplate(gray, template.gray, cv2.TM_CCOEFF_NORMED)
-        score = np.nan_to_num(0.6 * color + 0.4 * structure, nan=0, posinf=0, neginf=0)
+        score = np.nan_to_num(0.6 * color + 0.4 * structure, copy=False,
+                              nan=0, posinf=0, neginf=0)
         for _ in range(self.config.max_candidates):
             _, peak, _, (x, y) = cv2.minMaxLoc(score)
             if peak < floor:
@@ -753,24 +774,15 @@ class TemplateDetector:
                monsters: bool = True) -> Observation:
         """monsters=False searches only the player, for work that never targets an enemy."""
         now = time.monotonic() if now is None else now
+        # Camera motion only needs the frame, so it runs beside recognition.
+        camera = self.pool.submit(self.camera.update, image)
         floor = max(0.5, self.config.confidence - 0.15)
         allowed = self.map_filter.select(image, self.taught_map)
         # Searching every catalog species costs seconds per frame; wait for a readable map.
         paused = allowed is None and self.map_filter.required
         if paused:
             allowed = set()
-        templates = (
-            self.templates
-            if allowed is None
-            else [
-                template
-                for template in self.templates
-                if not template.name.startswith("catalog:")
-                or template.name.split(":")[1] in allowed
-            ]
-        )
-        if not monsters:
-            templates = [template for template in templates if template.kind != "monster"]
+        templates = self._active_templates(allowed, monsters)
         held = self.map_filter.held and self.map_filter.taught is not None
         self.catalog_info["active_map"] = (
             self.map_filter.taught[0] if held else self.map_filter.title
@@ -795,8 +807,28 @@ class TemplateDetector:
         )
         if player and not player.tracked and tag_confidence >= REFRESH_TAG_CONFIDENCE:
             self._refresh_sprite(image, player, monsters, now)
-        shift, response = self.camera.update(image)
+        shift, response = camera.result()
         return Observation(player, monsters, failures, shift, response)
+
+    def _active_templates(self, allowed: set[str] | None, monsters: bool) -> list[Template]:
+        """Templates for the allowed species; reused while the selection is unchanged."""
+        key = (None if allowed is None else frozenset(allowed), monsters)
+        if self.active is not None and self.active[0] is self.templates and self.active[1] == key:
+            return self.active[2]
+        templates = (
+            self.templates
+            if allowed is None
+            else [
+                template
+                for template in self.templates
+                if not template.name.startswith("catalog:")
+                or template.name.split(":")[1] in allowed
+            ]
+        )
+        if not monsters:
+            templates = [template for template in templates if template.kind != "monster"]
+        self.active = (self.templates, key, templates)
+        return templates
 
     def _window(self, image: Image, *, player_only: bool = False) -> Rect | None:
         """Region around the tracked player, or None when the whole frame must be searched."""
@@ -886,10 +918,12 @@ class TemplateDetector:
             self.zones[max(0, box.y):max(0, box.y + box.height),
                        max(0, box.x):max(0, box.x + box.width)] = 1
         self.zone_sums = cv2.integral(self.zones)
+        # Name tags match in the pool while the sprite templates are searched.
+        searches = self._nametag_search(gray)
         candidates = self._candidates(image, gray, templates, floor)
         kept = self._suppress(candidates)
         players = [item for item in kept if item.kind == "player"]
-        tags = self._nametag_candidates(gray)
+        tags = self._nametag_candidates(gray, searches)
         failures: list[str] = []
         player, tag_confidence, conflict = self._resolve(players, tags, failures, gray)
         if player is None and not conflict and self.fresh:
@@ -1020,13 +1054,22 @@ class TemplateDetector:
         box = Rect(left + dx - (width - 1), top + dy, width, height)
         return float(best), self.body_from_nametag(tag, box)
 
-    def _nametag_candidates(self, gray: Image) -> list[tuple[Detection, NameTag]]:
+    def _nametag_search(self, gray: Image) -> list[Future[list[Detection]]]:
+        """Start matching every name tag in the pool, in self.nametags order."""
         floor = max(0.5, self.config.nametag_confidence - 0.15)
+        near_white = np.float32(gray >= NAMETAG_TEXT)
+        return [self.pool.submit(self.nametag_matches, gray, tag, floor, near_white)
+                for tag in self.nametags]
+
+    def _nametag_candidates(
+        self, gray: Image, searches: list[Future[list[Detection]]] | None = None
+    ) -> list[tuple[Detection, NameTag]]:
+        searches = self._nametag_search(gray) if searches is None else searches
         matches = sorted(
             (
                 (match, tag)
-                for tag in self.nametags
-                for match in self.nametag_matches(gray, tag, floor)
+                for tag, search in zip(self.nametags, searches, strict=True)
+                for match in search.result()
             ),
             key=lambda item: item[0].confidence,
             reverse=True,
