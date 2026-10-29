@@ -115,7 +115,13 @@ def public_map_record(value: object) -> dict:
              for axis in ("x", "y")}
     if not all(0.5 <= world[axis][0] <= 2 for axis in world):
         raise ValueError("Invalid public map placement")
-    return {"id": map_id, "sha256": digest, "world": world}
+    provider = value.get("provider", "dreamms")
+    if provider not in ("dreamms", "meowdb-classic"):
+        raise ValueError("Invalid public map provider")
+    record = {"id": map_id, "sha256": digest, "world": world}
+    if "provider" in value:
+        record["provider"] = provider
+    return record
 
 
 def validate_profile(value: object) -> tuple[dict, list[str]]:

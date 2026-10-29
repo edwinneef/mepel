@@ -36,7 +36,8 @@ def candidates(catalog: Path, title: str) -> list[int]:
 
 
 def import_map(store: AreaStore, area: str, catalog: Path, *, map_id: int | None = None,
-               dry_run: bool = False, fetch: Callable[[str], bytes] | None = None) -> dict:
+               dry_run: bool = False, fetch: Callable[[str], bytes] | None = None,
+               meowdb_source: Path | None = None) -> dict:
     match = next((item for item in store.list()["areas"] if area in (item["id"], item["name"])),
                  None)
     profile = store.load(match["id"] if match else area)["profile"]
@@ -48,16 +49,25 @@ def import_map(store: AreaStore, area: str, catalog: Path, *, map_id: int | None
                              cv2.IMREAD_COLOR)
     if reference is None or not view.get("minimap"):
         raise ValueError("The calibrated reference view or its minimap is missing")
-    ids = [map_id] if map_id is not None else candidates(catalog, profile["name"])
+    if meowdb_source is not None:
+        from .meowdb import load_source
+
+        source, digest = load_source(meowdb_source, map_id)
+        sources = {source["id"]: (source, digest)}
+        ids = list(sources)
+    else:
+        ids = [map_id] if map_id is not None else candidates(catalog, profile["name"])
+        sources = {key: cached(store.directory, key, fetch) for key in ids}
     if not ids:
         raise ValueError(f"No public map is named like '{profile['name']}'; pass --map-id")
-    sources = {key: cached(store.directory, key, fetch) for key in ids}
     chosen = ids[0] if len(ids) == 1 else identify(
         crop(reference, view["minimap"]["canvas"]), {k: v[0] for k, v in sources.items()})
     source, digest = sources[chosen]
     candidate = build_area(profile, reference, source, digest)
     validate_profile(candidate)
     result = {"area_id": profile["id"], "area": profile["name"], "map_id": chosen,
+              "provider": source.get("provider", "dreamms"), "sha256": digest,
+              "world": candidate["public_map"]["world"],
               "public_name": source.get("name"), "platforms": len(candidate["platforms"]),
               "ropes": len(candidate["ropes"]), "zones": len(candidate["zones"]),
               "names": [item["name"] for item in candidate["platforms"] + candidate["ropes"]],

@@ -399,4 +399,5 @@ def build_area(profile: dict, reference: np.ndarray, source: dict, digest: str) 
     keep = ("schema_version", "id", "revision", "name", "views", "minimap_calibration")
     return {**{key: profile[key] for key in keep if key in profile}, **geometry, "links": [],
             "public_map": {"id": source["id"], "sha256": digest,
+                           "provider": source.get("provider", "dreamms"),
                            "world": {axis: list(fit[axis]) for axis in ("x", "y")}}}

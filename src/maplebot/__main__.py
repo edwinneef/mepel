@@ -71,6 +71,8 @@ def main() -> None:
     import_map.add_argument("area", help="Saved area ID or exact name")
     import_map.add_argument("--map-id", type=int, help="Public map ID when the name does not match")
     import_map.add_argument("--dry-run", action="store_true")
+    import_map.add_argument("--meowdb-source", type=Path,
+                            help="Local Classic export with terrain, minimap and portals")
     args = parser.parse_args()
     config = Config.load(args.config)
     if args.command == "import-map":
@@ -83,7 +85,8 @@ def main() -> None:
         root = Path(config.capture.data_dir)
         result = run_import(AreaStore(root / "areas"), args.area,
                             root / "templates" / "catalog" / "maps.json",
-                            map_id=args.map_id, dry_run=args.dry_run)
+                            map_id=args.map_id, dry_run=args.dry_run,
+                            meowdb_source=args.meowdb_source)
         print(json.dumps(result, indent=2))
         return
     if args.command == "osms-sprites":
