@@ -77,3 +77,29 @@ def test_cue_rises_on_takeover_falls_on_release_and_survives_missing_audio():
     def silent(frequency, ms):
         raise RuntimeError('no device')
     cue('start', silent)
+
+
+def test_prepare_refocuses_once_when_another_window_takes_focus(monkeypatch):
+    from tools import autonomous_navigation as runner
+    now = [0.0]
+    monkeypatch.setattr(runner.time, 'monotonic', lambda: now[0])
+    monkeypatch.setattr(runner.time, 'sleep', lambda s: now.__setitem__(0, now[0] + s))
+    monkeypatch.setattr(runner, 'wait_idle', lambda **_: None)
+    monkeypatch.setattr(runner, 'post', lambda *_: None)
+    commands = []
+    class Api:
+        focused = False
+        def status(self):
+            ready = self.focused and commands.count('focus_game') == 2
+            return {'mode': 'capture', 'command_epoch': 1, 'focused': ready,
+                    'player': {'box': {}} if ready else None,
+                    'position': {'area_id': 'a', 'surface_id': 'fh80' if ready else None},
+                    'navigation': {'edge_blocker': 'not at an edge'}}
+        def command(self, name, payload=None):
+            commands.append(name)
+            self.focused = True
+            return {'focused': True}
+    cues = []
+    s = runner.prepare(Api(), 'a', on_focus=lambda: cues.append('start'))
+    assert s['position']['surface_id'] == 'fh80'
+    assert commands == ['position_start', 'focus_game', 'focus_game'] and cues == ['start']

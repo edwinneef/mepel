@@ -106,12 +106,29 @@ def prepare(api, area, reviewed_incident=None, on_focus=lambda: None):
     if not api.command('focus_game', {'click_fallback': True}).get('focused'):
         raise RuntimeError('Game focus request failed')
     deadline = time.monotonic() + 8
-    stepped = False
-    while time.monotonic() < deadline:
+    stepped = refocused = False
+    while True:
+        if time.monotonic() >= deadline:
+            if refocused or api.status().get('focused'):
+                break
+            # Another window took focus before the route began: wait for idle again, once.
+            refocused = True
+            handoff()
+            if not api.command('focus_game', {'click_fallback': True}).get('focused'):
+                raise RuntimeError('Game focus request failed')
+            deadline = time.monotonic() + 8
+            continue
         s = api.status()
         p = s.get('position') or {}
         if p.get('area_id') != area:
             raise RuntimeError('Unexpected tracked map')
+        alarm = s.get('alarm') or {}
+        if alarm.get('active'):
+            if alarm.get('incident_id') != reviewed_incident:
+                raise RuntimeError('Unreviewed alarm; inspect its clip before acknowledgement')
+            api.command('acknowledge', {'incident_id': reviewed_incident})
+            time.sleep(.25)
+            continue
         # Knockback can pin the player at a map end where the camera clips the name tag.
         blocker = ((s.get('navigation') or {}).get('edge_blocker') or '')
         if (not stepped and s.get('focused') and not s.get('player')
@@ -121,11 +138,6 @@ def prepare(api, area, reviewed_incident=None, on_focus=lambda: None):
                 deadline = time.monotonic() + 8
             continue
         if s.get('focused') and s.get('player') and p.get('surface_id'):
-            alarm = s.get('alarm') or {}
-            if alarm.get('active'):
-                if alarm.get('incident_id') != reviewed_incident:
-                    raise RuntimeError('Unreviewed alarm; inspect its clip before acknowledgement')
-                api.command('acknowledge', {'incident_id': reviewed_incident})
             return s
         time.sleep(.25)
     raise RuntimeError('Focus, recognized player and stable origin not confirmed')
