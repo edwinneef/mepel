@@ -619,8 +619,9 @@ class TemplateDetector:
                     image[top:bottom, left:right], reference, cv2.TM_SQDIFF_NORMED,
                     mask=template.mask,
                 )
-                score = np.nan_to_num(0.6 * color + 0.4 * structure, copy=False,
-                                      nan=0, posinf=0, neginf=0)
+                score = 0.6 * color + 0.4 * structure
+                if not cv2.checkRange(score)[0]:
+                    score = np.nan_to_num(score, copy=False, nan=0, posinf=0, neginf=0)
                 _, confidence, _, (dx, dy) = cv2.minMaxLoc(score)
                 box = Rect(
                     left + dx - anchor.x,
@@ -651,9 +652,20 @@ class TemplateDetector:
         )
 
         coarse = cv2.pyrDown(gray) if any(t.anchor is not None for t in usable) else None
+        # Whole-frame score maps of templates without a sprite mask are the slowest single
+        # searches; they start first and in parallel, so they do not trail the others.
+        maps = {
+            id(template): (
+                self.pool.submit(cv2.matchTemplate, image, template.image, cv2.TM_SQDIFF_NORMED),
+                self.pool.submit(cv2.matchTemplate, gray, template.gray, cv2.TM_CCOEFF_NORMED),
+            )
+            for template in usable
+            if template.signature is None and template.anchor is None
+        } if len(usable) > 1 else {}
 
         def search(template: Template) -> list[Detection]:
-            return self._template_candidates(image, gray, template, floor, color_index, coarse)
+            return self._template_candidates(image, gray, template, floor, color_index, coarse,
+                                             maps.get(id(template)))
 
         # OpenCV releases the GIL, so templates match in parallel; map keeps template order.
         results = self.pool.map(search, usable) if len(usable) > 1 else map(search, usable)
@@ -662,6 +674,7 @@ class TemplateDetector:
     def _template_candidates(
         self, image: Image, gray: Image, template: Template, floor: float, color_index,
         coarse: Image | None = None,
+        maps: tuple[Future[Image], Future[Image]] | None = None,
     ) -> list[Detection]:
         if template.signature is not None:
             return self._sprite_candidates(image, gray, template, floor, color_index)
@@ -670,8 +683,11 @@ class TemplateDetector:
         height, width = template.gray.shape
         candidates: list[Detection] = []
         # Color helps distinguish similar silhouettes; correlation adds local structure.
-        color = 1 - cv2.matchTemplate(image, template.image, cv2.TM_SQDIFF_NORMED)
-        structure = cv2.matchTemplate(gray, template.gray, cv2.TM_CCOEFF_NORMED)
+        if maps is None:
+            color = 1 - cv2.matchTemplate(image, template.image, cv2.TM_SQDIFF_NORMED)
+            structure = cv2.matchTemplate(gray, template.gray, cv2.TM_CCOEFF_NORMED)
+        else:
+            color, structure = 1 - maps[0].result(), maps[1].result()
         score = np.nan_to_num(0.6 * color + 0.4 * structure, copy=False,
                               nan=0, posinf=0, neginf=0)
         for _ in range(self.config.max_candidates):
