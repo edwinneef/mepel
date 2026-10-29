@@ -1267,7 +1267,13 @@ class Application:
             window = self.windows.get(self.hwnd)
             if self.config.capture.window_title.casefold() not in window.title.casefold():
                 raise ValueError("Attached window does not match the configured game")
-            return {"focused": self.windows.focus(self.hwnd), "input_sent": False}
+            fallback = payload.get("click_fallback", False)
+            if type(fallback) is not bool:
+                raise ValueError("click_fallback must be boolean")
+            focused = (self.windows.focus(self.hwnd, click_fallback=True) if fallback
+                       else self.windows.focus(self.hwnd))
+            return {"focused": focused, "input_sent": False,
+                    "focus_click_allowed": fallback}
         if name == "connect_saved_window":
             connected = self.connect_saved_window()
             return {

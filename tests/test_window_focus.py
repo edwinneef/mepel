@@ -23,3 +23,14 @@ def test_already_focused_window_needs_no_focus_request():
     windows.get = lambda hwnd: SimpleNamespace(focused=True)
     windows.api = SimpleNamespace(GetForegroundWindow=lambda: 42)
     assert windows.focus(42)
+
+@pytest.mark.parametrize("allowed", [True, False])
+def test_click_fallback_is_opt_in_and_attempted_only_once(allowed):
+    windows = Windows.__new__(Windows)
+    windows.get = lambda hwnd: SimpleNamespace(focused=False)
+    calls = []
+    windows.api = SimpleNamespace(SetForegroundWindow=lambda hwnd: None)
+    windows._wait_foreground = lambda hwnd: False
+    windows._click_caption = lambda hwnd: calls.append(hwnd)
+    assert not windows.focus(42, click_fallback=allowed)
+    assert calls == ([42] if allowed else [])

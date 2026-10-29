@@ -2,6 +2,7 @@
 
 import ctypes
 import os
+import time
 from ctypes import wintypes
 from dataclasses import dataclass
 
@@ -68,12 +69,62 @@ class Windows:
             self.api.GetDpiForWindow(hwnd),
         )
 
-    def focus(self, hwnd: int) -> bool:
-        """One ordinary focus request; never synthesize keys or bypass Windows restrictions."""
+    def focus(self, hwnd: int, *, click_fallback: bool = False) -> bool:
+        """Wait for activation, optionally click verified title chrome once, then stop."""
         window = self.get(hwnd)
-        if not window.focused:
-            self.api.SetForegroundWindow(hwnd)
-        return self.api.GetForegroundWindow() == hwnd
+        if window.focused:
+            return True
+        self.api.SetForegroundWindow(hwnd)
+        if self._wait_foreground(hwnd):
+            return True
+        if click_fallback:
+            self._click_caption(hwnd)
+            return self._wait_foreground(hwnd)
+        return False
+
+    def _wait_foreground(self, hwnd: int) -> bool:
+        deadline = time.monotonic() + .5
+        while self.api.GetForegroundWindow() != hwnd:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(.02)
+        return True
+
+    def _click_caption(self, hwnd: int) -> None:
+        # Never click gameplay or another window. A missing/covered caption refuses focus.
+        api = self.api
+        if any(api.GetAsyncKeyState(key) & 0x8000 for key in (1, 2, 4)):
+            raise RuntimeError("Mouse button held; focus click canceled")
+        api.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+        api.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+        api.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+        api.SendMessageTimeoutW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM,
+                                          wintypes.LPARAM, wintypes.UINT, wintypes.UINT,
+                                          ctypes.POINTER(ctypes.c_size_t)]
+        api.SendMessageTimeoutW.restype = wintypes.LPARAM
+        api.mouse_event.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.DWORD,
+                                   wintypes.DWORD, ctypes.c_size_t]
+        rect, saved = wintypes.RECT(), wintypes.POINT()
+        if (not api.GetWindowRect(hwnd, ctypes.byref(rect))
+                or not api.GetCursorPos(ctypes.byref(saved))):
+            raise RuntimeError("Focus caption geometry unavailable")
+        point = wintypes.POINT(rect.left + 100, rect.top + 12)
+        hit = ctypes.c_size_t()
+        packed = (point.x & 0xffff) | ((point.y & 0xffff) << 16)
+        if (api.GetAncestor(api.WindowFromPoint(point), 2) != hwnd
+                or not api.SendMessageTimeoutW(hwnd, 0x84, 0, packed, 2, 250, ctypes.byref(hit))
+                or hit.value != 2):  # WM_NCHITTEST must return HTCAPTION.
+            raise RuntimeError("Game title bar is covered or unavailable; no focus click sent")
+        if not api.SetCursorPos(point.x, point.y):
+            raise RuntimeError("Could not position focus click")
+        try:
+            api.mouse_event(0x0002, 0, 0, 0, 0)
+            api.mouse_event(0x0004, 0, 0, 0, 0)
+        finally:
+            current = wintypes.POINT()
+            if (api.GetCursorPos(ctypes.byref(current))
+                    and (current.x, current.y) == (point.x, point.y)):
+                api.SetCursorPos(saved.x, saved.y)
 
     def list(self) -> list[Window]:
         found: list[Window] = []

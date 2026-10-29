@@ -148,7 +148,11 @@ def main():
     parser.add_argument("--targets", help="comma-separated platform IDs, in order")
     parser.add_argument("--focus", action="store_true",
                         help="Request game focus through the engine before --run")
+    parser.add_argument("--focus-click", action="store_true",
+                        help="Allow one verified title-bar click if API focus fails")
     args = parser.parse_args()
+    if args.focus_click and not args.focus:
+        parser.error("--focus-click requires --focus")
     if args.focus and not args.run:
         parser.error("--focus requires --run; --check remains read-only")
     api = Debugger()
@@ -158,7 +162,7 @@ def main():
                           "targets": targets(status) if not readiness(status) else []}))
         return
     if args.focus:
-        result = api.command("focus_game")
+        result = api.command("focus_game", {"click_fallback": args.focus_click})
         if not result.get("focused"):
             raise RuntimeError("Windows declined game focus; no navigation started")
         deadline = time.monotonic() + 3

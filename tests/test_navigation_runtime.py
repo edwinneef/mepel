@@ -222,7 +222,8 @@ def test_marker_only_move_is_bounded_by_path_and_eight_seconds(app, kind):
 
 def test_focus_game_is_off_only_and_never_sends_gameplay_input(app):
     app.windows.focus = lambda hwnd: True
-    assert app._command("focus_game", {}) == {"focused": True, "input_sent": False}
+    assert app._command("focus_game", {}) == {
+        "focused": True, "input_sent": False, "focus_click_allowed": False}
     assert not app.controller.backend.events
     app.mode = "navigation"
     with pytest.raises(ValueError, match="Stop gameplay"):
