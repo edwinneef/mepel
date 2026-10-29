@@ -65,3 +65,16 @@ it('activates settings only on explicit F7 and never resumes gameplay when closi
   expect(win.focus).toHaveBeenCalledOnce();
   expect(requests.every(request => /\/api\/(stop|overlay)$/.test(request.url))).toBe(true);
 });
+
+it('lets the closed HUD settings button take clicks and opens settings through the lease', async () => {
+  const { win, requests, electron } = await startOverlay();
+  const mouse = electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-mouse')[1];
+  mouse({ sender: win.webContents }, true);
+  expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(false, { forward: true });
+  mouse({ sender: win.webContents }, false);
+  expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true, { forward: true });
+  const settings = electron.ipcMain.handle.mock.calls.find(([name]) => name === 'overlay-settings')[1];
+  await settings({ sender: win.webContents }, true);
+  expect(requests.at(-1).body.panel).toBe(true);
+  expect(win.focus).toHaveBeenCalledOnce();
+});

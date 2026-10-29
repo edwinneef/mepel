@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 let dragging = false, lastInteractive = null;
 const interactiveAt = event => Boolean(document.elementFromPoint(event.clientX, event.clientY)
-  ?.closest('.editing-layout .overlay-panel, .editing-layout .overlay-hud, .editing-layout .terrain-inset, .editing-layout dialog[open]'));
+  ?.closest('.editing-layout .overlay-panel, .editing-layout .overlay-hud, .editing-layout .terrain-inset, .editing-layout dialog[open], .hud-settings'));
 const mouse = interactive => {
   if (interactive === lastInteractive) return;
   lastInteractive = interactive;

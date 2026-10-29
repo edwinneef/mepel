@@ -102,7 +102,8 @@ else app.whenReady().then(async () => {
     ipcMain.on('overlay-paint', event => { if (own(event)) lastPaint = Date.now(); });
     ipcMain.on('overlay-mouse', (event, interactive) => {
       if (own(event) && typeof interactive === 'boolean') {
-        win.setIgnoreMouseEvents(!(panel && interactive), { forward: true });
+        // Closed settings still accept clicks on the HUD's settings button.
+        win.setIgnoreMouseEvents(!interactive, { forward: true });
       }
     });
     ipcMain.handle('overlay-settings', (event, open) => own(event) && settings(Boolean(open)));

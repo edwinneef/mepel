@@ -140,6 +140,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
       style={layout.position('hud', { x: game.x + 14, y: game.y + 14 })}>
       <strong className="panel-drag-handle" {...layout.handlers('hud')}><span className="status-dot" /> BOT {status}{panel && <small>Drag to move</small>}</strong><span>{action.label}</span>
       <small>F6 On/Off · F7 Settings · F8 Stop · F9 Layers</small>
+      {!panel && <button className="hud-settings" onClick={() => void window.mapleOverlay?.settings(true)}>⚙ Settings</button>}
       {state.notice && <p className="overlay-notice">{state.notice}</p>}
       <p>{state.error || (!fresh ? 'Waiting for fresh recognition' : s?.active_probe?.instruction || s?.navigation?.active && s.navigation.reason || s?.reason)}</p>
       <span>{(['hp', 'mp'] as const).map(r => `${r.toUpperCase()} ${s?.autopotter.readings[r]?.percent ?? '—'}%`).join(' · ')}</span>

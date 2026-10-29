@@ -34,4 +34,5 @@ html:has(.native-overlay), body:has(.native-overlay), body:has(.native-overlay) 
 .editing-layout .panel-drag-handle:active { cursor: grabbing; }
 .panel-drag-handle small { font-size: 11px; font-weight: normal; opacity: .7; }
 .overlay-notice { color: #b9e7ce; }
+.hud-settings { margin-top: 6px; pointer-events: auto; }
 .overlay-recording { display: block; margin-top: 6px; color: #ff6b6b; font-weight: 700; }

@@ -211,3 +211,23 @@ it('records a 30 second clip from the Bot tab and shows the countdown while it r
   await waitFor(() => expect(commands.filter(c => c.name === 'record')).toEqual([
     { name: 'record', payload: { seconds: 30 } }, { name: 'record', payload: {} }]));
 });
+
+it('opens settings from the HUD button when hotkeys are swallowed by the game', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    if (String(url).startsWith('/api/v1/frame')) return new Response(new Blob(['image']));
+    if (url === '/api/v1/status') return json(snapshot());
+    const command = JSON.parse(String(options?.body));
+    return json(command.name === 'area_list' ? { areas: [] } : { ok: true });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:frame') });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+  let listener: (event: OverlayEvent) => void = () => {};
+  window.mapleOverlay = { settings: vi.fn(async open => listener({ type: 'panel', value: open })),
+    quit: vi.fn(), heartbeat: vi.fn(), subscribe: callback => { listener = callback; return () => {}; } };
+  render(<OverlayApp client={new OverlayClient('token', fetcher)} />);
+  fireEvent.click(screen.getByRole('button', { name: '⚙ Settings' }));
+  expect(window.mapleOverlay.settings).toHaveBeenCalledWith(true);
+  await waitFor(() => expect(screen.getByRole('region', { name: 'Overlay settings' })).toBeTruthy());
+  expect(screen.queryByRole('button', { name: '⚙ Settings' })).toBeNull();
+});
