@@ -182,3 +182,31 @@ it('selects Bowman probes directly without input and preserves confirmation iden
   fireEvent.click(screen.getByRole('button', { name: 'Reject probe' }));
   await waitFor(() => expect(commands).toContainEqual(expect.objectContaining({ name: 'reject_probe', payload: { id: 7, generation: 3 } })));
 });
+
+it('records a 30 second clip from the Bot tab and shows the countdown while it runs', async () => {
+  const commands: { name: string; payload: unknown }[] = [];
+  let recording = false;
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    if (String(url).startsWith('/api/v1/frame')) return new Response(new Blob(['image']));
+    if (url === '/api/v1/status') return json(snapshot(recording ? { recorder: { full: true, full_remaining: 29.2 } } : {}));
+    const command = JSON.parse(String(options?.body));
+    commands.push({ name: command.name, payload: command.payload });
+    if (command.name === 'record') recording = !recording;
+    return json(command.name === 'area_list' ? { areas: [] } : { ok: true });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:frame') });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), subscribe: () => () => {} };
+  const client = new OverlayClient('token', fetcher);
+  render(<OverlayApp client={client} />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Record 30 s' }).hasAttribute('disabled')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Record 30 s' }));
+  await waitFor(() => expect(commands).toContainEqual({ name: 'record', payload: { seconds: 30 } }));
+  expect(window.mapleOverlay.settings).toHaveBeenCalledWith(false);
+  await act(() => client.readStatus());
+  await waitFor(() => expect(screen.getByText('REC 30 s')).toBeTruthy());
+  fireEvent.click(screen.getByRole('button', { name: 'Stop recording · 30 s left' }));
+  await waitFor(() => expect(commands.filter(c => c.name === 'record')).toEqual([
+    { name: 'record', payload: { seconds: 30 } }, { name: 'record', payload: {} }]));
+});

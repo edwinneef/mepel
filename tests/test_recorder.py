@@ -135,3 +135,18 @@ def test_close_waits_for_the_stopping_frame_and_logs_pre_roll(recorder):
         "00000001",
         "00000002",
     ]
+
+
+def test_timed_full_recording_saves_every_frame_then_stops_by_itself(recorder):
+    path = recorder.start_full(now=0.0, seconds=1.0)
+    assert recorder.snapshot()["full_remaining"] is not None
+    for index, now in enumerate([0.0, 0.5, 0.9]):
+        recorder.observe(f"{index:08d}", b"png", {}, now)
+    recorder.observe("00000003", b"png", {}, 1.0)
+    assert not recorder.active and not recorder.full
+    recorder.observe("00000004", b"png", {}, 1.1)
+    flush(recorder)
+    assert recorder.path is None
+    assert sorted(item.stem for item in path.glob("*.png")) == ["00000000", "00000001", "00000002"]
+    lines = (path / "decisions.jsonl").read_text("utf-8").splitlines()
+    assert json.loads(lines[-1])["frame"] == "00000003.png"

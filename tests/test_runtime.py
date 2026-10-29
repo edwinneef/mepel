@@ -652,6 +652,18 @@ def test_dry_run_auto_records_and_stop_flushes_clip(app):
     assert "Operator stopped" in (path / "events.jsonl").read_text("utf-8")
 
 
+def test_record_with_seconds_starts_timed_full_recording_and_toggles_off(app):
+    for seconds in (0, -1, 601, "30", True):
+        with pytest.raises(ValueError, match="between 0 and 600"):
+            app._command("record", {"seconds": seconds})
+    assert not app.recorder.active
+    result = app._command("record", {"seconds": 30})
+    assert result["recording"] and app.recorder.full
+    assert 29 < app.recorder.snapshot()["full_remaining"] <= 30
+    assert app._command("record", {})["recording"] is False
+    assert not app.recorder.active and app.recorder.snapshot()["full_remaining"] is None
+
+
 def test_safe_stop_releases_before_one_clip_status_and_alarm(app, monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(

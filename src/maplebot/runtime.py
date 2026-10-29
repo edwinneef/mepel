@@ -1370,13 +1370,13 @@ class Application:
             return {"path": self._save()}
         if name == "record":
             if self.recorder.full:
-                path = self.recorder.path
-                self.recorder.full = False
-                if self.recorder.manual:
-                    self.recorder.stop()
-                return {"path": str(path), "recording": False}
-            path = self.recorder.start("manual", manual=True)
-            self.recorder.full = True
+                return {"path": str(self.recorder.stop_full()), "recording": False}
+            seconds = payload.get("seconds")
+            if seconds is not None and (
+                isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not 0 < seconds <= 600
+            ):
+                raise ValueError("Recording length must be between 0 and 600 seconds")
+            path = self.recorder.start_full(time.perf_counter(), seconds)
             return {"path": str(path), "recording": True}
         if name == "clip":
             return {"path": str(self.recorder.trigger("Operator saved clip", time.perf_counter()))}
