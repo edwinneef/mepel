@@ -137,9 +137,19 @@ class Check:
         self.started = False
 
     def status(self, *, settled=False, allow_rope=False):
+        deadline = self.clock() + .25
         value = self.api.status()
-        if problem := blocker(value, self.profile, session=self.session, settled=settled,
-                              allow_rope=allow_rope):
+        while problem := blocker(value, self.profile, session=self.session, settled=settled,
+                                  allow_rope=allow_rope):
+            position = value.get("position") or {}
+            # Status is paired with an asynchronously encoded PNG. Wait for its next
+            # fresh pair without issuing/renewing any input; runtime still owns dispatch.
+            if (problem == "Park minimap/position is missing, stale or unconfirmed"
+                    and position.get("stale") and not position.get("held")
+                    and self.clock() < deadline):
+                self.sleep(.03)
+                value = self.api.status()
+                continue
             raise RuntimeError(problem)
         return value
 
@@ -245,10 +255,8 @@ def run(api, profile, output: Path, *, clock=time.monotonic, sleep=time.sleep) -
     began = clock()
     test_started = None
     try:
-        initial = api.status()
+        initial = runner.status(settled=True)
         result["before"] = compact(initial)
-        if problem := blocker(initial, profile):
-            raise RuntimeError(problem)
         runner.session = initial["session_id"]
         if problem := start_spot(initial, profile):
             raise RuntimeError(problem)

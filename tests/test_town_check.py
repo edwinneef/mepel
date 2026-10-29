@@ -159,6 +159,35 @@ def test_empty_or_current_route_cannot_pass(profile):
     assert not api.calls
 
 
+def test_png_pair_wait_never_sends_input_or_accepts_a_stale_position(profile):
+    api = Api(profile)
+    stale = status(profile)
+    stale["position"].update(stale=True, marker=None)
+    api.pending = [stale, status(profile)]
+    check = town.Check(api, profile, sleep=lambda _: None)
+    assert check.status()["position"]["stale"] is False
+    assert not api.calls
+
+
+def test_png_pair_wait_still_refuses_focus_loss_and_persistent_staleness(profile):
+    api = Api(profile)
+    stale = status(profile)
+    stale["position"].update(stale=True, marker=None)
+    lost = status(profile)
+    lost["focused"] = False
+    api.pending = [stale, lost]
+    check = town.Check(api, profile, sleep=lambda _: None)
+    with pytest.raises(RuntimeError, match="not focused"):
+        check.status()
+    api.value = stale
+    ticks = [0.0]
+    check = town.Check(api, profile, clock=lambda: ticks[0],
+                       sleep=lambda seconds: ticks.__setitem__(0, ticks[0] + seconds))
+    with pytest.raises(RuntimeError, match="stale"):
+        check.status()
+    assert ticks[0] <= .28 and not api.calls
+
+
 @pytest.mark.parametrize("change", ["focus", "map", "frame"])
 def test_route_loss_stops_and_retains_failure_clip(profile, change):
     api = Api(profile)
