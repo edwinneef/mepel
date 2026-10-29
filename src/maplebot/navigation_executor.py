@@ -229,10 +229,17 @@ class Navigator:
             if not target_rope and abs(f.feet[1] - edge.landing[1]) <= 16:
                 if abs(f.feet[0] - edge.landing[0]) > 12:
                     return self._walk(f.feet[0], edge.landing[0])
+            # Still on the launch floor below the rope: the takeoff chord can be dropped
+            # while a walk pulse is in flight, and plain "up" cannot reach an overhead rope.
+            grab = (f.surface == edge.source and edge.landing[1] < f.feet[1]
+                    and edge.source not in {p["id"] for p in self.graph.profile["ropes"]})
+            jump = (KeyHold("jump", min(.06, self.pulse), MIN_CHORD_LEAD_SECONDS),)
             if abs(f.feet[0] - rope_x) > 12:
                 return Motion((KeyHold("right" if rope_x > f.feet[0] else "left", self.pulse),
                                KeyHold("up" if edge.landing[1] < f.feet[1] else "down",
-                                       self.pulse)))
+                                       self.pulse)) + (jump if grab else ()))
+            if grab:
+                return Motion((KeyHold("up", self.pulse),) + jump)
             return Motion(vertical="up" if edge.landing[1] < f.feet[1] else "down")
         if abs(f.feet[0] - edge.landing[0]) > 12:
             direction = edge.landing[0] - edge.launch[0]

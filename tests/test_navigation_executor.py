@@ -91,6 +91,31 @@ def test_rope_proximity_without_vertical_progress_cannot_confirm_grip():
     assert nav.stage == "stopped"
 
 
+def test_dropped_rope_grab_chord_is_repeated_from_the_launch_floor():
+    profile, _ = fixture()
+    profile["ropes"] = [{"id": "rope", "start": {"x": 150, "y": 250},
+                         "end": {"x": 150, "y": 400}}]
+    profile["links"] = [{"id": key, "from": a, "to": b, "kind": "climb"}
+                        for key, a, b in (("up", "floor", "rope"), ("back", "rope", "floor"))]
+    evidence = {"area_id": profile["id"], "revision": 4, "map_hash": map_hash(profile),
+                "edges": {key: {**link, "source": "session", "missing_checks": 0, "max_gap": .2,
+                                "trace": trace}
+                          for key, link, trace in (
+                              ("up", profile["links"][0], [[150, 400], [150, 380], [150, 350]]),
+                              ("back", profile["links"][1], [[150, 350], [150, 400]]))}}
+    graph = RouteMap(profile, evidence)
+    nav = Navigator(graph, graph.plan("floor", "rope"), 0)
+    f = Feedback(0, graph.fingerprint, (150, 400), "floor", True)
+    for now in (0, .2, .4, .6):  # the .6 takeoff chord is lost behind a running walk pulse
+        nav.step(replace(f, now=now))
+    assert nav.stage == "flight"
+    aligned = nav.step(replace(f, now=.8, feet=(158, 400)))
+    assert [hold.action for hold in aligned.holds] == ["up", "jump"]
+    offset = nav.step(replace(f, now=1, feet=(170, 400)))
+    assert [hold.action for hold in offset.holds] == ["left", "up", "jump"]
+    assert nav.step(replace(f, now=1.2, feet=(150, 380), surface=None)).vertical == "up"
+
+
 def test_rope_to_platform_approaches_recorded_height_before_entering_its_corridor():
     profile, evidence = fixture()
     graph = RouteMap(profile, evidence)
