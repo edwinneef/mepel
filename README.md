@@ -258,9 +258,11 @@ See [town movement checks](docs/town-validation.md) for the bounded Mushroom Par
 .venv\Scripts\python.exe tools\input_smoke.py
 .venv\Scripts\python.exe tools\synthetic_benchmark.py
 .venv\Scripts\python.exe tools\benchmark_catalog.py
+.venv\Scripts\python.exe tools\perception_benchmark.py --write artifacts\perception\golden.jsonl
+.venv\Scripts\python.exe tools\perception_benchmark.py --compare artifacts\perception\golden.jsonl
 ```
 
-The two native smoke tools create and close their own temporary windows. Input smoke sends keys only while its own window is foreground. The synthetic benchmark creates its own generated sprite images, labels and metrics under `artifacts/synthetic`; these are **not MapleUnity accuracy results**. The catalog benchmark composites every cached pose in both directions; optional `--negatives path1.png path2.png` evaluates screenshots you explicitly identify as containing no enemies. Its results under `artifacts/catalog-benchmark` measure reference self-consistency, not native gameplay accuracy. `tools/debugger_smoke.py` starts a temporary synthetic capture/debugger on port 8766 after generating that dataset; it never arms game input.
+The two native smoke tools create and close their own temporary windows. Input smoke sends keys only while its own window is foreground. The synthetic benchmark creates its own generated sprite images, labels and metrics under `artifacts/synthetic`; these are **not MapleUnity accuracy results**. The catalog benchmark composites every cached pose in both directions; optional `--negatives path1.png path2.png` evaluates screenshots you explicitly identify as containing no enemies. Its results under `artifacts/catalog-benchmark` measure reference self-consistency, not native gameplay accuracy. The perception benchmark replays saved clips and screenshots in recorded order and times each detector call; `--write` saves its outputs and `--compare` fails on any changed player, monster or failure result, so recognition speed-ups can be checked offline. `--composite "<map name>"` pastes that map's catalog sprites into a recorded clip to time monster search. `tools/debugger_smoke.py` starts a temporary synthetic capture/debugger on port 8766 after generating that dataset; it never arms game input.
 
 ## Files and boundaries
 
