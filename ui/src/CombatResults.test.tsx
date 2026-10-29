@@ -107,7 +107,8 @@ it('wires passive evidence from engine status into the Bot panel without gamepla
   });
   vi.stubGlobal('fetch', fetcher);
   vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:frame'), revokeObjectURL: vi.fn() });
-  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), subscribe: () => () => {} };
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
+    subscribe: callback => { callback({ type: 'panel', value: true }); return () => {}; } };
   render(<OverlayApp client={new OverlayClient('token', fetcher)} />);
   await waitFor(() => expect(screen.getByText('HP: Bar gain observed · potion recovery unverified')).toBeTruthy());
   expect(screen.getByText('BOT OFF')).toBeTruthy();

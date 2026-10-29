@@ -7,7 +7,7 @@ const port = Number(process.env.MAPLEBOT_PORT || 8765);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid engine port');
 const base = `http://127.0.0.1:${port}`;
 const owner = randomUUID();
-let win, token, panel = true, quitting = false, lastPaint = 0, polling = false;
+let win, token, panel = false, quitting = false, lastPaint = 0, polling = false;
 let session = null, lastBounds = '', transition = false;
 function desktopBounds() {
   const displays = screen.getAllDisplays().map(display => display.bounds);
@@ -88,7 +88,7 @@ else app.whenReady().then(async () => {
     if (!token) throw new Error('Start the MapleBot engine before opening the overlay.');
     await stop();
     const area = desktopBounds();
-    win = new BrowserWindow({ ...area, transparent: true, frame: false, show: false,
+    win = new BrowserWindow({ ...area, transparent: true, frame: false, show: false, focusable: false,
       alwaysOnTop: true, skipTaskbar: false, title: 'Maple Overlay',
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), sandbox: true,
         contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
@@ -129,7 +129,7 @@ else app.whenReady().then(async () => {
     // DWM must know the visible layered window before the engine can verify affinity.
     win.showInactive();
     win.setContentProtection(true);
-    await settings(true);
+    await settings(false); // Startup leaves the game focused; F7 explicitly opens settings.
     if (process.env.MAPLEBOT_OVERLAY_DIAGNOSTICS) {
       const directory = path.resolve(process.env.MAPLEBOT_OVERLAY_DIAGNOSTICS);
       setTimeout(async () => {

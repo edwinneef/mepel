@@ -8,6 +8,26 @@ import { json, snapshot } from './test-fixtures';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); delete window.mapleOverlay; });
 
+it('keeps settings closed until the native overlay explicitly opens them', async () => {
+  let listener: (event: OverlayEvent) => void = () => {};
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    if (url === '/api/v1/status') return json(snapshot());
+    const command = JSON.parse(String(options?.body));
+    return json(command.name === 'area_list' ? { areas: [] } : { ok: true });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
+    subscribe: callback => { listener = callback; return () => {}; } };
+  const client = new OverlayClient('token', fetcher);
+  render(<OverlayApp client={client} />);
+  await waitFor(() => expect(client.getState().connected).toBe(true));
+  expect(screen.queryByLabelText('Overlay settings')).toBeNull();
+  expect(screen.getByText('BOT OFF')).toBeTruthy();
+  act(() => listener({ type: 'panel', value: true }));
+  expect(screen.getByLabelText('Overlay settings')).toBeTruthy();
+  expect(window.mapleOverlay.settings).not.toHaveBeenCalled();
+});
+
 it('uses the fast drawing stream without replacing authoritative observations or reviving them on loss', async () => {
   let listener: (event: OverlayEvent) => void = () => {};
   const authoritative = snapshot();
@@ -25,7 +45,7 @@ it('uses the fast drawing stream without replacing authoritative observations or
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:frame') });
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
   window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
-    subscribe: callback => { listener = callback; return () => {}; } };
+    subscribe: callback => { listener = callback; callback({ type: 'panel', value: true }); return () => {}; } };
   const client = new OverlayClient('token', fetcher);
   render(<OverlayApp client={client} />);
   await waitFor(() => expect(client.getState().connected).toBe(true));
@@ -53,7 +73,7 @@ it('draws the early detection packet and never falls back to old boxes after inv
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:frame') });
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
   window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
-    subscribe: callback => { listener = callback; return () => {}; } };
+    subscribe: callback => { listener = callback; callback({ type: 'panel', value: true }); return () => {}; } };
   const client = new OverlayClient('token', fetcher);
   render(<OverlayApp client={client} />);
   await waitFor(() => expect(client.getState().connected).toBe(true));
@@ -85,7 +105,8 @@ it('opens Off, loads map choices without colliding, and selects an activity with
   vi.stubGlobal('fetch', fetcher);
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:frame') });
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
-  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), subscribe: () => () => {} };
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
+    subscribe: callback => { callback({ type: 'panel', value: true }); return () => {}; } };
   render(<OverlayApp client={new OverlayClient('token', fetcher)} />);
   await waitFor(() => expect(screen.getByRole('option', { name: 'Saved map' })).toBeTruthy());
   expect(screen.getByText('BOT OFF')).toBeTruthy();
@@ -111,7 +132,8 @@ it('handles F6 with settings open and shows an immediate engine stop reason', as
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:frame') });
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
   window.mapleOverlay = { settings: vi.fn(async open => listener({ type: 'panel', value: open })),
-    quit: vi.fn(), heartbeat: vi.fn(), subscribe: callback => { listener = callback; return () => {}; } };
+    quit: vi.fn(), heartbeat: vi.fn(),
+    subscribe: callback => { listener = callback; callback({ type: 'panel', value: true }); return () => {}; } };
   render(<OverlayApp client={new OverlayClient('token', fetcher)} />);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Turn On · F6' }).hasAttribute('disabled')).toBe(false));
   act(() => listener({ type: 'toggle' }));
@@ -138,7 +160,8 @@ it('selects Bowman probes directly without input and preserves confirmation iden
   vi.stubGlobal('fetch', fetcher);
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:frame') });
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
-  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), subscribe: () => () => {} };
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
+    subscribe: callback => { callback({ type: 'panel', value: true }); return () => {}; } };
   const client = new OverlayClient('token', fetcher);
   render(<OverlayApp client={client} />);
   await screen.findByRole('button', { name: 'attack' });

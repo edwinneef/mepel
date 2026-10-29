@@ -21,7 +21,7 @@ import './overlay.css';
 export function OverlayApp({ client }: { client: OverlayClient }) {
   const state = useSyncExternalStore(client.subscribe, client.getState);
   const s = state.snapshot;
-  const [panel, setPanel] = useState(true);
+  const [panel, setPanel] = useState(false);
   const [gameBounds, setGameBounds] = useState<(Rect & { visible: boolean }) | null>(null);
   const layout = useOverlayLayout(panel);
   const [tab, setTab] = useState('Bot');
