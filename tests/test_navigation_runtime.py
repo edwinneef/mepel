@@ -278,3 +278,16 @@ def test_capture_only_cannot_start_an_edge_step(app):
     with pytest.raises(ValueError, match="Capture-only"):
         app._command("nav_edge", {"opt_in": True})
     assert app.controller.backend.events == []
+
+
+def test_search_strip_follows_an_active_edge_step_only(app):
+    from maplebot.navigation_executor import EdgeStep
+    nav = preview(app)
+    assert nav.search_strip(1366) is None
+    nav.agent = EdgeStep(nav.graph, time.perf_counter())
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (450, 400), None, False)
+    assert nav.search_strip(1366) == (886, 1366)
+    nav.feedback = replace(nav.feedback, feet=(120, 400))
+    assert nav.search_strip(1366) == (0, 480)
+    nav.agent.stop("done")
+    assert nav.search_strip(1366) is None

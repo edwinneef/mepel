@@ -14,6 +14,8 @@ from .scheduler import SUSTAIN
 # While airborne the camera moves faster than its shift estimate and the minimap marker
 # moves in ~15 px steps, so marker and name tag can briefly disagree mid-jump.
 FLIGHT_GRACE_SECONDS = 0.8
+# Screen width searched beside a map end during an edge step; covers the walk-in band.
+EDGE_STRIP = 480
 # Stops that blame the move itself; focus, feedback or budget stops do not.
 MOVE_FAILURES = ("Movement departed the recorded corridor", "Landing overshoot",
                  "Departure not observed", "Edge deadline exhausted",
@@ -255,6 +257,22 @@ class NavigationRuntime:
                                  motion, max(0, time.perf_counter() - now),
                                  self.app._input_block_reason() is None
                                  if not self.app.capture_only else False)
+
+    def search_strip(self, width: int) -> tuple[int, int] | None:
+        """Screen columns that can hold the player during an edge step, else None.
+
+        The camera clamps at a map end, so a marker at the right end means the player is
+        at the right of the screen. Searching only there keeps frames inside the 0.5 s
+        freshness limit while the name tag is missing.
+        """
+        f, agent = self.feedback, self.agent
+        if not isinstance(agent, EdgeStep) or not agent.active or not f or f.feet is None:
+            return None
+        side = agent.direction or agent.side(f.feet[0])
+        if side is None:
+            return None
+        return (max(0, width - EDGE_STRIP), width) if side == "left" else (0, min(width,
+                                                                              EDGE_STRIP))
 
     def trusted(self) -> bool:
         """Fresh agreeing feedback, or a brief marker-only stretch while moving.

@@ -527,3 +527,17 @@ def test_player_only_search_skips_monsters(tmp_path):
     result = TemplateDetector(tmp_path, PerceptionConfig()).detect(image, monsters=False)
     assert result.player is not None and result.player.box == Rect(20, 90, 24, 28)
     assert result.monsters == []
+
+
+def test_edge_strip_limits_the_whole_frame_search_and_keeps_frame_coordinates(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag, player_size=[30, 50])
+    frame = scenery()
+    frame[150:163, 240:300] = tag
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    detector.strip = (200, 320)
+    found = detector.detect(frame, monsters=False).player
+    assert found is not None and 240 <= found.box.center[0] <= 300
+    other = TemplateDetector(tmp_path, PerceptionConfig())
+    other.strip = (0, 120)
+    assert other.detect(frame, monsters=False).player is None

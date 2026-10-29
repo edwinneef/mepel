@@ -1659,6 +1659,8 @@ class Application:
         captured_at = time.time() if captured_at is None else captured_at
         fix = self.position.read_map(image) if self.position is not None else None
         self.detector.taught_map = bool(fix and fix.canvas)
+        self.detector.strip = (self.navigation.search_strip(image.shape[1])
+                               if self.mode in {"navigation", "navigation_wait"} else None)
         # Moving between platforms and idle map tracking never target a monster;
         # skipping that search keeps position fresh enough to start a route.
         # Combat and dry runs always search.

@@ -172,6 +172,9 @@ class TemplateDetector:
         # Together with the player track they mark pixels that may cover a sprite.
         self.previous_monsters: tuple[Rect, ...] = ()
         self.origin = (0, 0)
+        # Columns (x0, x1) that replace the whole-frame fallback while the minimap marker
+        # pins the player to one screen edge; thresholds are unchanged.
+        self.strip: tuple[int, int] | None = None
         self.occluders: tuple[Rect, ...] = ()
         self.zones = np.zeros((1, 1), dtype=np.uint8)
         self.zone_sums = cv2.integral(self.zones)
@@ -818,7 +821,7 @@ class TemplateDetector:
         window = self._window(image, player_only=player_only)
         self.origin = (0, 0)
         if window is None:
-            return self._observe(image, now, templates, floor)
+            return self._observe_full(image, now, templates, floor)
         saved = self.track
         assert saved is not None
         local = (saved[0].translated(-window.x, -window.y), saved[1], saved[2])
@@ -829,7 +832,7 @@ class TemplateDetector:
         self.origin = (0, 0)
         if player is None:
             self.track = saved  # Lost inside the window: search the whole frame.
-            return self._observe(image, now, templates, floor)
+            return self._observe_full(image, now, templates, floor)
         if self.track is not None:
             box, confirmed, seen = self.track
             self.track = (box.translated(window.x, window.y), confirmed, seen)
@@ -838,6 +841,32 @@ class TemplateDetector:
             return replace(item, box=item.box.translated(window.x, window.y))
 
         return shifted(player), [shifted(item) for item in monsters], failures, tag_confidence
+
+    def _observe_full(
+        self, image: Image, now: float, templates: list[Template], floor: float
+    ) -> tuple[Detection | None, list[Detection], list[str], float]:
+        """The whole frame, or only the strip the minimap marker leaves possible."""
+        if self.strip is None:
+            return self._observe(image, now, templates, floor)
+        x0, x1 = max(0, self.strip[0]), min(image.shape[1], self.strip[1])
+        if x1 - x0 <= 0:
+            return self._observe(image, now, templates, floor)
+        if self.track is not None:
+            box, confirmed, seen = self.track
+            self.track = (box.translated(-x0, 0), confirmed, seen)
+        self.origin = (x0, 0)
+        player, monsters, failures, tag_confidence = self._observe(
+            image[:, x0:x1], now, templates, floor)
+        self.origin = (0, 0)
+        if self.track is not None:
+            box, confirmed, seen = self.track
+            self.track = (box.translated(x0, 0), confirmed, seen)
+
+        def shifted(item: Detection) -> Detection:
+            return replace(item, box=item.box.translated(x0, 0))
+
+        return (shifted(player) if player else None,
+                [shifted(item) for item in monsters], failures, tag_confidence)
 
     def _observe(
         self, image: Image, now: float, templates: list[Template], floor: float
