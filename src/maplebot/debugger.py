@@ -141,6 +141,9 @@ def serve(
                         "OPERATOR_STOP",
                         "Bot restart requested" if restarting else "Server shutdown requested",
                     )
+                    # A peer can disconnect while the acknowledgement is being written.
+                    # Once input is stopped, process shutdown must not depend on that write.
+                    callback()
                     self.reply(
                         200,
                         json.dumps({
@@ -149,7 +152,6 @@ def serve(
                         }).encode(),
                         "application/json",
                     )
-                    callback()
                     return
                 elif command == "acknowledge":
                     result = app.acknowledge_stop(payload.get("incident_id"), require_id=True)

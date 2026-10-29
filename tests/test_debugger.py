@@ -258,6 +258,28 @@ def test_shutdown_releases_keys_then_signals_process_exit():
         server.server_close()
 
 
+def test_shutdown_signal_survives_a_disconnected_acknowledgement(monkeypatch):
+    app = RestartApp()
+    stopped = threading.Event()
+    server = serve(app, 0, on_shutdown=stopped.set)
+    reply = server.RequestHandlerClass.reply
+
+    def disconnected(handler, code, body, kind):
+        if b'"stopping": true' in body:
+            raise BrokenPipeError("Client disconnected")
+        return reply(handler, code, body, kind)
+
+    monkeypatch.setattr(server.RequestHandlerClass, "reply", disconnected)
+    try:
+        _, page = request(server, "GET", "/legacy")
+        token = re.search(r"const token='([^']+)'", page)[1]
+        request(server, "POST", "/api/shutdown_bot", token)
+        assert stopped.wait(1) and not app.held
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 @pytest.mark.parametrize("available,token", [(True, "invalid"), (False, None)])
 def test_shutdown_rejects_invalid_tokens_and_missing_supervision(available, token):
     app = RestartApp()

@@ -168,6 +168,29 @@ def test_rope_launch_height_overshoot_keeps_the_route_direction(
     assert nav.stage == "flight"
 
 
+def test_rope_approach_brakes_before_takeoff_instead_of_jumping_with_horizontal_motion():
+    profile, evidence = fixture()
+    graph = RouteMap(profile, evidence)
+    graph.profile["ropes"] = [{"id": "rope", "start": {"x": 250, "y": 250},
+                               "end": {"x": 250, "y": 400}}]
+    graph.nodes["rope"] = graph.profile["ropes"][0]
+    edge = Edge("up", "floor", "rope", "climb", (250, 400), (250, 350),
+                ((250, 400), (250, 350)), "saved")
+    route = Route(profile["id"], 4, graph.fingerprint, "floor", "rope", (edge,))
+    nav = Navigator(graph, route, 0)
+    nav.stage = "approach"
+    f = Feedback(.2, graph.fingerprint, (207, 400), "floor", True)
+    braking = nav.step(f)  # Recorded pre-launch distance: 43 pixels.
+    assert braking.horizontal is None and [h.action for h in braking.holds] == ["right"]
+    assert braking.holds[0].seconds <= .06
+    for now, x in ((.4, 240), (.6, 250), (.8, 250)):
+        assert nav.step(replace(f, now=now, feet=(x, 400))).release
+        assert nav.stage == "approach"
+    takeoff = nav.step(replace(f, now=1, feet=(250, 400)))
+    assert nav.stage == "flight" and takeoff.vertical == "up"
+    assert takeoff.horizontal is None and [h.action for h in takeoff.holds] == ["jump"]
+
+
 def edge_step(feet=(450, 400)):
     profile, evidence = fixture()
     graph = RouteMap(profile, evidence)

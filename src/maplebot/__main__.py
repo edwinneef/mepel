@@ -5,6 +5,19 @@ from pathlib import Path
 from .config import Config
 
 
+def _shutdown(app, server) -> None:
+    # Release input before waiting on HTTP or background-resource cleanup.
+    app.controller.stop("Application closing", notify=False)
+    app.closed.set()
+    try:
+        server.shutdown()
+    finally:
+        try:
+            server.server_close()
+        finally:
+            app.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Screenshot-only external MapleStory agent")
     parser.add_argument("--config", type=Path, default=Path("config.toml"))
@@ -197,7 +210,6 @@ def main() -> None:
         app, config.debugger.port,
         on_restart=restart_requested.set, on_shutdown=app.closed.set,
     )
-    app.start()
     input_status = (
         "capture-only: keyboard output locked" if args.capture_only else "gameplay input disabled"
     )
@@ -206,14 +218,13 @@ def main() -> None:
         flush=True,
     )
     try:
+        app.start()
         while not restart_requested.is_set() and not app.closed.wait(0.25):
             pass
     except KeyboardInterrupt:
         pass
     finally:
-        app.close()
-        server.shutdown()
-        server.server_close()
+        _shutdown(app, server)
     if restart_requested.is_set():
         # os.execv on Windows leaves the old process running and holding the port, so start
         # the replacement ourselves (the socket is already closed) and end this process.

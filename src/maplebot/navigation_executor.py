@@ -92,9 +92,9 @@ class Navigator:
         self.last_feet = feedback.feet
         return self.settle_since is not None and feedback.now - self.settle_since >= .3
 
-    def _walk(self, x: float, target: float) -> Motion:
+    def _walk(self, x: float, target: float, *, precision: float = 32) -> Motion:
         direction = "right" if target > x else "left"
-        if abs(target - x) > 32:
+        if abs(target - x) > precision:
             return Motion(horizontal=direction)
         return Motion((KeyHold(direction, min(.06, self.pulse)),))
 
@@ -172,7 +172,13 @@ class Navigator:
                 if self.graph.path_blocker((f.feet, edge.launch)):
                     return self.stop("Approach crosses a boundary or excluded zone")
                 self.last_feet = f.feet
-                return self._walk(f.feet[0], edge.launch[0])
+                self.settle_since = self.settle_surface = None
+                return self._walk(f.feet[0], edge.launch[0],
+                                  precision=64 if edge.kind == "climb" else 32)
+            if edge.kind == "climb" and not rope:
+                if f.surface != origin or not self._settled(f, origin):
+                    self.reason = "Braking at rope launch; waiting for settled origin"
+                    return Motion(release=True)
             self.stage, self.takeoff_at = "flight", f.now
             self.reason = "Following observed movement"
             self.departed, self.settle_since = False, None
