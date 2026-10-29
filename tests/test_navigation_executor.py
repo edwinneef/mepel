@@ -82,7 +82,8 @@ def test_rope_proximity_without_vertical_progress_cannot_confirm_grip():
     f = Feedback(0, graph.fingerprint, (150, 400), "floor", True)
     for now in (0, .2, .4):
         nav.step(replace(f, now=now))
-    assert nav.step(replace(f, now=.6)).vertical == "up"
+    grab = nav.step(replace(f, now=.6))
+    assert [hold.action for hold in grab.holds] == ["up", "jump"]
     for now in (.8, 1, 1.2):
         nav.step(replace(f, now=now, feet=(150, 380), surface=None))
     assert nav.active and nav.completed == 0

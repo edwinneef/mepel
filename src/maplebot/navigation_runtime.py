@@ -93,6 +93,9 @@ class NavigationRuntime:
             controls.update({"jump"} if edge.kind == "jump" else
                             {"jump", "down"} if edge.kind == "drop" else
                             {"up", "down"} if edge.kind == "climb" else set())
+            if (edge.kind == "climb" and edge.landing[1] < edge.launch[1]
+                    and edge.source not in {r["id"] for r in self.graph.profile["ropes"]}):
+                controls.add("jump")
         missing = controls - app.probed
         if missing:
             return "Verify navigation controls: " + ", ".join(sorted(missing))

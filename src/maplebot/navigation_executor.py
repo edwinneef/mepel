@@ -167,6 +167,10 @@ class Navigator:
                         holds.append(KeyHold("jump", min(.06, self.pulse),
                                              MIN_CHORD_LEAD_SECONDS))
                     return Motion(tuple(holds))
+                if not rope and edge.landing[1] < f.feet[1]:
+                    return Motion((KeyHold("up", self.pulse),
+                                   KeyHold("jump", min(.06, self.pulse),
+                                           MIN_CHORD_LEAD_SECONDS)))
                 return Motion(vertical="up" if edge.landing[1] < f.feet[1] else "down")
             direction = "right" if edge.landing[0] > f.feet[0] else "left"
             holds = [KeyHold(direction, self.pulse)]
