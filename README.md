@@ -78,7 +78,8 @@ for an input-capable session). It stops the engine through its own API, waits fo
 port to close, closes `run.ps1` windows that no longer host it, and opens one new
 window. Do not restart by starting `run.ps1` again from a script: each launcher window
 stays open (`-NoExit`) after its engine stops, so repeated restarts pile up empty
-terminals.
+terminals. To turn the bot off, `tools/restart_engine.ps1 -StopOnly` does the same
+shutdown and window cleanup without starting a new engine.
 
 ## Prepare MapleUnity
 

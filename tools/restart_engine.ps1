@@ -1,5 +1,7 @@
 param(
     [switch]$EnableGameplayInput,
+    # Shut the engine down and close its launcher windows without starting a new one.
+    [switch]$StopOnly,
     [int]$Port = 8765
 )
 
@@ -7,6 +9,7 @@ param(
 # restart leaves every previous -NoExit launcher window open, so this script shuts the
 # engine down through its own API and closes run.ps1 launchers that no longer host it.
 # Input-capable sessions start the elevated MapleBot task (tools/install_elevated_task.ps1).
+# -StopOnly stops there, turning the bot off.
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -36,6 +39,12 @@ foreach ($launcher in $launchers) {
     if (-not $python) {
         try { Stop-Process -Id $launcher.ProcessId -Confirm:$false } catch { }
     }
+}
+
+if ($StopOnly) {
+    # The elevated task's window closes by itself once its engine has stopped.
+    [pscustomobject]@{ stopped = $true; url = $base } | ConvertTo-Json -Compress
+    return
 }
 
 if ($EnableGameplayInput -and (Get-ScheduledTask -TaskName 'MapleBot' -ErrorAction SilentlyContinue)) {
