@@ -804,6 +804,7 @@ def test_stop_reason_registry_classifies_every_declared_safety_path():
         "CALIBRATION_INVALID",
         "PLAYER_UNCERTAIN",
         "DEBUGGER_TIMEOUT",
+        "FARMING_STOP",
     }
     silent = {
         "EMERGENCY_STOP",

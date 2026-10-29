@@ -71,6 +71,25 @@ def targets(status: dict) -> list[str]:
             if n["kind"] == "platform" and not n["excluded"] and n["id"] != here]
 
 
+def all_routes(status: dict) -> list[str]:
+    """Exercise every ordered platform pair, including the return to the origin."""
+    here = (status.get("position") or {}).get("surface_id")
+    nodes = [n["id"] for n in status["navigation"]["map"]["nodes"]
+             if n["kind"] == "platform" and not n["excluded"]]
+    if here not in nodes or len(nodes) < 2:
+        raise ValueError("All-routes check needs a known origin and two platforms")
+    queue = []
+    for origin in nodes:
+        for target in nodes:
+            if target == origin:
+                continue
+            if here != origin:
+                queue.append(origin)
+            queue.append(target)
+            here = target
+    return queue
+
+
 def compact(status: dict) -> dict:
     nav = status.get("navigation") or {}
     return {"mode": status.get("mode"), "stage": nav.get("stage"), "reason": nav.get("reason"),
@@ -145,6 +164,8 @@ def main():
     mode.add_argument("--check", action="store_true")
     mode.add_argument("--run", action="store_true")
     parser.add_argument("--routes", type=int, default=6, help="at most this many routes")
+    parser.add_argument("--all-routes", action="store_true",
+                        help="Exercise every ordered pair of non-excluded platforms")
     parser.add_argument("--targets", help="comma-separated platform IDs, in order")
     parser.add_argument("--focus", action="store_true",
                         help="Request game focus through the engine before --run")
@@ -172,8 +193,12 @@ def main():
             time.sleep(.1)
     output = (Path(__file__).resolve().parents[1] / "artifacts" / "navigation-checks"
               / time.strftime("%Y%m%d-%H%M%S"))
-    result = run(api, output, limit=max(1, args.routes),
-                 chosen=args.targets.split(",") if args.targets else None)
+    if args.all_routes and args.targets:
+        parser.error("--all-routes cannot be combined with --targets")
+    chosen = all_routes(api.status()) if args.all_routes else (
+        args.targets.split(",") if args.targets else None)
+    result = run(api, output, limit=len(chosen) if args.all_routes else max(1, args.routes),
+                 chosen=chosen)
     print(json.dumps({"evidence": str(output / "result.json"), "arrived": result["arrived"],
                       "routes": len(result["routes"]), "failure": result["failure"],
                       "proven_after": result["proven_after"]}))

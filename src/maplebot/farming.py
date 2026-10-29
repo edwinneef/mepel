@@ -7,7 +7,10 @@ class Farming:
     def __init__(self, settings: dict) -> None:
         if not isinstance(settings, dict):
             raise ValueError("Farming settings must be an object")
-        self.settings = {}
+        self.pet_recovery = settings.get("pet_recovery", True)
+        if not isinstance(self.pet_recovery, bool):
+            raise ValueError("farming.pet_recovery must be boolean")
+        self.settings = {"pet_recovery": self.pet_recovery}
         for name, default, lower, upper in (
             ("session_minutes", 15, 1, 120),
             ("hp_threshold", 50, 1, 95),
@@ -16,6 +19,9 @@ class Farming:
             ("feed_seconds", None, 1, 3600),
         ):
             value = settings.get(name, default)
+            if name == "feed_seconds" and value is None:
+                self.settings[name] = None
+                continue
             if (isinstance(value, bool) or not isinstance(value, (int, float))
                     or not math.isfinite(value) or not lower <= value <= upper):
                 raise ValueError(f"farming.{name} must be between {lower} and {upper}")
@@ -27,7 +33,9 @@ class Farming:
 
     def start(self, now: float) -> None:
         self.started = now
-        self.next_feed = now + self.settings["feed_seconds"]
+        interval = self.settings["feed_seconds"]
+        self.next_feed = now + interval if interval is not None else None
+        self.last_progress = now
         self.low_since.clear()
 
     def check(self, now: float, readings: dict, safe: bool) -> str | None:
@@ -51,6 +59,16 @@ class Farming:
                     return f"{resource.upper()} recovery failed; check pet and potions"
             else:
                 self.low_since.pop(resource, None)
+        return None
+
+    def progress(self, now: float, *, active: bool) -> str | None:
+        """Bound silent combat waits by elapsed time, independent of capture FPS."""
+        if self.started is None:
+            return None
+        if active:
+            self.last_progress = now
+        if now - self.last_progress >= 15:
+            return "Farming made no combat progress for 15 seconds; inspect saved clip"
         return None
 
     def snapshot(self) -> dict:

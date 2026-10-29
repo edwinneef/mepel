@@ -87,3 +87,12 @@ def test_run_refuses_when_not_ready_and_waits_for_a_known_platform(tmp_path):
     ticks = iter(range(100))
     result = run(api, tmp_path / "b", limit=1, clock=lambda: next(ticks), sleep=lambda s: None)
     assert result["failure"] == "not ready: platform unknown"
+
+
+def test_all_routes_covers_every_ordered_platform_pair():
+    from tools.navigation_check import all_routes
+    route = ["floor", *all_routes(status())]
+    pairs = set(zip(route, route[1:], strict=False))
+    nodes = ("floor", "ledge", "top")
+    assert {(a, b) for a in nodes for b in nodes if a != b} <= pairs
+    assert not any(a == b for a, b in pairs)

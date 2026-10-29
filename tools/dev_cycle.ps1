@@ -64,10 +64,10 @@ try {
         $rows += $row
         Push-Location -LiteralPath $step.directory
         try {
-            $LASTEXITCODE = 0
+            $global:LASTEXITCODE = 0
             & $step.command @($step.arguments) | Out-Host
-            $row.exit_code = $LASTEXITCODE
-            if ($LASTEXITCODE) { throw ($step.name + ' failed with exit code ' + $LASTEXITCODE) }
+            $row.exit_code = $global:LASTEXITCODE
+            if ($global:LASTEXITCODE) { throw ($step.name + ' failed with exit code ' + $global:LASTEXITCODE) }
         } finally {
             $row.seconds = [Math]::Round($timer.Elapsed.TotalSeconds, 3)
             Pop-Location

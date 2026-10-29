@@ -120,6 +120,7 @@ STOP_REASONS = {
     "PROBE_COMPLETE": StopReason(StopSeverity.SILENT),
     "CALIBRATION": StopReason(StopSeverity.SILENT, True),
     "POLICY_STOP": StopReason(StopSeverity.SILENT),
+    "FARMING_STOP": StopReason(StopSeverity.ALARM),
     "DRY_RUN_STOP": StopReason(StopSeverity.SILENT),
 }
 
@@ -891,6 +892,8 @@ class Application:
         invalidate_probes: bool | None = None,
         preserve_completed_probe: bool = False,
     ) -> StopRecord:
+        if code == "POLICY_STOP" and self.farming is not None:
+            code = "FARMING_STOP"
         reason = STOP_REASONS.get(code)
         if reason is None:
             raise ValueError(f"Unknown stop code: {code}")
@@ -1222,6 +1225,12 @@ class Application:
             farming = Farming(payload["farming"]) if "farming" in payload else None
             if farming and not all(r in self.potter.bars for r in ("hp", "mp")):
                 raise ValueError("Farming needs calibrated HP and MP bars")
+            if farming and not farming.pet_recovery:
+                if not all(f"{r}_potion" in self.probed for r in ("hp", "mp")):
+                    raise ValueError("No-pet farming needs verified HP and MP potion keys")
+                if any(self.potter.settings[f"{r}_threshold"] < farming.settings[f"{r}_threshold"]
+                       for r in ("hp", "mp")):
+                    raise ValueError("Potion thresholds must cover farming recovery thresholds")
             self._prepare_rotation(farming is not None or payload.get("rotate") is True)
             with self.stop_lock:
                 if self.area_editing:
@@ -1260,6 +1269,12 @@ class Application:
             farming = Farming(payload["farming"]) if "farming" in payload else None
             if farming and not all(r in self.potter.bars for r in ("hp", "mp")):
                 raise ValueError("Farming needs calibrated HP and MP bars")
+            if farming and not farming.pet_recovery:
+                if not all(f"{r}_potion" in self.probed for r in ("hp", "mp")):
+                    raise ValueError("No-pet farming needs verified HP and MP potion keys")
+                if any(self.potter.settings[f"{r}_threshold"] < farming.settings[f"{r}_threshold"]
+                       for r in ("hp", "mp")):
+                    raise ValueError("Potion thresholds must cover farming recovery thresholds")
             self._prepare_rotation(farming is not None or payload.get("rotate") is True)
             with self.stop_lock:
                 if self.alarm.snapshot()["active"]:
@@ -1384,7 +1399,8 @@ class Application:
                 return {"path": str(self.recorder.stop_full()), "recording": False}
             seconds = payload.get("seconds")
             if seconds is not None and (
-                isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not 0 < seconds <= 600
+                isinstance(seconds, bool) or not isinstance(seconds, (int, float))
+                or not 0 < seconds <= 600
             ):
                 raise ValueError("Recording length must be between 0 and 600 seconds")
             path = self.recorder.start_full(seconds)
@@ -1471,10 +1487,11 @@ class Application:
         """Let live combat press the potions whose bar, threshold and probe are all ready."""
         self.arbiter.reset()
         if self.farming is not None:
-            self.sustain = ()
-            self.potter.stop()
             self.farming.start(time.perf_counter())
-            return
+            if self.farming.pet_recovery:
+                self.sustain = ()
+                self.potter.stop()
+                return
         self.sustain = tuple(
             resource for resource in ("hp", "mp")
             if resource in self.potter.bars and f"{resource}_potion" in self.probed
@@ -1908,6 +1925,8 @@ class Application:
         if self.farming and self.mode in {"live", "navigation"}:
             if reason := self.farming.check(now, potter["readings"], potion_evidence_safe):
                 self._stop("POLICY_STOP", reason)
+        if self.farming and self.mode == "navigation":
+            self.farming.progress(now, active=True)
         self.navigation.tick(potter["suggestion"], now)
         if self.mode == "live" and self.sustain:
             readings = potter["readings"]
@@ -1966,6 +1985,11 @@ class Application:
                     decision.action, potter["suggestion"], renew_movement=renew_movement,
                 )
                 held = submitted == f"held: {decision.action.kind}"
+                if self.farming:
+                    active = (decision.action.kind != "release"
+                              and (isinstance(submitted, int) or held))
+                    if reason := self.farming.progress(now, active=active):
+                        self._stop("POLICY_STOP", reason)
                 if (self.mode == "live" and decision.action.kind != "release"
                         and not isinstance(submitted, int) and not held):
                     self.agent.defer_action(policy_before)

@@ -12,7 +12,7 @@ def readings(hp=80, mp=80):
 
 
 def test_interval_requires_explicit_configuration():
-    for value in (None, True, 0, float("nan"), 3601):
+    for value in (True, 0, float("nan"), 3601):
         with pytest.raises(ValueError, match="feed_seconds"):
             Farming({"feed_seconds": value})
 
@@ -62,3 +62,54 @@ def test_feeding_waits_for_combat_and_queues_once(app):
     ticket = app.farming.feed_ticket
     assert app.arbiter.in_flight[ticket] == "pet_food"
     assert app._arbitrate(Action("attack", .1), None) == "deferred: pet food in flight"
+
+
+def test_optional_food_and_three_fps_stall_deadline():
+    farm = Farming({"pet_recovery": False})
+    farm.start(0)
+    assert farm.next_feed is None
+    for frame in range(45):
+        assert farm.progress(frame / 3, active=False) is None
+    assert "no combat progress" in farm.progress(15, active=False)
+    assert farm.progress(15, active=True) is None
+    assert farm.progress(29, active=False) is None
+
+
+def test_no_pet_uses_existing_verified_potion_lane(app):
+    app.farming = Farming({"pet_recovery": False})
+    app.potter.bars = {"hp": object(), "mp": object()}
+    app.probed.update({"hp_potion", "mp_potion"})
+    app._start_sustain()
+    assert app.sustain == ("hp", "mp")
+    assert app.potter.enabled
+
+
+def test_crowded_ambiguous_targets_stop_instead_of_waiting_forever():
+    from maplebot.config import AgentConfig
+    from maplebot.decision import Agent
+    from maplebot.geometry import Rect
+    from maplebot.perception import Detection, Observation
+    agent = Agent(AgentConfig())
+    agent.start()
+    player = Detection("player", Rect(100, 100, 24, 28), .99)
+    monsters = [Detection("monster", Rect(x, 100, 24, 28), .99) for x in (140, 144)]
+    observation = Observation(player, monsters)
+    farm = Farming({"pet_recovery": False})
+    farm.start(0)
+    for frame in range(46):
+        now = frame / 3
+        decision = agent.step(observation, now)
+        reason = farm.progress(now, active=decision.action.kind != "release")
+        if reason:
+            break
+    assert reason and now == 15
+    assert "no combat progress" in reason
+
+
+def test_farming_policy_stop_releases_and_alarms_with_clip(app):
+    app.farming = Farming({"pet_recovery": False})
+    app._start_sustain()
+    app._stop("POLICY_STOP", "Farming session limit reached; restart manually")
+    assert app.controller.stopped.is_set()
+    assert app.alarm.snapshot()["active"]
+    assert app.stop_record.clip_path
