@@ -59,6 +59,18 @@ def wait_idle(idle=idle_seconds, clock=time.monotonic, sleep=time.sleep, timeout
         sleep(.25)
 
 
+def cue(kind, beep=None):
+    """Audible handoff: rising tones when the runner takes the game, falling when it lets go."""
+    if beep is None:
+        import winsound
+        beep = winsound.Beep
+    for frequency in (660, 880) if kind == 'start' else (880, 440):
+        try:
+            beep(frequency, 150)
+        except RuntimeError:
+            return  # No sound device; sound never blocks validation.
+
+
 def post(api, route):
     request = Request(api.base + '/api/' + route, data=b'{}',
                       headers={'X-Debug-Token': api.token, 'Content-Type': 'application/json'})
@@ -79,7 +91,7 @@ def edge_step(api, timeout=12):
     raise RuntimeError('Edge step did not finish; input stopped')
 
 
-def prepare(api, area, reviewed_incident=None):
+def prepare(api, area, reviewed_incident=None, on_focus=lambda: None):
     def handoff():
         epoch = api.status()['command_epoch']
         wait_idle(cancelled=lambda: api.status()['command_epoch'] != epoch)
@@ -90,6 +102,7 @@ def prepare(api, area, reviewed_incident=None):
     time.sleep(1)
     api.command('position_start', {'area_id': area})
     handoff()
+    on_focus()
     if not api.command('focus_game', {'click_fallback': True}).get('focused'):
         raise RuntimeError('Game focus request failed')
     deadline = time.monotonic() + 8
@@ -179,24 +192,37 @@ def main():
     args.state.parent.mkdir(parents=True, exist_ok=True)
     def save():
         args.state.write_text(json.dumps(state, indent=2))
+    held = False
+    def take():
+        nonlocal held
+        if not held:
+            cue('start')
+            held = True
+    def release():
+        nonlocal held
+        if held:
+            cue('end')
+            held = False
     try:
-        s = prepare(api, args.area, args.reviewed_incident)
+        s = prepare(api, args.area, args.reviewed_incident, take)
         if s['position']['kind'] == 'rope':
             output = args.state.parent / ('recovery-' + str(time.time_ns()))
             result = run(api, output, limit=1, chosen=[args.floor])
+            release()
             state['runs'].append(str(output / 'result.json'))
             save()
             if result['failure']:
                 raise RuntimeError(result['failure'])
             state['recovered'] = True
         if not (state.get('jump') or {}).get('passed'):
-            prepare(api, args.area, args.reviewed_incident)
+            prepare(api, args.area, args.reviewed_incident, take)
             state['jump'] = jump_check(api)
+            release()
             state.setdefault('jump_attempts', []).append(state['jump'])
             save()
             if not state['jump']['passed']:
                 raise RuntimeError('Jump effect not verified; inspect probe clip')
-        s = prepare(api, args.area, args.reviewed_incident)
+        s = prepare(api, args.area, args.reviewed_incident, take)
         state.setdefault('targets', targets(s)[:6])
         queue = list(state['targets'])
         intermediate_count = 0
@@ -204,12 +230,13 @@ def main():
             target = queue.pop(0)
             if target in state['completed']:
                 continue
-            s = prepare(api, args.area, args.reviewed_incident)
+            s = prepare(api, args.area, args.reviewed_incident, take)
             if s['position']['surface_id'] == target:
                 raise RuntimeError('Target already occupied without recorded arrival')
             output = args.state.parent / ('route-' + str(time.time_ns()))
             destination = bounded_destination(s, target)
             result = run(api, output, limit=1, chosen=[destination])
+            release()
             state['runs'].append(str(output / 'result.json'))
             if result['failure']:
                 raise RuntimeError(result['failure'])
@@ -230,6 +257,7 @@ def main():
         try:
             api.command('stop')
         finally:
+            release()
             save()
             print(json.dumps(state), flush=True)
 

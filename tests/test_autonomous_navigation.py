@@ -66,3 +66,14 @@ def test_edge_step_reports_whether_the_engine_recognized_the_player(monkeypatch,
     monkeypatch.setattr(runner.time, 'sleep', lambda _: None)
     assert runner.edge_step(Api()) is recognized
     assert commands == [('nav_edge', {'opt_in': True})]
+
+
+def test_cue_rises_on_takeover_falls_on_release_and_survives_missing_audio():
+    from tools.autonomous_navigation import cue
+    tones = []
+    cue('start', lambda frequency, ms: tones.append(frequency))
+    cue('end', lambda frequency, ms: tones.append(frequency))
+    assert tones == [660, 880, 880, 440]
+    def silent(frequency, ms):
+        raise RuntimeError('no device')
+    cue('start', silent)
