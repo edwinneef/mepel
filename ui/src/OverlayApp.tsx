@@ -8,7 +8,7 @@ import { useOverlayLayout } from './overlayLayout';
 import { useViewport } from './useViewport';
 import { GameViewport } from './GameViewport';
 import { SettingsTool, TrackingTool, PotionsTool, DiagnosticsTool } from './tools';
-import { PositionPanel, MapSketch } from './PositionPanel';
+import { PositionPanel } from './PositionPanel';
 import { GoBar } from './GoBar';
 import { NavigationPanel } from './NavigationPanel';
 import { AlarmBanner } from './AlarmBanner';
@@ -142,12 +142,6 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
       <p>{state.error || (!fresh ? 'Waiting for fresh recognition' : s?.active_probe?.instruction || s?.navigation?.active && s.navigation.reason || s?.reason)}</p>
       <span>{(['hp', 'mp'] as const).map(r => `${r.toUpperCase()} ${s?.autopotter.readings[r]?.percent ?? '—'}%`).join(' · ')}</span>
     </div>
-    {layers && terrain && map?.boundary && <section className="terrain-inset"
-      style={layout.position('terrain', { x: game.x + 14, y: game.y + game.height - 240 })}>
-      <strong className="panel-drag-handle" {...layout.handlers('terrain')}>Saved terrain · {map.name}</strong>
-      <MapSketch geometry={map} feet={drawingFresh && position && !position.stale ? position.feet : null} />
-      <small>{position?.stale ? 'Position stale' : position?.reason} · saved geometry, not live terrain detection</small>
-    </section>}
     {panel && <section className="overlay-panel" aria-label="Overlay settings"
       style={layout.position('settings', { x: game.x + game.width - 474, y: game.y + 14 })}>
       <header className="panel-drag-handle" {...layout.handlers('settings')}><h1>Maple Overlay · drag to move</h1><button onClick={() => void window.mapleOverlay?.settings(false)}>Close · F7</button></header>
