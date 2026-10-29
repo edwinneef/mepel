@@ -1518,11 +1518,12 @@ class Application:
             raise ValueError("Finish area editing before tracking the live position")
         if name == "position_start":
             if self.position is not None:
-                if self.position.profile["id"] == payload.get("area_id"):
+                if (self.position.profile["id"] == payload.get("area_id")
+                        and payload.get("map_id") in (None, self.position.map_id)):
                     return {"tracking": True, "area_id": self.position.profile["id"],
                             "calibrated": self.position.tracker is not None}
             position = LivePosition(self.areas, payload.get("area_id"),
-                                    capture_only=self.capture_only)
+                                    capture_only=self.capture_only, map_id=payload.get("map_id"))
             if self.position is not None:
                 self.position.close()
             self.position = position

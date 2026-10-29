@@ -54,9 +54,11 @@ def _percentiles(values: np.ndarray) -> dict:
 class LivePosition:
     """Position on one saved area; reloads its calibration when the operator saves one."""
 
-    def __init__(self, store: AreaStore, area_id: str, *, capture_only: bool = False) -> None:
+    def __init__(self, store: AreaStore, area_id: str, *, capture_only: bool = False,
+                 map_id: int | None = None) -> None:
         self.store = store
         self.capture_only = capture_only
+        self.map_id = map_id
         self.supplement_tracker: MinimapTracker | None = None
         self.supplement_available = False
         self.supplement_reason = "Off; session-only observation"
@@ -77,7 +79,20 @@ class LivePosition:
         reference = cv2.imdecode(np.frombuffer(body or b"", np.uint8), cv2.IMREAD_COLOR)
         if reference is None:
             raise ValueError("Reference image is missing or corrupt; capture the area again")
-        self.minimap = AreaMinimap(reference)
+        terrain = None
+        public = profile.get("public_map")
+        map_id = public["id"] if public else self.map_id
+        if map_id is not None:
+            from .public_map import cached, picture
+
+            def missing_cache(url: str) -> bytes:
+                raise ValueError("Cache the public layout before starting position tracking")
+
+            source, digest = cached(self.store.directory, map_id, missing_cache)
+            if public and digest != public["sha256"]:
+                raise ValueError("Cached public layout changed; import the map again")
+            terrain = picture(source["miniMap"])
+        self.minimap = AreaMinimap(reference, terrain)
         self.profile, self.reference, self.view_id = profile, reference, view["id"]
         self.view = ViewTransform(view["origin"]["x"], view["origin"]["y"], view["scale"])
         self.platforms = platforms(profile)

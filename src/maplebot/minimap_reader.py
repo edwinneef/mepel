@@ -118,7 +118,7 @@ def find_canvas(image: np.ndarray) -> Rect | None:
 class AreaMinimap:
     """Compare live minimaps against one reference view's minimap picture."""
 
-    def __init__(self, reference: np.ndarray) -> None:
+    def __init__(self, reference: np.ndarray, terrain: np.ndarray | None = None) -> None:
         canvas = find_canvas(reference)
         if canvas is None:
             raise ValueError("No minimap in the reference view; open the minimap and capture again")
@@ -137,6 +137,18 @@ class AreaMinimap:
         # Use brighter terrain for identity; dark-only references must stay unknown.
         self.static = (~_markers(self.template) & ~background
                        & (hsv[..., 2] >= MIN_TERRAIN_VALUE))
+        if terrain is not None:
+            from .public_map import picture_offset
+
+            if terrain.ndim != 3 or terrain.shape[2] != 4:
+                raise ValueError("Public minimap terrain must be RGBA")
+            x, y = picture_offset(self.template, terrain)
+            opaque = cv2.warpAffine(
+                (terrain[..., 3] > 200).astype(np.uint8),
+                np.float32([[1, 0, round(x)], [0, 1, round(y)]]),
+                (canvas.width, canvas.height), flags=cv2.INTER_NEAREST,
+            ) > 0
+            self.static = opaque & ~_markers(self.template)
         if np.count_nonzero(self.static) < 200:
             raise ValueError("The reference minimap shows too little terrain to recognize the map")
         self.weights = self.static.astype(np.uint8)

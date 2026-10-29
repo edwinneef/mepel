@@ -83,6 +83,26 @@ def test_framed_minimap_with_wide_white_margin_is_recognized():
     assert reader.read(view(seed=9)).dot is None
 
 
+def test_public_opaque_terrain_excludes_scrolling_scenery():
+    image = view(((60, 20),))
+    image[71, 12:197] = image[136, 12:197] = 255
+    image[71:137, 12] = image[71:137, 196] = 255
+    terrain = np.zeros((64, 183, 4), np.uint8)
+    terrain[40:, :, :3] = image[112:136, 13:196]
+    terrain[40:, :, 3] = 255
+    # Saturated scenery inside the translucent minimap is not stable terrain.
+    image[72:112, 13:196] = (30, 170, 50)
+    image[92:98, 73:79][DOT_SHAPE] = (0, 220, 255)
+    reader = AreaMinimap(image, terrain)
+    scrolled = image.copy()
+    scrolled[72:112, 13:196] = (20, 60, 120)
+    scrolled[92:98, 73:79][DOT_SHAPE] = (0, 220, 255)
+    assert reader.read(scrolled).dot == (62.5, 22.5)
+    other_map = scrolled.copy()
+    other_map[112:136, 13:196] = (80, 20, 200)
+    assert reader.read(other_map).dot is None
+
+
 @pytest.mark.parametrize("background", [(82, 82, 82), (210, 200, 190)])
 @pytest.mark.parametrize("at", [(4, 72), (42, 92)])
 def test_translucent_grey_sky_is_ignored_when_matching_the_map(background, at):
