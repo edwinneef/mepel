@@ -40,8 +40,10 @@ confirmed platform. All existing engine, overlay, watchdog and F8 gates apply.
 The checker does not travel, focus the game, close settings, acknowledge alarms
 or change gates. A missing gate or unsupported route is a blocker.
 
-The batch contains five bounded steps: left, right, jump, ladder ascent and return
-to the starting platform. Each probe has at most eight seconds including its
+The batch contains six bounded segments: left, right, jump, ladder ascent,
+confirmed grip on the same ladder, and descent to the starting platform. Descent
+is pinned through the ladder because a direct return route can choose a drop.
+Each probe has at most eight seconds including its
 three-second countdown; each route retains the engine's 60-second route budget
 and the checker's 70-second outer limit. Only observed displacement or jump/landing
 confirms a probe. A route to the current platform cannot count as movement.

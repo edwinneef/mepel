@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from maplebot.contracts import FRESH_FRAME_SECONDS
-from maplebot.navigation import RouteMap, map_hash
+from maplebot.navigation import RouteMap, map_hash, surface_y
 from tools.navigation_check import ROUTE_SECONDS, Debugger
 
 TOWN_ID = 100000200
@@ -28,7 +28,8 @@ def profile_for_town(directory: Path) -> dict:
     return matches[0]
 
 
-def blocker(status: dict, profile: dict, *, session=None, settled=True) -> str | None:
+def blocker(status: dict, profile: dict, *, session=None, settled=True,
+            allow_rope=False) -> str | None:
     if status.get("capture_only"):
         return "Capture-only session; use an explicitly input-capable restart"
     if session is not None and status.get("session_id") != session:
@@ -65,8 +66,9 @@ def blocker(status: dict, profile: dict, *, session=None, settled=True) -> str |
             return "Bot must be Off"
         if status.get("active_probe") or status.get("area_editing") or status.get("calibrating"):
             return "Finish the active probe or editing first"
-        if position.get("kind") != "platform" or not position.get("surface_id"):
-            return "Stand on a confirmed park platform"
+        kinds = {"platform", "rope"} if allow_rope else {"platform"}
+        if position.get("kind") not in kinds or not position.get("surface_id"):
+            return "Stand on a confirmed park platform or the expected ladder"
         if position.get("feet") is None:
             return "Confirmed player feet are unavailable"
     return None
@@ -85,24 +87,40 @@ def start_spot(status: dict, profile: dict) -> str | None:
     return None
 
 
-def ladder_target(profile: dict, status: dict) -> str:
+def ladder_round_trip(profile: dict, status: dict) -> tuple[str, str]:
     graph = RouteMap.computed(profile)
     origin = status["position"]["surface_id"]
     ropes = {r["id"] for r in profile["ropes"] if r.get("name", "").startswith("Ladder")}
+    candidates = []
     for platform in profile["platforms"]:
         target = platform["id"]
         if target == origin:
             continue
         try:
             up = graph.plan(origin, target, origin_feet=status["position"]["feet"])
-            down = graph.plan(target, origin)
         except ValueError:
             continue
-        if (any(e.kind == "climb" and e.target in ropes for e in up.edges)
-                and any(e.kind == "climb" and e.source in ropes for e in up.edges)
-                and down.edges):
-            return target
+        for rope in (r for r in profile["ropes"] if r["id"] in ropes):
+            key = rope["id"]
+            if (not any(e.kind == "climb" and e.target == key for e in up.edges)
+                    or not any(e.kind == "climb" and e.source == key for e in up.edges)):
+                continue
+            try:
+                # A direct return may choose a drop. Pin descent through the same ladder.
+                grip, down = graph.plan(target, key), graph.plan(key, origin)
+            except ValueError:
+                continue
+            if all(e.kind == "climb" for e in (*grip.edges, *down.edges)):
+                distance = abs(surface_y(platform, rope["start"]["x"]) - rope["start"]["y"])
+                candidates.append((distance, target, key))
+    if candidates:
+        _, target, rope = min(candidates)
+        return target, rope
     raise ValueError("No ladder round trip passes the existing home/route safety gates")
+
+
+def ladder_target(profile: dict, status: dict) -> str:
+    return ladder_round_trip(profile, status)[0]
 
 
 def compact(status: dict) -> dict:
@@ -118,9 +136,10 @@ class Check:
         self.rows = []
         self.started = False
 
-    def status(self, *, settled=False):
+    def status(self, *, settled=False, allow_rope=False):
         value = self.api.status()
-        if problem := blocker(value, self.profile, session=self.session, settled=settled):
+        if problem := blocker(value, self.profile, session=self.session, settled=settled,
+                              allow_rope=allow_rope):
             raise RuntimeError(problem)
         return value
 
@@ -143,8 +162,9 @@ class Check:
         self.rows.append(row)
         started = self.clock()
         try:
-            probe = self.api.command("probe", {"action": action})
+            # A lost HTTP response cannot prove that the engine rejected the request.
             self.started = True
+            probe = self.api.command("probe", {"action": action})
             while self.clock() - started < PROBE_SECONDS:
                 self.sleep(.1)
                 sample = self.status()
@@ -177,8 +197,10 @@ class Check:
             self.clip(row)
             self.api.command("stop")
 
-    def route(self, target):
-        before = self.status(settled=True)
+    def route(self, target, *, from_rope=None):
+        before = self.status(settled=True, allow_rope=from_rope is not None)
+        if from_rope is not None and before["position"]["surface_id"] != from_rope:
+            raise RuntimeError("Expected confirmed grip on the round-trip ladder")
         if target == before["position"]["surface_id"]:
             raise RuntimeError("Current-platform no-op is not a movement test")
         if not target:
@@ -187,8 +209,8 @@ class Check:
         self.rows.append(row)
         started = self.clock()
         try:
-            self.api.command("nav_go", {"target": target, "opt_in": True})
             self.started = True
+            self.api.command("nav_go", {"target": target, "opt_in": True})
             while self.clock() - started < ROUTE_SECONDS:
                 self.sleep(.1)
                 sample = self.status()
@@ -230,7 +252,7 @@ def run(api, profile, output: Path, *, clock=time.monotonic, sleep=time.sleep) -
         runner.session = initial["session_id"]
         if problem := start_spot(initial, profile):
             raise RuntimeError(problem)
-        target = ladder_target(profile, initial)
+        target, rope = ladder_round_trip(profile, initial)
         origin = initial["position"]["surface_id"]
         revision = result["revision"] = code_revision(profile, initial)
         for previous in output.parent.glob("*/result.json"):
@@ -243,7 +265,8 @@ def run(api, profile, output: Path, *, clock=time.monotonic, sleep=time.sleep) -
         for action in ("left", "right", "jump"):
             runner.probe(action)
         runner.route(target)
-        runner.route(origin)
+        runner.route(rope)
+        runner.route(origin, from_rope=rope)
     except Exception as error:
         result["failure"] = str(error)
     finally:

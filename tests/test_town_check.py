@@ -88,6 +88,7 @@ class Api:
             arrived["mode"] = "capture"
             arrived["navigation"]["stage"] = "arrived"
             arrived["position"]["surface_id"] = payload["target"]
+            arrived["position"]["kind"] = "rope" if payload["target"] == "ladder" else "platform"
             self.pending = [wait, moving, arrived]
         if name in {"confirm_probe", "stop"}:
             self.value["mode"] = "capture"
@@ -116,15 +117,15 @@ def test_real_planner_requires_ladder_and_return_path(profile):
         town.ladder_target(profile, status(profile))
 
 
-def test_town_batch_records_five_effects_and_stops(profile, run_check, tmp_path):
+def test_town_batch_records_walk_jump_and_ladder_up_and_down(profile, run_check, tmp_path):
     api = Api(profile)
     result = run_check(api, profile, tmp_path / "success")
     assert result["failure"] is None
-    assert len(result["steps"]) == 5 and all(s["passed"] for s in result["steps"])
+    assert len(result["steps"]) == 6 and all(s["passed"] for s in result["steps"])
     assert all(s["clip"] == "saved-clip" for s in result["steps"])
     assert result["after"]["mode"] == "capture"
     assert api.calls[-1][0] == "stop"
-    assert [p["target"] for n, p in api.calls if n == "nav_go"] == ["ledge", "floor"]
+    assert [p["target"] for n, p in api.calls if n == "nav_go"] == ["ledge", "ladder", "floor"]
     assert json.loads((tmp_path / "success/result.json").read_text())["movement_requested"]
 
 
@@ -207,7 +208,7 @@ def test_probe_rejection_still_clips_and_stops(profile, run_check, tmp_path):
     api.command = reject
     result = run_check(api, profile, tmp_path / "rejected")
     assert "engine gate" in result["failure"]
-    assert not result["movement_requested"]
+    assert result["movement_requested"]  # Request attempted; no accepted movement is assumed.
     assert api.calls[-1][0] == "stop"
 
 
