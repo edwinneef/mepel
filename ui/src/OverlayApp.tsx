@@ -125,6 +125,8 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
     setRunMode: (mode: 'live' | 'preview' | 'navigation') => choose(mode === 'live' ? 'arm' : 'dry_run', mode),
   } : null;
   const game = gameBounds ?? { x: 0, y: 0, width: innerWidth, height: innerHeight };
+  const recordingFull = Boolean(s?.recorder?.full);
+  const recordLeft = s?.recorder?.full_remaining as number | null | undefined;
   return <div className={`native-overlay ${panel ? 'editing-layout' : ''}`}>
     {layers && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
@@ -141,6 +143,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
       {state.notice && <p className="overlay-notice">{state.notice}</p>}
       <p>{state.error || (!fresh ? 'Waiting for fresh recognition' : s?.active_probe?.instruction || s?.navigation?.active && s.navigation.reason || s?.reason)}</p>
       <span>{(['hp', 'mp'] as const).map(r => `${r.toUpperCase()} ${s?.autopotter.readings[r]?.percent ?? '—'}%`).join(' · ')}</span>
+      {recordingFull && <span className="overlay-recording">REC{recordLeft == null ? '' : ` ${Math.ceil(recordLeft)} s`}</span>}
     </div>
     {panel && <section className="overlay-panel" aria-label="Overlay settings"
       style={layout.position('settings', { x: game.x + game.width - 474, y: game.y + 14 })}>
@@ -164,6 +167,10 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
         <p>On closes settings and starts the existing countdown. Focus the game. F8 always stops. Combat and navigation retain configured potion priority.</p>
         <CombatResults evidence={s?.combat_evidence} potions={s?.potion_evidence} />
         {s && <GoBar snapshot={s} client={client} act={act} disabled={disabled} availableAreas={areas} selectOnly />}
+        <button disabled={disabled} onClick={() => void act(async () => {
+          await client.command('record', recordingFull ? {} : { seconds: 30 });
+          if (!recordingFull) await window.mapleOverlay?.settings(false);
+        })}>{recordingFull ? `Stop recording${recordLeft == null ? '' : ` · ${Math.ceil(recordLeft)} s left`}` : 'Record 30 s'}</button>
         <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /> Show detection layers</label>
         <label><input type="checkbox" checked={attackRange} onChange={e => setAttackRange(e.target.checked)} /> Show attack range</label>
         <label><input type="checkbox" checked={terrain} onChange={e => setTerrain(e.target.checked)} /> Show saved terrain and position</label>

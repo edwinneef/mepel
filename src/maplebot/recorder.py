@@ -27,6 +27,7 @@ class SessionRecorder:
         )
         self.path: Path | None = None
         self.full = False
+        self.full_until = math.inf
         self.manual = False
         self.closing = False
         self.post_until = 0.0
@@ -70,7 +71,24 @@ class SessionRecorder:
     def stop(self) -> Path | None:
         with self.lock:
             path, self.path, self.full, self.manual = self.path, None, False, False
+            self.full_until = math.inf
             self.closing = False
+            return path
+
+    def start_full(self, now: float, seconds: float | None = None) -> Path:
+        """Save every frame; with `seconds`, full recording ends by itself after that long."""
+        with self.lock:
+            path = self.start("manual", manual=True)
+            self.full_until = math.inf if seconds is None else now + seconds
+            self.full = True
+            return path
+
+    def stop_full(self) -> Path | None:
+        with self.lock:
+            path = self.path
+            self.full, self.full_until = False, math.inf
+            if self.manual:
+                self.stop()
             return path
 
     def observe(self, stem: str, raw: bytes, status: dict, now: float) -> None:
@@ -80,6 +98,9 @@ class SessionRecorder:
             path = self.path
             if path is None:
                 return
+            if self.full and now >= self.full_until:
+                self.full, self.full_until = False, math.inf
+                self.closing = self.closing or self.manual
             keyframe = (
                 self.config.keyframe_seconds > 0
                 and now - self.last_keyframe >= self.config.keyframe_seconds
@@ -122,6 +143,10 @@ class SessionRecorder:
             return {
                 "path": str(self.path) if self.path else None,
                 "full": self.full,
+                "full_remaining": (
+                    round(max(0.0, self.full_until - time.perf_counter()), 1)
+                    if self.full and self.full_until < math.inf else None
+                ),
                 "events": self.events,
                 "dropped": self.dropped,
             }
