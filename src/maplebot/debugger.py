@@ -115,6 +115,10 @@ def serve(
                 if not 0 < length <= limit:
                     raise ValueError("Invalid request length")
                 payload = json.loads(self.rfile.read(length))
+                if self.path == "/api/overlay_close":
+                    result = overlay.request_close()
+                    self.reply(200, json.dumps(result).encode(), "application/json")
+                    return
                 if self.path == "/api/overlay":
                     result = overlay.heartbeat(payload)
                     self.reply(200, json.dumps(result).encode(), "application/json")

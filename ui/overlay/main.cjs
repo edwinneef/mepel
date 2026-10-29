@@ -58,7 +58,10 @@ async function poll() {
     session = status.session_id;
     // Read session identity before using the token: restarts rotate credentials.
     // A stalled renderer also loses its input lease.
-    if (Date.now() - lastPaint < 1200 && !transition) await heartbeat(panel);
+    if (Date.now() - lastPaint < 1200 && !transition) {
+      const lease = await heartbeat(panel);
+      if (lease.close_requested && panel) await settings(false);
+    }
     const desktop = desktopBounds();
     const key = JSON.stringify(desktop);
     if (key !== lastBounds) { win.setBounds(desktop); lastBounds = key; }

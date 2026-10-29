@@ -17,6 +17,7 @@ class OverlaySession:
         self.panel = True
         self.expired = False
         self.worker = None
+        self.close_requested = False
 
     def heartbeat(self, payload):
         owner = payload.get("owner")
@@ -28,6 +29,10 @@ class OverlaySession:
         with self.lock:
             if self.owner not in (None, owner) and self.clock() < self.deadline:
                 raise ValueError("Another overlay is connected")
+            if self.owner != owner or self.expired:
+                self.close_requested = False
+            if not panel:
+                self.close_requested = False
             opening = panel and (not self.panel or self.owner is None or self.expired)
             replacing = self.owner != owner or self.expired
             self.owner, self.panel = owner, panel
@@ -38,7 +43,16 @@ class OverlaySession:
                 self.worker = threading.Thread(target=self._watch, daemon=True,
                                                name="overlay-lease")
                 self.worker.start()
-        return {"connected": True, "panel": panel}
+        return {"connected": True, "panel": panel, "close_requested": self.close_requested}
+
+    def request_close(self):
+        """Ask the owning overlay to close; only its heartbeat can clear the gate."""
+        with self.lock:
+            if not self.owner or self.expired or self.clock() >= self.deadline:
+                raise ValueError("Overlay disconnected; reconnect before closing settings")
+            self.close_requested = self.panel
+            return {"requested": self.close_requested}
+
 
     def pause(self):
         # A completed manual probe has no input left to execute. Retain only that

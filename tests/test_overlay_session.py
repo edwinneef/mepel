@@ -70,3 +70,15 @@ def test_reconnection_stops_input_instead_of_resuming():
     lease.check()
     lease.heartbeat({"owner": "a" * 32, "panel": False})
     assert len(events) == 3
+
+def test_close_request_does_not_clear_gate_until_owner_acknowledges():
+    lease, _, now, _ = fixture()
+    lease.heartbeat({"owner": "a" * 32, "panel": True})
+    assert lease.request_close() == {"requested": True}
+    assert lease.block_reason() == "Close overlay settings before starting"
+    assert lease.heartbeat({"owner": "a" * 32, "panel": True})["close_requested"]
+    assert not lease.heartbeat({"owner": "a" * 32, "panel": False})["close_requested"]
+    assert lease.block_reason() is None
+    now[0] = 3
+    with pytest.raises(ValueError, match="disconnected"):
+        lease.request_close()
