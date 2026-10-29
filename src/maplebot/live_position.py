@@ -19,6 +19,7 @@ from .localization import (
     MinimapTracker,
     MinimapTransform,
     Platform,
+    Rope,
     ViewTransform,
     register_view,
 )
@@ -82,7 +83,11 @@ class LivePosition:
         self.platforms = platforms(profile)
         self.calibration = calibration
         self.tracker = (
-            MinimapTracker(MinimapTransform(**calibration["transform"]), self.platforms)
+            MinimapTracker(MinimapTransform(**calibration["transform"]), self.platforms,
+                           ropes=tuple(Rope(r["id"], r["start"]["x"],
+                                            min(r["start"]["y"], r["end"]["y"]),
+                                            max(r["start"]["y"], r["end"]["y"]))
+                                       for r in profile["ropes"]))
             if calibration else None
         )
         self.supplement_available = self.capture_only and localization_supplement.matches(

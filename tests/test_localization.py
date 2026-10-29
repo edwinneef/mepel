@@ -297,3 +297,14 @@ def test_a_one_frame_name_tag_miss_does_not_restart_platform_confirmation(fused)
         fused.update(fix(), player(600, 480), (0, 0), now)
     assert fused.update(fix(), None, (0, 0), 1.6).reason.startswith("Name tag missing")
     assert fused.update(fix(), player(600, 480), (0, 0), 1.8).kind == "platform"
+
+def test_fused_rope_origin_requires_unique_stable_agreement():
+    from maplebot.localization import Rope
+    tracker = MinimapTracker(MinimapTransform(1, 0, 1, 0), (),
+                             ropes=(Rope("r", 50, 0, 200),))
+    for now in (1, 1.2, 1.6):
+        location = tracker.update(fix(50), player(600, 480), (0, 0), now)
+    assert location.kind == "rope" and location.surface_id == "r"
+    assert tracker.update(fix(50), None, (0, 0), 1.8).kind == "unknown"
+    tracker.ropes = (Rope("r", 50, 0, 200), Rope("s", 51, 0, 200))
+    assert tracker.update(fix(50), player(600, 480), (0, 0), 2).kind == "unknown"

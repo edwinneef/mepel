@@ -295,9 +295,11 @@ class MinimapTracker:
     """
 
     def __init__(self, transform: MinimapTransform, platforms: tuple[Platform, ...], *,
-                 agreement: float = 32, height: float = 12) -> None:
+                 agreement: float = 32, height: float = 12,
+                 ropes: tuple[Rope, ...] = ()) -> None:
         self.transform = transform
         self.platforms = platforms
+        self.ropes = ropes
         self.agreement = agreement
         self.height = height
         self.previous_time = float("-inf")
@@ -343,15 +345,21 @@ class MinimapTracker:
             and abs(feet[1] - platform.y_at(min(max(feet[0], platform.left), platform.right)))
             <= self.height
         ]
+        kind = "platform"
+        if not matches:
+            matches = [rope.id for rope in self.ropes
+                       if abs(feet[0] - rope.x) <= 12
+                       and rope.top + 12 <= feet[1] <= rope.bottom - 12]
+            kind = "rope"
         if len(matches) != 1:
-            return self._unknown("No unique taught platform", feet, keep=True)
+            return self._unknown("No unique taught platform or rope", feet, keep=True)
         if matches[0] != self.candidate:
             self.candidate, self.candidate_since = matches[0], now
             return Location("unknown", None, feet, "Waiting for a second platform observation")
-        if now - self.candidate_since < 0.15:
+        if now - self.candidate_since < (0.3 if kind == "rope" else 0.15):
             return Location("unknown", None, feet, "Waiting for platform confirmation time")
         return Location(
-            "platform", matches[0], feet, "Marker and name tag agree; contact not verified"
+            kind, matches[0], feet, "Marker and name tag agree; contact not verified"
         )
 
     def _unknown(self, reason: str, feet: tuple[float, float] | None = None, *,
