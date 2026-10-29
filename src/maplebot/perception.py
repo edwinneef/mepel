@@ -106,6 +106,50 @@ class Template:
 
 
 @dataclass(frozen=True)
+class SpriteLayout:
+    """One sprite batch's samples, concatenated in template order, for one frame width."""
+
+    counts: np.ndarray  # samples per template
+    bases: np.ndarray  # each template's first sample, then the total
+    sample_item: np.ndarray  # template of each sample
+    bins: np.ndarray  # every sample's 4-bit color bins
+    bin_sample: np.ndarray  # sample of each bin
+    offsets: np.ndarray  # (y, x) of each sample in its sprite
+    samples: np.ndarray  # pixel offset of each sample, then a padding sample
+    low: np.ndarray  # accepted color range of each sample, then the padding range
+    span: np.ndarray
+    max_misses: np.ndarray
+    heights: np.ndarray
+    widths: np.ndarray
+
+    @classmethod
+    def build(cls, templates: list[Template], cols: int) -> "SpriteLayout":
+        signatures = [template.signature for template in templates]
+        assert all(signature is not None for signature in signatures)
+        counts = np.array([len(signature.colors) for signature in signatures])
+        bases = np.concatenate(([0], np.cumsum(counts)))
+        offsets = np.concatenate([signature.offsets for signature in signatures])
+        return cls(
+            counts=counts,
+            bases=bases,
+            sample_item=np.repeat(np.arange(len(templates)), counts),
+            bins=np.concatenate([signature.bucket_owners[0] for signature in signatures]),
+            bin_sample=np.concatenate([signature.bucket_owners[1] + base for signature, base
+                                       in zip(signatures, bases, strict=False)]),
+            offsets=offsets,
+            samples=np.concatenate((offsets[:, 0] * cols + offsets[:, 1],
+                                    np.zeros(1, np.int64))),
+            low=np.concatenate([signature.color_ranges[0] for signature in signatures]
+                               + [np.zeros((1, 4), np.uint8)]),
+            span=np.concatenate([signature.color_ranges[1] for signature in signatures]
+                                + [np.full((1, 4), 255, np.uint8)]),
+            max_misses=(counts + 4) // 5,
+            heights=np.array([template.image.shape[0] for template in templates]),
+            widths=np.array([template.image.shape[1] for template in templates]),
+        )
+
+
+@dataclass(frozen=True)
 class NameTag:
     """The character's name label: white text on a translucent dark box under the feet."""
 
@@ -268,6 +312,7 @@ class TemplateDetector:
                     name = f"catalog:{entry['name']}:{entry['animation']}-{entry['frame']}"
                 templates.extend(self._variants(kind, name, raw, path))
         self.templates = templates
+        self.layouts: dict[tuple, SpriteLayout] = {}
         self.map_filter = MapFilter(self.directory, list(entries.values()),
                                     self.config.spawn_source, self.config.spawn_revision)
         self.nametags = [
@@ -488,6 +533,16 @@ class TemplateDetector:
     ) -> list[Detection]:
         return self._sprite_batch(image, gray, [template], floor, index)[0]
 
+    def _sprite_layout(self, templates: list[Template], cols: int) -> SpriteLayout:
+        """The frame-independent arrays of one sprite batch, built once per batch."""
+        key = (cols, *map(id, templates))
+        layout = self.layouts.get(key)
+        if layout is None:
+            if len(self.layouts) >= 256:
+                self.layouts.clear()  # The active species changed many times.
+            layout = self.layouts[key] = SpriteLayout.build(templates, cols)
+        return layout
+
     def _sprite_batch(
         self,
         image: Image,
@@ -503,58 +558,46 @@ class TemplateDetector:
         """
         order, boundaries, packed = index
         rows, cols = image.shape[:2]
-        signatures = [template.signature for template in templates]
-        assert all(signature is not None for signature in signatures)
+        layout = self._sprite_layout(templates, cols)
         occluders = self.occluders
         sums = self.zone_sums
-        counts = [len(signature.colors) for signature in signatures]
-        bases = np.concatenate(([0], np.cumsum(counts)))
-        # Rank each template's samples by how common their colors are in this frame.
-        bins = np.concatenate([signature.bucket_owners[0] for signature in signatures])
-        owners = np.concatenate([signature.bucket_owners[1] + base
-                                 for signature, base in zip(signatures, bases, strict=False)])
-        sizes = np.bincount(owners, weights=boundaries[bins + 1] - boundaries[bins],
-                            minlength=bases[-1]).astype(np.int64)
-        ranked = [np.argsort(sizes[bases[item] : bases[item + 1]])
-                  for item in range(len(templates))]
+        counts, bases, sample_item = layout.counts, layout.bases, layout.sample_item
+        # Rank each template's samples by how common their colors are in this frame. Tied
+        # samples may rank either way: any max_misses + 1 seeds propose every position that
+        # can pass, and checking samples in another order drops the same positions.
+        sizes = np.bincount(layout.bin_sample, weights=boundaries[layout.bins + 1]
+                            - boundaries[layout.bins], minlength=bases[-1]).astype(np.int64)
+        ranked = np.lexsort((sizes, sample_item))
+        rank = np.empty_like(ranked)
+        rank[ranked] = np.arange(len(ranked)) - bases[sample_item[ranked]]
         # These sparse, color-selected samples are not an area/confidence estimate.
         # A few covered samples can still leave a strong full-mask match below.
-        max_misses = np.array([(count + 4) // 5 for count in counts])
+        max_misses = layout.max_misses
         # Sprites next to the player or a previous monster may be partly covered. There,
         # more samples may miss, and verification uses only the uncovered pixels.
-        relaxed = np.array([max(limit, count // 2) if occluders else limit
-                            for limit, count in zip(max_misses, counts, strict=True)])
-        heights = np.array([template.image.shape[0] for template in templates])
-        widths = np.array([template.image.shape[1] for template in templates])
+        relaxed = np.maximum(max_misses, counts // 2) if occluders else max_misses
+        heights, widths = layout.heights, layout.widths
 
         # Multiple seeds keep a covered proposal pixel from hiding an otherwise valid sprite.
         # Three extra seeds are enough to find the visible part of a covered sprite.
-        seeds = [keys[: limit + (4 if occluders else 1)]
-                 for keys, limit in zip(ranked, max_misses, strict=True)]
-        seed_owner = np.repeat(np.arange(len(templates)), [len(keys) for keys in seeds])
-        seed_rank = np.concatenate([np.arange(len(keys)) for keys in seeds])
-        seed_offsets = np.concatenate([signature.offsets[keys]
-                                       for signature, keys in zip(signatures, seeds, strict=True)])
-        seed_buckets = [signature.buckets[key]
-                        for signature, keys in zip(signatures, seeds, strict=True)
-                        for key in keys]
-        seed_bins = np.concatenate(seed_buckets)
+        seeds = np.minimum(max_misses + (4 if occluders else 1), counts)
+        seeded = (rank < seeds[sample_item])[layout.bin_sample]
+        seed_bins, seed_sample = layout.bins[seeded], layout.bin_sample[seeded]
         starts = boundaries[seed_bins]
         lengths = boundaries[seed_bins + 1] - starts
         found: list[list[Detection]] = [[] for _ in templates]
         if not lengths.sum():
             return found
-        # Every pixel of every seed's color bins, and the seed that found it.
+        # Every pixel of every seed's color bins, and the seed sample that found it.
         owner = np.repeat(np.arange(len(seed_bins)), lengths)
         pixels = order[starts[owner] + np.arange(len(owner))
                        - np.repeat(np.cumsum(lengths) - lengths, lengths)]
-        seed = np.repeat(np.arange(len(seed_buckets)),
-                         [len(bucket) for bucket in seed_buckets])[owner]
-        item = seed_owner[seed]
-        ys = pixels // cols - seed_offsets[seed, 0]
-        xs = pixels % cols - seed_offsets[seed, 1]
+        seed = seed_sample[owner]
+        item = sample_item[seed]
+        ys = pixels // cols - layout.offsets[seed, 0]
+        xs = pixels % cols - layout.offsets[seed, 1]
         valid = (ys >= 0) & (xs >= 0) & (ys + heights[item] <= rows) & (xs + widths[item] <= cols)
-        extra = valid & (seed_rank[seed] > max_misses[item])
+        extra = valid & (rank[seed] > max_misses[item])
         if extra.any():
             # Extra seeds only matter where something may cover the sprite.
             ey, ex, covering = ys[extra], xs[extra], item[extra]
@@ -572,17 +615,14 @@ class TemplateDetector:
         # position matches a seed that proposed it, so the rarest non-seed samples go first
         # and rule out background positions; the seeds come last. The last sample never
         # misses and pads shorter signatures.
-        samples = np.concatenate([signature.offsets[:, 0] * cols + signature.offsets[:, 1]
-                                  for signature in signatures] + [np.zeros(1, np.int64)])
-        low = np.concatenate([signature.color_ranges[0] for signature in signatures]
-                             + [np.zeros((1, 4), np.uint8)])
-        span = np.concatenate([signature.color_ranges[1] for signature in signatures]
-                              + [np.full((1, 4), 255, np.uint8)])
-        checks = np.full((len(templates), max(counts)), len(samples) - 1)
-        for row, (keys, base, sown) in enumerate(zip(ranked, bases, seeds, strict=False)):
-            checks[row, : len(keys)] = np.concatenate((keys[len(sown) :], sown)) + base
+        owners = sample_item[ranked]
+        order_rank, seeded_count = rank[ranked], seeds[owners]
+        column = np.where(order_rank >= seeded_count, order_rank - seeded_count,
+                          counts[owners] - seeded_count + order_rank)
+        checks = np.full((len(templates), counts.max()), len(layout.samples) - 1)
+        checks[owners, column] = ranked
         # Per template and check: the sample's pixel offset and accepted color range.
-        offsets, low, span = samples[checks], low[checks], span[checks]
+        offsets, low, span = layout.samples[checks], layout.low[checks], layout.span[checks]
         zones = self.zones.reshape(-1)
         misses = np.zeros(len(positions), dtype=np.int16)
         unexplained = np.zeros(len(positions), dtype=np.int16)
