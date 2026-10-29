@@ -38,6 +38,8 @@ async function settings(open) {
     panel = open;
     win.setIgnoreMouseEvents(true, { forward: true });
     win.setFocusable(open);
+    // Windows drops always-on-top when focusability changes; the game would cover the HUD.
+    win.setAlwaysOnTop(true);
     if (open) { win.show(); win.focus(); } else { win.blur(); win.showInactive(); }
     send('panel', open);
   } catch (error) { send('error', error.message); }

@@ -10,7 +10,7 @@ async function startOverlay() {
     webContents: { send: vi.fn(), on: vi.fn(), setWindowOpenHandler: vi.fn() },
     setContentProtection: vi.fn(), setMenu: vi.fn(), on: vi.fn(),
     setIgnoreMouseEvents: vi.fn(), setFocusable: vi.fn(), show: vi.fn(),
-    focus: vi.fn(), blur: vi.fn(), showInactive: vi.fn(),
+    focus: vi.fn(), blur: vi.fn(), showInactive: vi.fn(), setAlwaysOnTop: vi.fn(),
     isDestroyed: () => false, getNativeWindowHandle: () => Buffer.alloc(8, 1),
     loadURL: vi.fn(async () => {}),
   };
@@ -77,4 +77,8 @@ it('lets the closed HUD settings button take clicks and opens settings through t
   await settings({ sender: win.webContents }, true);
   expect(requests.at(-1).body.panel).toBe(true);
   expect(win.focus).toHaveBeenCalledOnce();
+  await settings({ sender: win.webContents }, false);
+  expect(requests.at(-1).body.panel).toBe(false);
+  expect(win.setFocusable).toHaveBeenLastCalledWith(false);
+  expect(win.setAlwaysOnTop).toHaveBeenLastCalledWith(true);
 });

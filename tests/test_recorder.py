@@ -138,13 +138,14 @@ def test_close_waits_for_the_stopping_frame_and_logs_pre_roll(recorder):
 
 
 def test_timed_full_recording_saves_every_frame_then_stops_by_itself(recorder):
-    path = recorder.start_full(now=0.0, seconds=1.0)
-    assert recorder.snapshot()["full_remaining"] is not None
-    for index, now in enumerate([0.0, 0.5, 0.9]):
-        recorder.observe(f"{index:08d}", b"png", {}, now)
-    recorder.observe("00000003", b"png", {}, 1.0)
+    # Frame times are session-relative (near zero); the deadline must not depend on them.
+    path = recorder.start_full(seconds=0.3)
+    assert 0 < recorder.snapshot()["full_remaining"] <= 0.3
+    feed(recorder, 0, 3, now=0.0)
+    time.sleep(0.35)
+    recorder.observe("00000003", b"png", {}, 0.1)
     assert not recorder.active and not recorder.full
-    recorder.observe("00000004", b"png", {}, 1.1)
+    recorder.observe("00000004", b"png", {}, 0.2)
     flush(recorder)
     assert recorder.path is None
     assert sorted(item.stem for item in path.glob("*.png")) == ["00000000", "00000001", "00000002"]

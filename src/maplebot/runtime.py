@@ -1376,7 +1376,7 @@ class Application:
                 isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not 0 < seconds <= 600
             ):
                 raise ValueError("Recording length must be between 0 and 600 seconds")
-            path = self.recorder.start_full(time.perf_counter(), seconds)
+            path = self.recorder.start_full(seconds)
             return {"path": str(path), "recording": True}
         if name == "clip":
             return {"path": str(self.recorder.trigger("Operator saved clip", time.perf_counter()))}

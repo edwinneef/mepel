@@ -75,11 +75,15 @@ class SessionRecorder:
             self.closing = False
             return path
 
-    def start_full(self, now: float, seconds: float | None = None) -> Path:
-        """Save every frame; with `seconds`, full recording ends by itself after that long."""
+    def start_full(self, seconds: float | None = None) -> Path:
+        """Save every frame; with `seconds`, full recording ends by itself after that long.
+
+        The deadline uses perf_counter, not observe's `now`: frame times are
+        session-relative and would never reach a perf_counter deadline.
+        """
         with self.lock:
             path = self.start("manual", manual=True)
-            self.full_until = math.inf if seconds is None else now + seconds
+            self.full_until = math.inf if seconds is None else time.perf_counter() + seconds
             self.full = True
             return path
 
@@ -98,7 +102,7 @@ class SessionRecorder:
             path = self.path
             if path is None:
                 return
-            if self.full and now >= self.full_until:
+            if self.full and time.perf_counter() >= self.full_until:
                 self.full, self.full_until = False, math.inf
                 self.closing = self.closing or self.manual
             keyframe = (
