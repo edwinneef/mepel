@@ -7,7 +7,32 @@ from ctypes import wintypes
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+from maplebot.navigation import RouteMap
 from tools.navigation_check import Debugger, run, targets
+
+
+def bounded_destination(status, target):
+    """Split long journeys at a platform; each engine route retains its own limits."""
+    p = status['position']
+    profile = Path(__file__).resolve().parents[1] / 'data' / 'areas' / (p['area_id'] + '.json')
+    graph = RouteMap.computed(json.loads(profile.read_text()))
+    try:
+        graph.plan(p['surface_id'], target, origin_feet=p['feet'])
+        return target
+    except ValueError:
+        candidates = []
+        for node in targets(status):
+            if node == target:
+                continue
+            try:
+                first = graph.plan(p['surface_id'], node, origin_feet=p['feet'])
+                rest = graph.plan(node, target)
+                candidates.append((len(rest.edges), len(first.edges), node))
+            except ValueError:
+                continue
+        if not candidates:
+            raise RuntimeError('No bounded intermediate platform route available') from None
+        return min(candidates)[2]
 
 
 def idle_seconds():
@@ -151,18 +176,29 @@ def main():
                 raise RuntimeError('Jump effect not verified; inspect probe clip')
         s = prepare(api, args.area, args.reviewed_incident)
         state.setdefault('targets', targets(s)[:6])
-        for target in state['targets']:
+        queue = list(state['targets'])
+        intermediate_count = 0
+        while queue:
+            target = queue.pop(0)
             if target in state['completed']:
                 continue
             s = prepare(api, args.area, args.reviewed_incident)
             if s['position']['surface_id'] == target:
                 raise RuntimeError('Target already occupied without recorded arrival')
             output = args.state.parent / ('route-' + str(time.time_ns()))
-            result = run(api, output, limit=1, chosen=[target])
+            destination = bounded_destination(s, target)
+            result = run(api, output, limit=1, chosen=[destination])
             state['runs'].append(str(output / 'result.json'))
             if result['failure']:
                 raise RuntimeError(result['failure'])
-            state['completed'].append(target)
+            if destination == target:
+                state['completed'].append(target)
+                intermediate_count = 0
+            else:
+                intermediate_count += 1
+                if intermediate_count >= 3:
+                    raise RuntimeError('Intermediate route budget exhausted')
+                queue.insert(0, target)
             save()
         state['passed'] = True
     except Exception as error:
