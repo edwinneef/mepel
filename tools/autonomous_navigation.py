@@ -20,10 +20,11 @@ def idle_seconds():
     return ((ctypes.windll.kernel32.GetTickCount() - info.tick) & 0xffffffff) / 1000
 
 
-def wait_idle(idle=idle_seconds, clock=time.monotonic, sleep=time.sleep, timeout=300):
-    deadline = clock() + timeout
+def wait_idle(idle=idle_seconds, clock=time.monotonic, sleep=time.sleep, timeout=None):
+    # User activity is a pause, not a failed gameplay test requiring a new revision.
+    deadline = clock() + timeout if timeout is not None else None
     while idle() < 10:
-        if clock() >= deadline:
+        if deadline is not None and clock() >= deadline:
             raise RuntimeError("User remains active; validation paused without taking focus")
         sleep(.25)
 
