@@ -579,6 +579,8 @@ class TemplateDetector:
         checks = np.full((len(templates), max(counts)), len(samples) - 1)
         for row, (keys, base, sown) in enumerate(zip(ranked, bases, seeds, strict=False)):
             checks[row, : len(keys)] = np.concatenate((keys[len(sown) :], sown)) + base
+        # Per template and check: the sample's pixel offset and accepted color range.
+        offsets, low, span = samples[checks], low[checks], span[checks]
         zones = self.zones.reshape(-1)
         misses = np.zeros(len(positions), dtype=np.int16)
         unexplained = np.zeros(len(positions), dtype=np.int16)
@@ -586,11 +588,12 @@ class TemplateDetector:
         for start, stop in pairwise(bounds):
             if not len(positions):
                 return found
-            keys = checks[item, start:stop]
-            at = positions[:, None] + samples[keys]
+            at = positions[:, None] + offsets[item, start:stop]
             # A channel more than 12 from the sample wraps past the span when offset by low.
             observed = packed[at].view(np.uint8).reshape(*at.shape, 4)
-            wrong = ((observed - low[keys]) > span[keys]).any(axis=2)
+            observed -= low[item, start:stop]
+            # Any channel out of range leaves a nonzero byte in that sample's 4-byte word.
+            wrong = (observed > span[item, start:stop]).view(np.uint32)[:, :, 0] != 0
             misses += wrong.sum(axis=1, dtype=np.int16)
             if occluders:
                 # A differing sample inside a covering zone is explained, not a miss.
