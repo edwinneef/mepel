@@ -5,7 +5,32 @@ import json
 import math
 from pathlib import Path
 
+from .profiles import AreaStore
 from .public_map import MAX_SOURCE_BYTES, picture
+
+
+def cache_export(directory: Path, path: Path, digest: str) -> None:
+    """Retain the exact export in a separate content-addressed provider cache."""
+    body = path.read_bytes()
+    if hashlib.sha256(body).hexdigest() != digest:
+        raise ValueError("MeowDB export changed during import")
+    target = directory / "public" / "meowdb-classic" / f"{digest}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        if target.read_bytes() != body:
+            raise ValueError("Cached MeowDB export changed")
+    else:
+        AreaStore._atomic(target, body)
+
+
+def cached_source(directory: Path, public: dict) -> tuple[dict, str]:
+    path = directory / "public" / "meowdb-classic" / f"{public['sha256']}.json"
+    if not path.exists():
+        raise ValueError("Cache the MeowDB export before starting position tracking")
+    source, digest = load_source(path, public["id"])
+    if digest != public["sha256"]:
+        raise ValueError("Cached MeowDB export changed; import the map again")
+    return source, digest
 
 
 def load_source(path: Path, map_id: int | None = None) -> tuple[dict, str]:

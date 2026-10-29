@@ -89,7 +89,12 @@ class LivePosition:
             def missing_cache(url: str) -> bytes:
                 raise ValueError("Cache the public layout before starting position tracking")
 
-            source, digest = cached(self.store.directory, map_id, missing_cache)
+            if public and public.get("provider") == "meowdb-classic":
+                from .meowdb import cached_source
+
+                source, digest = cached_source(self.store.directory, public)
+            else:
+                source, digest = cached(self.store.directory, map_id, missing_cache)
             if public and digest != public["sha256"]:
                 raise ValueError("Cached public layout changed; import the map again")
             terrain = picture(source["miniMap"])

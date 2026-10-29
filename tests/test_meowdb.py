@@ -60,7 +60,7 @@ def test_legacy_profile_provenance_does_not_change_its_fingerprint():
     assert public_map_record(legacy) == legacy
 
 
-def test_explicit_import_uses_saved_calibration_without_network(tmp_path):
+def test_explicit_import_uses_saved_calibration_without_network(tmp_path, monkeypatch):
     from test_map_import import store
 
     from maplebot.map_import import import_map
@@ -76,6 +76,36 @@ def test_explicit_import_uses_saved_calibration_without_network(tmp_path):
                         dry_run=True, fetch=lambda _: pytest.fail("Network called"))
     assert result["provider"] == "meowdb-classic"
     assert fake.saved is None and fake.profile == original
+    assert not (tmp_path / "public").exists()
+    import_map(fake, "Test", tmp_path / "missing", meowdb_source=export)
+    fake.profile = fake.saved
+    from maplebot.live_position import LivePosition
+
+    # This import fixture has no game-window chrome; reader detection is tested
+    # separately. Check that live tracking receives this provider's cached pixels.
+    images = []
+    monkeypatch.setattr("maplebot.live_position.AreaMinimap",
+                        lambda reference, terrain: images.append(terrain))
+    tracker = LivePosition(fake, fake.profile["id"])
+    assert tracker.profile["public_map"]["provider"] == "meowdb-classic"
+    assert images[0].shape == (40, 60, 4)
+    tracker.close()
+
+
+def test_meowdb_tracking_cache_is_digest_bound_and_separate(tmp_path):
+    from maplebot.meowdb import cache_export, cached_source
+
+    _, digest = load_source(FIXTURE)
+    public = {"id": 42, "sha256": digest}
+    with pytest.raises(ValueError, match="Cache the MeowDB"):
+        cached_source(tmp_path, public)
+    cache_export(tmp_path, FIXTURE, digest)
+    assert cached_source(tmp_path, public)[1] == digest
+    assert not (tmp_path / "public/42.json").exists()
+    path = tmp_path / "public/meowdb-classic" / f"{digest}.json"
+    path.write_text(path.read_text() + " ")
+    with pytest.raises(ValueError, match="changed"):
+        cached_source(tmp_path, public)
 
 
 def test_classic_routes_replay_at_three_fps():

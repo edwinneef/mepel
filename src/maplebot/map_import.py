@@ -73,5 +73,9 @@ def import_map(store: AreaStore, area: str, catalog: Path, *, map_id: int | None
               "names": [item["name"] for item in candidate["platforms"] + candidate["ropes"]],
               "dry_run": dry_run, "previous_revision": profile["revision"]}
     if not dry_run:
+        if meowdb_source is not None:
+            from .meowdb import cache_export
+
+            cache_export(store.directory, meowdb_source, digest)
         result["revision"] = store.save(candidate)["profile"]["revision"]
     return result
