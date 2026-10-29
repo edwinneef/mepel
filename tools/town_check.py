@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from maplebot.contracts import FRESH_FRAME_SECONDS
+from maplebot.live_position import STALE_SECONDS
 from maplebot.navigation import RouteMap, map_hash, surface_y
 from tools.navigation_check import ROUTE_SECONDS, Debugger
 
@@ -137,15 +138,21 @@ class Check:
         self.started = False
 
     def status(self, *, settled=False, allow_rope=False):
-        deadline = self.clock() + .25
+        deadline = self.clock() + .8
         value = self.api.status()
         while problem := blocker(value, self.profile, session=self.session, settled=settled,
                                   allow_rope=allow_rope):
             position = value.get("position") or {}
-            # Status is paired with an asynchronously encoded PNG. Wait for its next
-            # fresh pair without issuing/renewing any input; runtime still owns dispatch.
-            if (problem == "Park minimap/position is missing, stale or unconfirmed"
-                    and position.get("stale") and not position.get("held")
+            # Wait for a fresh pair/settled surface without issuing or renewing input.
+            # A held UI label is never accepted; runtime still owns every dispatch gate.
+            pending_pair = (problem == "Park minimap/position is missing, stale or unconfirmed"
+                            and position.get("stale")
+                            and value["frame"]["age_ms"] > STALE_SECONDS * 1000)
+            pending_contact = (problem in {
+                "Park minimap/position is missing, stale or unconfirmed",
+                "Stand on a confirmed park platform or the expected ladder",
+            } and position.get("map") == "Player marker on the taught map")
+            if ((pending_pair or pending_contact)
                     and self.clock() < deadline):
                 self.sleep(.03)
                 value = self.api.status()

@@ -162,7 +162,8 @@ def test_empty_or_current_route_cannot_pass(profile):
 def test_png_pair_wait_never_sends_input_or_accepts_a_stale_position(profile):
     api = Api(profile)
     stale = status(profile)
-    stale["position"].update(stale=True, marker=None)
+    stale["position"].update(stale=True, marker=None, held=True)
+    stale["frame"]["age_ms"] = 510
     api.pending = [stale, status(profile)]
     check = town.Check(api, profile, sleep=lambda _: None)
     assert check.status()["position"]["stale"] is False
@@ -173,6 +174,7 @@ def test_png_pair_wait_still_refuses_focus_loss_and_persistent_staleness(profile
     api = Api(profile)
     stale = status(profile)
     stale["position"].update(stale=True, marker=None)
+    stale["frame"]["age_ms"] = 510
     lost = status(profile)
     lost["focused"] = False
     api.pending = [stale, lost]
@@ -185,7 +187,41 @@ def test_png_pair_wait_still_refuses_focus_loss_and_persistent_staleness(profile
                        sleep=lambda seconds: ticks.__setitem__(0, ticks[0] + seconds))
     with pytest.raises(RuntimeError, match="stale"):
         check.status()
-    assert ticks[0] <= .28 and not api.calls
+    assert ticks[0] <= .83 and not api.calls
+
+
+def test_held_surface_without_a_current_map_match_fails_immediately(profile):
+    api = Api(profile)
+    api.value["position"].update(stale=True, held=True, marker=None)
+    slept = []
+    check = town.Check(api, profile, sleep=lambda seconds: slept.append(seconds))
+    with pytest.raises(RuntimeError, match="stale"):
+        check.status()
+    assert not slept and not api.calls
+
+
+def test_waits_for_contact_after_known_map_motion_without_accepting_held_label(profile):
+    api = Api(profile)
+    moving = status(profile)
+    moving["position"].update(stale=True, held=True, marker=None,
+                               map="Player marker on the taught map")
+    api.pending = [moving, status(profile)]
+    slept = []
+    check = town.Check(api, profile, sleep=lambda seconds: slept.append(seconds))
+    assert check.status()["position"]["stale"] is False
+    assert slept and not api.calls
+
+
+def test_next_step_waits_for_settled_grip_instead_of_starting_from_unknown(profile):
+    api = Api(profile)
+    moving, settled = status(profile), status(profile)
+    moving["position"].update(kind="unknown", surface_id=None,
+                               map="Player marker on the taught map")
+    settled["position"].update(kind="rope", surface_id="ladder")
+    api.pending = [moving, settled]
+    check = town.Check(api, profile, sleep=lambda _: None)
+    assert check.status(settled=True, allow_rope=True)["position"]["kind"] == "rope"
+    assert not api.calls
 
 
 @pytest.mark.parametrize("change", ["focus", "map", "frame"])
