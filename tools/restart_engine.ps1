@@ -9,7 +9,7 @@ param(
 # restart leaves every previous -NoExit launcher window open, so this script shuts the
 # engine down through its own API and closes run.ps1 launchers that no longer host it.
 # Input-capable sessions start the elevated MapleBot task (tools/install_elevated_task.ps1).
-# -StopOnly stops there, turning the bot off.
+# -StopOnly stops there and also closes the overlay, turning the bot off.
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -42,8 +42,17 @@ foreach ($launcher in $launchers) {
 }
 
 if ($StopOnly) {
-    # The elevated task's window closes by itself once its engine has stopped.
-    [pscustomobject]@{ stopped = $true; url = $base } | ConvertTo-Json -Compress
+    # The overlay outlives its engine; close this project's overlay (started by
+    # tools/start_overlay.ps1). Its child processes exit with it. The elevated task's
+    # window closes by itself once its engine has stopped.
+    $overlays = Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object {
+        $_.CommandLine -and $_.CommandLine.Replace('/', '\') -like "*$root\ui\overlay\main.cjs*"
+    }
+    foreach ($overlay in $overlays) {
+        try { Stop-Process -Id $overlay.ProcessId -Confirm:$false } catch { }
+    }
+    [pscustomobject]@{ stopped = $true; overlays_closed = @($overlays).Count; url = $base } |
+        ConvertTo-Json -Compress
     return
 }
 
