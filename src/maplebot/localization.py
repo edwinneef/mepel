@@ -228,8 +228,11 @@ def match_view(reference: np.ndarray, image: np.ndarray) -> ViewMatch:
     offsets = []
     patches = 0
     # Skip the minimap and HUD margins; they stay fixed while the camera scrolls.
-    for y in range(height // 5, height * 3 // 4 - 100, 100):
-        for x in range(width // 6, width * 5 // 6 - 120, 120):
+    rows = [height // 10, *range(height // 5, height * 3 // 4 - 100, 100)]
+    for y in rows:
+        # Upper platforms carry camera motion; exclude the minimap at this height.
+        left = max(400, width // 6) if y == height // 10 else width // 6
+        for x in range(left, width * 5 // 6 - 120, 120):
             patch = gray[y:y + 100, x:x + 120]
             if patch.std() < 25:
                 continue
