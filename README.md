@@ -248,6 +248,7 @@ the previous assets first. Add `-Restart` only when the running engine needs the
 change (`-EnableGameplayInput` explicitly selects an input-capable restart).
 `-DryRun` lists the steps without running them. A failed step stops the sequence;
 timings and build backups go to `artifacts/dev-cycle/<timestamp>/`.
+See [town movement checks](docs/town-validation.md) for the bounded Mushroom Park run.
 
 ```powershell
 .venv\Scripts\python.exe -m pytest -q

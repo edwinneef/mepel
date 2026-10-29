@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [ValidateSet('engine', 'ui', 'all')][string]$Scope = 'engine',
-    [string[]]$PythonTests = @('tests/test_navigation_check.py', 'tests/test_navigation_runtime.py'),
+    [string[]]$PythonTests = @('tests/test_dev_cycle.py', 'tests/test_town_check.py',
+        'tests/test_navigation_check.py', 'tests/test_navigation_runtime.py'),
     [string[]]$UiTests = @(),
     [switch]$BuildUi,
     [switch]$Restart,
