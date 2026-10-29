@@ -219,6 +219,8 @@ class TemplateDetector:
         # pins the player to one screen edge; thresholds are unchanged.
         self.strip: tuple[int, int] | None = None
         self.occluders: tuple[Rect, ...] = ()
+        # During a window pass, the part of it player templates search (x, y, w, h).
+        self.player_area: tuple[int, int, int, int] | None = None
         self.zones = np.zeros((1, 1), dtype=np.uint8)
         self.zone_sums = cv2.integral(self.zones)
         self.camera = CameraTracker()
@@ -739,8 +741,19 @@ class TemplateDetector:
 
         coarse = cv2.pyrDown(gray) if any(t.anchor is not None for t in usable) else None
 
+        area = self.player_area
+
         def search(template: Template) -> list[Detection]:
-            return self._template_candidates(image, gray, template, floor, color_index, coarse)
+            if area is None or template.kind != "player":
+                return self._template_candidates(image, gray, template, floor, color_index, coarse)
+            # The tracked player is near the window centre. Even offsets keep the coarse
+            # slice identical to the whole window's proposals inside the area.
+            x, y, w, h = area
+            found = self._template_candidates(
+                image[y : y + h, x : x + w], gray[y : y + h, x : x + w], template, floor,
+                color_index, None if coarse is None
+                else coarse[y // 2 : (y + h + 1) // 2, x // 2 : (x + w + 1) // 2])
+            return [replace(item, box=item.box.translated(x, y)) for item in found]
 
         def match(batch: list[Template]) -> list[list[Detection]]:
             return self._sprite_batch(image, gray, batch, floor, color_index)
@@ -988,6 +1001,15 @@ class TemplateDetector:
         y = min(max(0, round(cy - height / 2)), image.shape[0] - height)
         return Rect(x, y, width, height)
 
+    @staticmethod
+    def _player_area(box: Rect, image: Image) -> tuple[int, int, int, int]:
+        """The 350 x 240 movement window around the track, at even offsets inside the image."""
+        width, height = min(350, image.shape[1]), min(240, image.shape[0])
+        cx, cy = box.center
+        x = min(max(0, round(cx - width / 2)), image.shape[1] - width) & ~1
+        y = min(max(0, round(cy - height / 2)), image.shape[0] - height) & ~1
+        return x, y, width, height
+
     def _observe_window(
         self, image: Image, now: float, templates: list[Template], floor: float,
         *, player_only: bool = False,
@@ -1002,8 +1024,11 @@ class TemplateDetector:
         self.track = local
         crop = image[window.y : window.y + window.height, window.x : window.x + window.width]
         self.origin = (window.x, window.y)
+        # Player templates need only the movement-sized area; a miss below still
+        # searches the whole frame with every template.
+        self.player_area = self._player_area(local[0], crop)
         player, monsters, failures, tag_confidence = self._observe(crop, now, templates, floor)
-        self.origin = (0, 0)
+        self.origin, self.player_area = (0, 0), None
         if player is None:
             self.track = saved  # Lost inside the window: search the whole frame.
             return self._observe_full(image, now, templates, floor)
