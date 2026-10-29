@@ -73,6 +73,7 @@ class _QueuedPlan:
     schedule: object
     submitted_at: float
     disable_after: bool = False
+    preserve_movement: bool = False
 
 
 PRIORITY_HP, PRIORITY_MP, PRIORITY_COMBAT = 1, 2, 5
@@ -172,6 +173,7 @@ class KeyboardController:
         )
         self.outcomes: queue.SimpleQueue[ActionOutcome] = queue.SimpleQueue()
         self.active: _QueuedPlan | None = None
+        self.suspended = False
         self.errors: dict[int, Exception] = {}
         self.cancelled_tickets: set[int] = set()
         self.leases: dict[int, VerticalLease] = {}
@@ -191,6 +193,8 @@ class KeyboardController:
         atexit.register(self.close)
 
     def enable(self) -> None:
+        if self.suspended:
+            raise RuntimeError("Input is suspended for recognition recovery")
         if self.replay:
             raise RuntimeError("Replay cannot enable real keyboard input")
         if not self.safe() or self.emergency():
@@ -208,6 +212,7 @@ class KeyboardController:
     ) -> None:
         with self.lock:
             self.enabled = False
+            self.suspended = False
             self.stopped.set()
             self.generation += 1
             self.reason = reason
@@ -215,6 +220,37 @@ class KeyboardController:
             self.release_all()
         if notify and self.on_stop is not None:
             self.on_stop(code, reason)
+
+    def suspend(self, *, lease: int | None = None) -> bool:
+        """Cancel input while keeping the physical-safety watchdog active."""
+        with self.lock:
+            if not self.enabled or self.stopped.is_set():
+                return False
+            if lease is not None:
+                held = self.leases.get(lease)
+                now = time.perf_counter()
+                if held is None or now >= held.deadline or now >= held.total_deadline:
+                    return False
+            self.suspended = True
+            self.generation += 1
+            if self.active is not None:
+                self.cancelled_tickets.add(self.active.ticket)
+            self._cancel_queued()
+            self.release_all()
+            self.reason = "Recognition recovery; all keys released"
+            return True
+
+    def resume(self) -> bool:
+        """Resume only an enabled suspension with no old plan left to release keys."""
+        with self.lock:
+            if (not self.suspended or not self.enabled or self.stopped.is_set()
+                    or self.active is not None or not self.queue.empty()
+                    or self.execution_lock.locked()
+                    or self.emergency() or not self.safe()):
+                return False
+            self.suspended = False
+            self.reason = "Recognition recovered; fresh input may be proposed"
+            return True
 
     def _cancel_queued(self) -> None:
         while True:
@@ -261,7 +297,7 @@ class KeyboardController:
             self.stop("Maximum action duration exceeded", code="INPUT_BACKEND_FAILURE")
             return "blocked: duration"
         with self.lock:
-            if self.replay or not self.enabled or self.stopped.is_set():
+            if self.replay or not self.enabled or self.stopped.is_set() or self.suspended:
                 return "blocked: input disabled"
             try:
                 schedule = self.planner.plan([KeyHold(action.kind, action.seconds)])
@@ -302,6 +338,7 @@ class KeyboardController:
 
     def submit_sequence(
         self, holds: Sequence[KeyHold], *, priority: int = PRIORITY_COMBAT,
+        preserve_movement: bool = False,
     ) -> int | str:
         """Queue a navigation chord under the same duration, generation and Stop guards."""
         if (not holds or any(h.action not in ACTIONS or h.seconds <= 0 or h.start_seconds < 0
@@ -309,14 +346,16 @@ class KeyboardController:
                 or max(h.start_seconds + h.seconds for h in holds)
                 > self.config.max_action_seconds):
             raise ValueError("Navigation chord exceeds the bounded action duration")
+        if preserve_movement and any(hold.action != "jump" for hold in holds):
+            raise ValueError("Only a navigation jump may preserve directional holds")
         with self.lock:
-            if self.replay or not self.enabled or self.stopped.is_set():
+            if self.replay or not self.enabled or self.stopped.is_set() or self.suspended:
                 return "blocked: input disabled"
             schedule = self.planner.plan(holds)
             ticket = self.next_ticket
             self.next_ticket += 1
             item = _QueuedPlan(ticket, self.generation, "navigation", schedule,
-                               time.perf_counter(), False)
+                               time.perf_counter(), False, preserve_movement)
             try:
                 self.queue.put_nowait((priority, ticket, item))
             except queue.Full:
@@ -337,17 +376,22 @@ class KeyboardController:
         with self.lock:
             self._release_keys(list(self.held))
 
-    def refresh_movement(self, action: str, seconds: float) -> str:
+    def refresh_movement(self, action: str, seconds: float, *, navigation: bool = False) -> str:
         """Hold a distant approach only until its next fresh-frame renewal deadline."""
         if action not in {"left", "right"} or not 0 < seconds <= self.config.max_action_seconds:
             raise ValueError("Movement renewal exceeds the bounded action duration")
         with self.lock:
-            if self.replay or not self.enabled or self.stopped.is_set():
+            if self.replay or not self.enabled or self.stopped.is_set() or self.suspended:
                 return "blocked: input disabled"
             if self.emergency() or not self.safe():
                 self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
                 return "blocked: unsafe movement"
-            if self.active is not None or not self.queue.empty() or self.leases:
+            with self.queue.mutex:
+                pending = [entry[2] for entry in self.queue.queue if entry[2] is not None]
+            plans = ([self.active] if self.active else []) + pending
+            blocked = (any(not plan.preserve_movement for plan in plans) if navigation
+                       else bool(plans or self.leases))
+            if blocked:
                 self.release_movement()
                 return "deferred: movement waits for the current key"
             key = getattr(self.config, action)
@@ -442,7 +486,8 @@ class KeyboardController:
         return True
 
     def _cancelled_generation(self, generation: int) -> bool:
-        return self.stopped.is_set() or generation != self.generation or not self.enabled
+        return (self.stopped.is_set() or generation != self.generation
+                or not self.enabled or self.suspended)
 
     def _send(self, key: str, down: bool) -> None:
         at_seconds = time.perf_counter() - self.execution_started
@@ -494,11 +539,12 @@ class KeyboardController:
         self.release_all()
         if not holds:
             return "release"
-        if self.replay or not self.enabled or self.stopped.is_set():
+        if self.replay or not self.enabled or self.stopped.is_set() or self.suspended:
             return "blocked: input disabled"
         try:
             schedule = self.planner.plan(holds)
             with self.lock:
+                generation = self.generation
                 self.execution_started = time.perf_counter()
                 self.last_timing = {
                     "schedule": asdict(schedule),
@@ -514,6 +560,8 @@ class KeyboardController:
                 if self.stopped.wait(max(0, wait)):
                     return "sequence interrupted"
                 with self.lock:
+                    if self._cancelled_generation(generation):
+                        return "sequence interrupted"
                     if not self.enabled or self.emergency() or not self.safe():
                         self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
                         return "sequence interrupted"
@@ -556,11 +604,14 @@ class KeyboardController:
 
     def _execute_schedule(self, item: _QueuedPlan) -> str:
         schedule = item.schedule
-        self.release_all()
         with self.lock:
             if item.ticket in self.cancelled_tickets:
                 return f"{item.action} interrupted"
-            if self._cancelled(item) or self.emergency() or not self.safe():
+            if self._cancelled(item):
+                return f"{item.action} interrupted"
+            if not item.preserve_movement:
+                self.release_all()
+            if self.emergency() or not self.safe():
                 self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
                 return f"{item.action} interrupted"
             self.execution_started = time.perf_counter()
@@ -576,7 +627,9 @@ class KeyboardController:
                 with self.lock:
                     if item.ticket in self.cancelled_tickets:
                         return f"{item.action} interrupted"
-                    if self._cancelled(item) or self.emergency() or not self.safe():
+                    if self._cancelled(item):
+                        return f"{item.action} interrupted"
+                    if self.emergency() or not self.safe():
                         self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
                         return f"{item.action} interrupted"
                     if event.down:
@@ -604,7 +657,11 @@ class KeyboardController:
                 self.last_timing["outcome"] = "completed"
             return f"{item.action} completed"
         finally:
-            self.release_all()
+            if item.preserve_movement:
+                with self.lock:
+                    self._release_keys(list({event.key for event in schedule.events}))
+            else:
+                self.release_all()
             with self.lock:
                 if self.last_timing["outcome"] == "running":
                     self.last_timing["outcome"] = "interrupted"

@@ -1530,7 +1530,8 @@ class Application:
                     return {"tracking": True, "area_id": self.position.profile["id"],
                             "calibrated": self.position.tracker is not None}
             position = LivePosition(self.areas, payload.get("area_id"),
-                                    capture_only=self.capture_only, map_id=payload.get("map_id"))
+                                    capture_only=self.capture_only, map_id=payload.get("map_id"),
+                                    player_threshold=self.config.perception.confidence)
             if self.position is not None:
                 self.position.close()
             self.position = position

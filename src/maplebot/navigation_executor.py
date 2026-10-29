@@ -24,6 +24,7 @@ class Motion:
     holds: tuple[KeyHold, ...] = ()
     vertical: str | None = None
     release: bool = False
+    horizontal: str | None = None
 
 
 # Near a map end the camera clamps, so the player reaches the screen edge and the name tag
@@ -75,6 +76,10 @@ class Navigator:
         self.settle_since = None
         return Motion(release=True)
 
+    def pause_for_recognition(self) -> None:
+        self.reason = "Recognition paused; waiting for fresh same-player evidence"
+        self.settle_since = self.settle_surface = self.last_feet = self.rope_start = None
+
     def _settled(self, feedback: Feedback, surface: str) -> bool:
         if feedback.marker_only:
             self.settle_since = None
@@ -88,7 +93,10 @@ class Navigator:
         return self.settle_since is not None and feedback.now - self.settle_since >= .3
 
     def _walk(self, x: float, target: float) -> Motion:
-        return Motion((KeyHold("right" if target > x else "left", self.pulse),))
+        direction = "right" if target > x else "left"
+        if abs(target - x) > 32:
+            return Motion(horizontal=direction)
+        return Motion((KeyHold(direction, min(.06, self.pulse)),))
 
     def step(self, f: Feedback) -> Motion:
         if not self.active:
@@ -168,15 +176,11 @@ class Navigator:
                 if abs(f.feet[0] - rope_x) > 12:
                     direction = "right" if rope_x > f.feet[0] else "left"
                     vertical = "up" if edge.landing[1] < f.feet[1] else "down"
-                    holds = [KeyHold(direction, self.pulse), KeyHold(vertical, self.pulse)]
-                    if vertical == "up" and not rope:
-                        holds.append(KeyHold("jump", min(.06, self.pulse),
-                                             MIN_CHORD_LEAD_SECONDS))
-                    return Motion(tuple(holds))
+                    jump = ((KeyHold("jump", min(.06, self.pulse)),)
+                            if vertical == "up" and not rope else ())
+                    return Motion(jump, vertical=vertical, horizontal=direction)
                 if not rope and edge.landing[1] < f.feet[1]:
-                    return Motion((KeyHold("up", self.pulse),
-                                   KeyHold("jump", min(.06, self.pulse),
-                                           MIN_CHORD_LEAD_SECONDS)))
+                    return Motion((KeyHold("jump", min(.06, self.pulse)),), vertical="up")
                 return Motion(vertical="up" if edge.landing[1] < f.feet[1] else "down")
             direction = "right" if edge.landing[0] > f.feet[0] else "left"
             holds = [KeyHold(direction, self.pulse)]
@@ -218,6 +222,11 @@ class Navigator:
                     self.stage, self.reason = "arrived", "Destination settled; keys released"
                 elif target_rope:
                     self.stage, self.edge_started = "approach", f.now
+                    next_edge = self.route.edges[self.index]
+                    if (next_edge.kind == "climb"
+                            and (next_edge.landing[1] - next_edge.launch[1])
+                            * (edge.landing[1] - edge.launch[1]) > 0):
+                        return Motion(vertical="up" if edge.landing[1] < edge.launch[1] else "down")
                 return Motion(release=True)
             return Motion(release=True) if not target_rope else Motion(
                 vertical="up" if edge.landing[1] < edge.launch[1] else "down")
@@ -239,13 +248,13 @@ class Navigator:
             # while a walk pulse is in flight, and plain "up" cannot reach an overhead rope.
             grab = (f.surface == edge.source and edge.landing[1] < f.feet[1]
                     and edge.source not in {p["id"] for p in self.graph.profile["ropes"]})
-            jump = (KeyHold("jump", min(.06, self.pulse), MIN_CHORD_LEAD_SECONDS),)
+            jump = (KeyHold("jump", min(.06, self.pulse)),)
             if abs(f.feet[0] - rope_x) > 12:
-                return Motion((KeyHold("right" if rope_x > f.feet[0] else "left", self.pulse),
-                               KeyHold("up" if edge.landing[1] < f.feet[1] else "down",
-                                       self.pulse)) + (jump if grab else ()))
+                return Motion(jump if grab else (),
+                              vertical="up" if edge.landing[1] < f.feet[1] else "down",
+                              horizontal="right" if rope_x > f.feet[0] else "left")
             if grab:
-                return Motion((KeyHold("up", self.pulse),) + jump)
+                return Motion(jump, vertical="up")
             return Motion(vertical="up" if edge.landing[1] < f.feet[1] else "down")
         if abs(f.feet[0] - edge.landing[0]) > 12:
             direction = edge.landing[0] - edge.launch[0]

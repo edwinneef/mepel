@@ -110,6 +110,19 @@ def test_walk_calibration_saves_transform_and_residual_then_locates(store):
         position.close()
 
 
+def test_live_position_applies_player_threshold_to_loaded_calibration(store):
+    position = LivePosition(store, AREA, player_threshold=.85)
+    try:
+        calibrate(position)
+        image = view(((60, 20),))
+        fix = position.read_map(image)
+        for now in (10.0, 10.2, 10.4):
+            result = position.update(image, fix, observe(500, confidence=.875421), now)
+        assert result["kind"] == "platform" and result["input_sent"] is False
+    finally:
+        position.close()
+
+
 def test_calibration_needs_enough_fresh_pairs(store):
     position = LivePosition(store, AREA)
     try:

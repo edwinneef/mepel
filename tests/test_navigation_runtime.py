@@ -14,6 +14,32 @@ from maplebot.navigation_executor import Feedback
 app, controller = _app, _controller
 
 
+@pytest.mark.parametrize(("threshold", "trusted"), [(.85, True), (.90, False)])
+def test_navigation_motion_uses_configured_player_threshold(app, monkeypatch, threshold, trusted):
+    import json
+    from types import SimpleNamespace
+
+    from maplebot.geometry import Rect
+    from maplebot.perception import Detection, Observation
+
+    nav = preview(app)
+    app.config = replace(app.config, perception=replace(app.config.perception,
+                                                      confidence=threshold))
+    app.position = SimpleNamespace(profile=nav.graph.profile,
+                                   tracker=SimpleNamespace(transform=SimpleNamespace(
+                                       to_area=lambda x, y: (x, y))))
+    path = app.areas.directory / f"{nav.graph.profile['id']}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(nav.graph.profile), encoding="utf-8")
+    monkeypatch.setattr(app, "_input_block_reason", lambda: None)
+    observation = Observation(Detection("player", Rect(145, 380, 10, 20), .875421), [],
+                              camera_shift=(0, 0), camera_confidence=1)
+    for now in (1.0, 1.2):
+        nav.observe(SimpleNamespace(dot=(150, 400)), observation, {"surface_id": "floor"}, now)
+    assert nav.feedback.motion_ok is trusted
+    assert app.controller.backend.events == []
+
+
 @pytest.mark.parametrize(("age", "motion", "feet", "reason"), [
     (.507, True, (150, 400), "stale"),
     (.1, False, (150, 400), "motion_or_marker_uncertain"),

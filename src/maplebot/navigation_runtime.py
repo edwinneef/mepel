@@ -1,6 +1,7 @@
 """Navigation's runtime adapter; keyboard authority stays with the existing controller."""
 
 import json
+import math
 import time
 from dataclasses import replace
 
@@ -16,6 +17,7 @@ from .scheduler import SUSTAIN
 FLIGHT_GRACE_SECONDS = 0.8
 # Screen width searched beside a map end during an edge step; covers the walk-in band.
 EDGE_STRIP = 480
+RECOGNITION_RECOVERY_SECONDS = 2
 # Stops that blame the move itself; focus, feedback or budget stops do not.
 MOVE_FAILURES = ("Movement departed the recorded corridor", "Landing overshoot",
                  "Departure not observed", "Edge deadline exhausted",
@@ -39,8 +41,15 @@ class NavigationRuntime:
         self.pending_proofs: list[tuple[str, str, str]] = []
         self.last_feedback_failure = None
         self.last_input_refusal = None
+        self.identity = None
+        self.recovery = None
+        self.recovery_log = []
+        self.recovery_resume_sequence = 0
 
     def cancel(self, reason: str) -> None:
+        if self.recovery:
+            self.recovery_log.append({"result": "stopped", "reason": reason})
+        self.recovery = None
         if self.agent and self.agent.active:
             self.agent.stop(reason)
         if self.lease is not None:
@@ -231,7 +240,8 @@ class NavigationRuntime:
             return
         player = observation.player
         fresh = bool(fix and fix.dot is not None and player and not player.tracked
-                     and player.confidence >= .9 and observation.camera_shift is not None
+                     and player.confidence >= self.app.config.perception.confidence
+                     and observation.camera_shift is not None
                      and observation.camera_confidence >= .35)
         # The marker places the player even when the name tag drops out for a frame; only
         # fresh agreement counts as trusted motion, and trusted() bounds marker-only stretches.
@@ -254,12 +264,102 @@ class NavigationRuntime:
             self.confirmed = (surface, now)
         profile = json.loads((self.app.areas.directory / f"{self.graph.profile['id']}.json")
                              .read_text("utf-8"))
-        self.feedback = Feedback(now, map_hash(profile), feet,
-                                 position.get("surface_id") if position
-                                 and not position.get("provisional") else None,
-                                 motion, max(0, time.perf_counter() - now),
-                                 self.app._input_block_reason() is None
-                                 if not self.app.capture_only else False)
+        window = self.app.windows.get(self.app.hwnd) if self.app.hwnd else None
+        feedback = Feedback(now, map_hash(profile), feet,
+                            position.get("surface_id") if position
+                            and not position.get("provisional") else None,
+                            motion, max(0, time.perf_counter() - now),
+                            bool(window and window.focused and not self.app.capture_only))
+        identified = bool(player and not player.tracked and math.isfinite(player.confidence)
+                          and player.confidence >= self.app.config.perception.confidence)
+        identity = player.template.removesuffix(":tag-only") if identified else None
+        navigating = (self.app.mode == "navigation" and isinstance(self.agent, Navigator)
+                      and self.agent.active)
+        if navigating and not identified and self.recovery is None:
+            self._begin_recovery(feedback)
+        self.feedback = feedback
+        if self.recovery:
+            self._recover(identity)
+        elif identified and identity:
+            if (navigating and self.identity and self.identity.startswith("nametag:")
+                    and identity.startswith("nametag:") and identity != self.identity):
+                self.app._stop("PLAYER_UNCERTAIN", "Player identity changed during navigation")
+            elif not self.identity or identity.startswith("nametag:") or not navigating:
+                self.identity = identity
+
+    def _begin_recovery(self, feedback: Feedback) -> None:
+        app = self.app
+        if not self.identity:
+            app._stop("PLAYER_UNCERTAIN", "No confirmed player identity for recovery")
+            return
+        if self.lease is not None:
+            with app.controller.lock:
+                lease = app.controller.leases.get(self.lease)
+                expired = (lease is None or time.perf_counter() >= lease.deadline
+                           or time.perf_counter() >= lease.total_deadline)
+            if expired:
+                app._stop("POLICY_STOP", "Navigation vertical lease expired")
+                return
+        if (not feedback.feet or not feedback.focused or feedback.age > .5
+                or feedback.fingerprint != self.agent.route.fingerprint):
+            app._stop("PLAYER_UNCERTAIN", "Recovery requires fresh map/marker and focus")
+            return
+        if not app.controller.suspend(lease=self.lease):
+            app._stop("INPUT_BACKEND_FAILURE", "Cannot suspend navigation input")
+            return
+        self.ticket = self.lease = None
+        self.recovery = {"started": time.perf_counter(), "identity": self.identity,
+                         "matches": 0, "first_match": None,
+                         "target": self.agent.route.target,
+                         "source": app.source_generation, "view": app.view_generation}
+        self.agent.pause_for_recognition()  # Route and edge clocks keep running.
+        self.reason = "Recognition paused; keys released; reacquiring the same player"
+        self.recovery_log.append({"result": "paused", "identity": self.identity})
+        self.recovery_log = self.recovery_log[-16:]
+
+    def recovery_block_reason(self) -> str | None:
+        r, f = self.recovery, self.feedback
+        if not r:
+            return None
+        if not self.app.controller.suspended:
+            return "Recognition recovery requires suspended input"
+        if time.perf_counter() - r["started"] >= RECOGNITION_RECOVERY_SECONDS:
+            return "Player recognition recovery timed out"
+        if (not self.agent or not self.agent.active or self.agent.route.target != r["target"]
+                or self.app.source_generation != r["source"]
+                or self.app.view_generation != r["view"]):
+            return "Navigation context changed during recognition recovery"
+        if (not f or time.perf_counter() - f.now > .5 or not f.feet or not f.focused
+                or f.fingerprint != self.agent.route.fingerprint
+                or self.graph.path_blocker((f.feet, f.feet))):
+            return "Fresh map/marker or focus lost during recognition recovery"
+        return None
+
+    def _recover(self, identity: str | None) -> None:
+        r = self.recovery
+        if reason := self.recovery_block_reason():
+            self.app._stop("PLAYER_UNCERTAIN", reason)
+            return
+        if identity != r["identity"] or not self.feedback.motion_ok:
+            if identity and identity.startswith("nametag:") and identity != r["identity"]:
+                self.app._stop("PLAYER_UNCERTAIN", "Different player found during recovery")
+                return
+            r["matches"], r["first_match"] = 0, None
+            return
+        r["matches"] += 1
+        if r["first_match"] is None:
+            r["first_match"] = self.feedback.now
+        if r["matches"] < 2 or self.feedback.now - r["first_match"] < .15:
+            return
+        self.recovery = None
+        if not self.app.controller.resume():
+            if self.app.mode == "navigation" and self.agent and self.agent.active:
+                self.recovery = r  # Old canceled input may still be finishing its release.
+            return
+        self.recovery_log.append({"result": "resumed", "identity": identity,
+                                  "seconds": round(time.perf_counter() - r["started"], 3)})
+        self.recovery_resume_sequence = self.app.sequence
+        self.reason = "Player reacquired from fresh agreeing frames; same route resumed"
 
     def search_strip(self, width: int) -> tuple[int, int] | None:
         """Screen columns that can hold the player during an edge step, else None.
@@ -302,6 +402,8 @@ class NavigationRuntime:
                            "stale" if now - f.now > .5 else "motion_or_marker_uncertain")}
 
     def feedback_block_reason(self) -> str | None:
+        if self.recovery:
+            return self.recovery_block_reason()
         value = self.feedback_status()
         if value["trusted"]:
             return None
@@ -342,6 +444,12 @@ class NavigationRuntime:
         if reason := self.feedback_block_reason():
             app._stop("PLAYER_UNCERTAIN", reason)
             return
+        if self.recovery:
+            # The watchdog still evaluates physical gates, but the suspended controller
+            # cannot dispatch keys. Route and lease budgets are never reset by recovery.
+            if app.stop_requested.is_set() or app._input_block_reason():
+                app._stop("FOCUS_LOSS", "Navigation safety gate lost during recovery")
+            return
         airborne = not f.motion_ok
         if app.stop_requested.is_set() or app._input_block_reason():
             app._stop("FOCUS_LOSS", "Navigation focus/capture/input gate lost")
@@ -373,8 +481,13 @@ class NavigationRuntime:
             return
         if self.ticket is not None and self.ticket not in app.arbiter.in_flight:
             self.ticket = None
-        proposal = Action(motion.holds[0].action, motion.holds[0].seconds) if motion.holds else (
-            Action(motion.vertical, .1) if motion.vertical else Action())
+        if motion.horizontal:
+            proposal = Action(motion.horizontal, app.config.input.max_action_seconds)
+        elif motion.vertical:
+            proposal = Action(motion.vertical, .1)
+        else:
+            proposal = (Action(motion.holds[0].action, motion.holds[0].seconds)
+                        if motion.holds else Action())
         choice = app.arbiter.choose(sustain=suggestion if suggestion in app.sustain else None,
                                     combat=None, navigation=proposal)
         if choice.lane in SUSTAIN:
@@ -392,17 +505,42 @@ class NavigationRuntime:
             else:
                 app._stop("INPUT_BACKEND_FAILURE", str(submitted))
             return
-        if choice.action is None or self.ticket is not None:
-            self._release() if choice.action is None else None
+        if choice.action is None:
+            self._release()
             return
         if motion.release:
             self._release()
-        elif motion.vertical:
-            if self.lease is None:
-                self.lease = app.controller.start_vertical_lease(motion.vertical)
-            elif not app.controller.renew_vertical_lease(self.lease):
-                app._stop("POLICY_STOP", "Navigation vertical lease expired")
-        elif motion.holds:
+        elif motion.vertical or motion.horizontal:
+            if not motion.horizontal:
+                app.controller.release_movement()
+            if motion.vertical:
+                if self.lease is not None:
+                    lease = app.controller.leases.get(self.lease)
+                    if lease is not None and lease.action != motion.vertical:
+                        app.controller.release_vertical_lease(self.lease)
+                        self.lease = None
+                if self.lease is None:
+                    self.lease = app.controller.start_vertical_lease(motion.vertical)
+                elif not app.controller.renew_vertical_lease(self.lease):
+                    app._stop("POLICY_STOP", "Navigation vertical lease expired")
+                    return
+            elif self.lease is not None:
+                app.controller.release_vertical_lease(self.lease)
+                self.lease = None
+            if motion.horizontal:
+                result = app.controller.refresh_movement(
+                    motion.horizontal, app.config.input.max_action_seconds, navigation=True)
+                if not result.startswith(("held:", "deferred:")):
+                    app._stop("INPUT_BACKEND_FAILURE", result)
+                    return
+            if motion.holds and self.ticket is None:
+                submitted = app.controller.submit_sequence(motion.holds, preserve_movement=True)
+                if isinstance(submitted, int):
+                    self.ticket = submitted
+                    app.arbiter.submitted(submitted, "navigation")
+                else:
+                    app._stop("INPUT_BACKEND_FAILURE", str(submitted))
+        elif motion.holds and self.ticket is None:
             self._release()
             submitted = app.controller.submit_sequence(motion.holds)
             if isinstance(submitted, int):
@@ -431,7 +569,20 @@ class NavigationRuntime:
         value = self.agent.snapshot() if self.agent else {
             "stage": "preview" if self.route else "idle", "reason": self.reason,
             "active": False, "route": self.route.snapshot() if self.route else None}
+        recovery = {"active": self.recovery is not None,
+                    "input_suspended": self.app.controller.suspended,
+                    "marker_fresh": bool(self.feedback and self.feedback.feet
+                                         and 0 <= time.perf_counter() - self.feedback.now <= .5),
+                    "map_hash": self.feedback.fingerprint if self.feedback else None,
+                    "pending_publication": bool(self.recovery_resume_sequence and (
+                        not self.app.published_frame or self.app.published_frame["sequence"]
+                        < self.recovery_resume_sequence)),
+                    "remaining_seconds": max(0, RECOGNITION_RECOVERY_SECONDS
+                                             - (time.perf_counter() - self.recovery["started"]))
+                    if self.recovery else 0, "events": self.recovery_log[-16:]}
         return {**value, "map": self.graph.snapshot() if self.graph else None,
+                "recovery": recovery,
+                **({"stage": "reacquire_player", "reason": self.reason} if self.recovery else {}),
                 "feedback": self.feedback_status(),
                 "last_feedback_failure": self.last_feedback_failure,
                 "last_input_refusal": self.last_input_refusal,

@@ -83,7 +83,7 @@ def test_rope_proximity_without_vertical_progress_cannot_confirm_grip():
     for now in (0, .2, .4):
         nav.step(replace(f, now=now))
     grab = nav.step(replace(f, now=.6))
-    assert [hold.action for hold in grab.holds] == ["up", "jump"]
+    assert grab.vertical == "up" and [hold.action for hold in grab.holds] == ["jump"]
     for now in (.8, 1, 1.2):
         nav.step(replace(f, now=now, feet=(150, 380), surface=None))
     assert nav.active and nav.completed == 0
@@ -110,9 +110,10 @@ def test_dropped_rope_grab_chord_is_repeated_from_the_launch_floor():
         nav.step(replace(f, now=now))
     assert nav.stage == "flight"
     aligned = nav.step(replace(f, now=.8, feet=(158, 400)))
-    assert [hold.action for hold in aligned.holds] == ["up", "jump"]
+    assert aligned.vertical == "up" and [hold.action for hold in aligned.holds] == ["jump"]
     offset = nav.step(replace(f, now=1, feet=(170, 400)))
-    assert [hold.action for hold in offset.holds] == ["left", "up", "jump"]
+    assert offset.horizontal == "left" and offset.vertical == "up"
+    assert [hold.action for hold in offset.holds] == ["jump"]
     assert nav.step(replace(f, now=1.2, feet=(150, 380), surface=None)).vertical == "up"
 
 

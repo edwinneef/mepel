@@ -242,6 +242,19 @@ def test_fused_platform_needs_agreeing_marker_and_tag_for_150_ms(fused):
     assert (located.kind, located.surface_id) == ("platform", "floor")
 
 
+@pytest.mark.parametrize(("threshold", "confidence", "tracked", "kind"), [
+    (.85, .875421, False, "platform"), (.90, .875421, False, "unknown"),
+    (.85, .849, False, "unknown"), (.85, .875421, True, "unknown"),
+])
+def test_fused_tracking_uses_configured_player_threshold(threshold, confidence, tracked, kind):
+    tracker = MinimapTracker(MinimapTransform(16, -500, 16, -127),
+                             (Platform("floor", 0, 1300, 593),), player_threshold=threshold)
+    for now in (1.0, 1.2, 1.4):
+        location = tracker.update(fix(), player(600, 480, confidence=confidence, tracked=tracked),
+                                   (0, 0), now)
+    assert location.kind == kind
+
+
 @pytest.mark.parametrize(("marker", "tag", "shift", "reason"), [
     (fix(41), player(600, 480), (40, 0), "disagree"),
     (fix(40, 44), player(600, 470), (0, 0), "Moving vertically"),

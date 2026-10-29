@@ -296,7 +296,10 @@ class MinimapTracker:
 
     def __init__(self, transform: MinimapTransform, platforms: tuple[Platform, ...], *,
                  agreement: float = 32, height: float = 12,
-                 ropes: tuple[Rope, ...] = ()) -> None:
+                 ropes: tuple[Rope, ...] = (), player_threshold: float = .90) -> None:
+        if not .5 <= player_threshold <= 1:
+            raise ValueError("Player threshold must be between 0.5 and 1")
+        self.player_threshold = player_threshold
         self.transform = transform
         self.platforms = platforms
         self.ropes = ropes
@@ -318,7 +321,8 @@ class MinimapTracker:
             return self._unknown(fix.reason)
         feet = self.transform.to_area(*fix.dot)
         if (player is None or player.kind != "player" or player.tracked
-                or not math.isfinite(player.confidence) or player.confidence < 0.90):
+                or not math.isfinite(player.confidence)
+                or player.confidence < self.player_threshold):
             # A one-frame name-tag miss is common while standing still; it says nothing about
             # movement, so the platform being confirmed and the last observation survive it.
             return Location("unknown", None, feet, "Name tag missing, weak or tracked-only")

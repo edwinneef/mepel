@@ -55,10 +55,11 @@ class LivePosition:
     """Position on one saved area; reloads its calibration when the operator saves one."""
 
     def __init__(self, store: AreaStore, area_id: str, *, capture_only: bool = False,
-                 map_id: int | None = None) -> None:
+                 map_id: int | None = None, player_threshold: float = .90) -> None:
         self.store = store
         self.capture_only = capture_only
         self.map_id = map_id
+        self.player_threshold = player_threshold
         self.supplement_tracker: MinimapTracker | None = None
         self.supplement_available = False
         self.supplement_reason = "Off; session-only observation"
@@ -102,7 +103,8 @@ class LivePosition:
                            ropes=tuple(Rope(r["id"], r["start"]["x"],
                                             min(r["start"]["y"], r["end"]["y"]),
                                             max(r["start"]["y"], r["end"]["y"]))
-                                       for r in profile["ropes"]))
+                                       for r in profile["ropes"]),
+                           player_threshold=self.player_threshold)
             if calibration else None
         )
         self.supplement_available = self.capture_only and localization_supplement.matches(
@@ -128,7 +130,8 @@ class LivePosition:
             if self.supplement_tracker is None:
                 self.supplement_tracker = MinimapTracker(
                     self.tracker.transform,
-                    platforms({"platforms": [localization_supplement.PLATFORM]}))
+                    platforms({"platforms": [localization_supplement.PLATFORM]}),
+                    player_threshold=self.player_threshold)
             self.supplement_reason = "Provisional screenshot coverage; no movement evidence"
         else:
             self.supplement_tracker = None

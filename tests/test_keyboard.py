@@ -41,6 +41,90 @@ def test_disabled_input_and_replay_send_no_keys(controller):
     assert backend.events == []
 
 
+def test_repeated_movement_renewals_do_not_repress_the_key(controller):
+    control, backend, _ = controller
+    control.enable()
+    for _ in range(8):
+        assert control.refresh_movement("right", .25) == "held: right"
+    assert backend.events == [("right", True)]
+    control.release_movement()
+    assert backend.events == [("right", True), ("right", False)]
+
+
+def test_navigation_jump_preserves_up_and_horizontal_holds(controller):
+    control, backend, _ = controller
+    control.enable()
+    lease = control.start_vertical_lease("up")
+    assert control.refresh_movement("right", .25, navigation=True) == "held: right"
+    ticket = control.submit_sequence((KeyHold("jump", .02),), preserve_movement=True)
+    deadline = time.monotonic() + 1
+    outcomes = []
+    while not outcomes and time.monotonic() < deadline:
+        outcomes = control.poll_outcomes()
+        time.sleep(.001)
+    assert outcomes and outcomes[0].ticket == ticket
+    assert (control.config.jump, True) in backend.events
+    assert (control.config.jump, False) in backend.events
+    assert ("up", False) not in backend.events and ("right", False) not in backend.events
+    assert control.renew_vertical_lease(lease)
+    control.release_all()
+    assert backend.events.count(("up", True)) == backend.events.count(("up", False)) == 1
+
+
+def test_suspension_releases_and_blocks_all_input_until_explicit_resume(controller):
+    control, backend, _ = controller
+    control.enable()
+    control.refresh_movement("right", .25)
+    assert control.suspend()
+    assert backend.events == [("right", True), ("right", False)]
+    assert control.submit(Action("jump", .02)).startswith("blocked")
+    assert control.submit_sequence((KeyHold("jump", .02),)).startswith("blocked")
+    assert control.refresh_movement("left", .25).startswith("blocked")
+    with pytest.raises(RuntimeError):
+        control.start_vertical_lease("up")
+    with pytest.raises(RuntimeError):
+        control.enable()
+    assert control.resume()
+    assert backend.events == [("right", True), ("right", False)]  # Resume itself sends no key.
+
+
+def test_focus_watchdog_remains_active_while_input_is_suspended(controller):
+    control, _, flags = controller
+    control.enable()
+    assert control.suspend()
+    flags["focus"] = False
+    assert control.stopped.wait(.15)
+    assert not control.enabled and not control.resume()
+
+
+def test_preserving_input_is_restricted_to_jump(controller):
+    control, _, _ = controller
+    control.enable()
+    with pytest.raises(ValueError, match="Only a navigation jump"):
+        control.submit_sequence((KeyHold("attack", .02),), preserve_movement=True)
+
+
+def test_canceled_old_plan_cannot_release_a_new_movement_hold(controller):
+    from maplebot.keyboard import _QueuedPlan
+
+    control, backend, _ = controller
+    control.enable()
+    old = _QueuedPlan(123, control.generation, "navigation",
+                      control.planner.plan((KeyHold("jump", .02),)), time.perf_counter())
+    assert control.suspend() and control.resume()
+    control.refresh_movement("right", .25)
+    assert control._execute_schedule(old).endswith("interrupted")
+    assert backend.events == [("right", True)]
+
+
+def test_expired_vertical_lease_cannot_enter_resumable_suspension(controller):
+    control, _, _ = controller
+    control.enable()
+    lease = control.start_vertical_lease("up")
+    control.release_vertical_lease(lease)
+    assert not control.suspend(lease=lease)
+
+
 def test_movement_renewal_keeps_one_keydown_and_expires_without_another_frame(controller):
     control, backend, _ = controller
     control.enable()
