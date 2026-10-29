@@ -72,6 +72,17 @@ def test_minimap_without_navy_is_found_by_its_white_frame():
     assert AreaMinimap(image).read(image).dot == (102.5, 42.5)
 
 
+def test_framed_minimap_with_wide_white_margin_is_recognized():
+    image = np.full((768, 1366, 3), SKY, np.uint8)
+    image[70:146, 3:180] = 255
+    art = np.random.default_rng(5).integers(40, 141, (70, 135, 3), dtype=np.uint8)
+    image[72:142, 40:175] = art
+    image[112:118, 100:106][DOT_SHAPE] = (0, 220, 255)
+    reader = AreaMinimap(image)
+    assert reader.read(image).dot == (98.5, 42.5)
+    assert reader.read(view(seed=9)).dot is None
+
+
 @pytest.mark.parametrize("background", [(82, 82, 82), (210, 200, 190)])
 @pytest.mark.parametrize("at", [(4, 72), (42, 92)])
 def test_translucent_grey_sky_is_ignored_when_matching_the_map(background, at):

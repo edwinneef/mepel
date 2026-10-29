@@ -86,7 +86,7 @@ def _framed_canvas(region: np.ndarray) -> Rect | None:
                     bottom += 1
                 if (bottom < height and bottom - top >= 20
                         and white[bottom, x:right + 1].mean() > 0.9
-                        and white[top + 1:bottom, x + 1:right].mean() < 0.2):
+                        and white[top + 1:bottom, x + 1:right].mean() < 0.5):
                     return Rect(x + 1, top + 1, right - x - 1, bottom - top - 1)
             x = right + 1
     return None
