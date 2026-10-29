@@ -25,6 +25,26 @@ def preview(app):
     return nav
 
 
+def test_proof_disk_write_waits_until_controller_is_stopped(app, monkeypatch):
+    from maplebot.navigation_executor import Navigator
+    nav = preview(app)
+    nav.graph.profile['public_map'] = True
+    nav.graph.proven.clear()
+    nav.agent = Navigator(nav.graph, nav.route, time.perf_counter())
+    nav.agent.completed = nav.agent.index = 1
+    writes = []
+    def record(*args):
+        assert not app.controller.enabled
+        writes.append(args)
+    monkeypatch.setattr(nav.proofs, 'record', record)
+    app.controller.enable()
+    nav._learn()
+    assert not writes and nav.pending_proofs
+    assert nav.route.edges[0].id in nav.graph.proven
+    app.safe_stop('OPERATOR_STOP', 'test')
+    assert len(writes) == 1 and not nav.pending_proofs
+
+
 def test_capture_only_cannot_start_navigation_even_with_supervision_flag(app):
     preview(app)
     app.capture_only = True

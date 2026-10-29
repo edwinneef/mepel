@@ -34,6 +34,7 @@ class NavigationRuntime:
         self.failed: set[str] = set()  # computed moves that failed this session
         self.failed_map: str | None = None
         self.counted = 0
+        self.pending_proofs: list[tuple[str, str, str]] = []
 
     def cancel(self, reason: str) -> None:
         if self.agent and self.agent.active:
@@ -43,6 +44,15 @@ class NavigationRuntime:
         self.lease, self.ticket = None, None
         self.resume_combat = False
         self.reason = reason
+        # safe_stop has already released controller input. Disk flushes must not
+        # consume the next observation's freshness budget during a route.
+        while self.pending_proofs:
+            try:
+                self.proofs.record(*self.pending_proofs[0])
+            except OSError as error:
+                self.app.note(f"Navigation proof save deferred: {error}")
+                break
+            self.pending_proofs.pop(0)
 
     def _release(self) -> None:
         if self.ticket is not None:
@@ -328,7 +338,7 @@ class NavigationRuntime:
             self.counted = agent.completed
             edge = agent.route.edges[agent.index - 1]
             if edge.id not in graph.proven:
-                self.proofs.record(graph.profile["id"], graph.fingerprint, edge.id)
+                self.pending_proofs.append((graph.profile["id"], graph.fingerprint, edge.id))
                 graph.proven.add(edge.id)
         elif (agent.stage == "stopped" and agent.reason.startswith(MOVE_FAILURES)
               and agent.index < len(agent.route.edges)):
