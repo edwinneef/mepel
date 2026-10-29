@@ -63,6 +63,22 @@ def test_uncalibrated_area_reports_why_and_sends_no_input(store):
         position.close()
 
 
+def test_public_identity_requires_setup_cache_without_network(store):
+    with pytest.raises(ValueError, match="Cache the public layout"):
+        LivePosition(store, AREA, map_id=101010102)
+
+
+def test_imported_public_identity_rejects_changed_cache(store, monkeypatch):
+    profile = store.load(AREA)["profile"]
+    profile["public_map"] = {
+        "id": 101010102, "sha256": "a" * 64, "world": {"x": [1, 0], "y": [1, 0]},
+    }
+    store.save(profile)
+    monkeypatch.setattr("maplebot.public_map.cached", lambda *args: ({}, "b" * 64))
+    with pytest.raises(ValueError, match="Cached public layout changed"):
+        LivePosition(store, AREA)
+
+
 def test_walk_calibration_saves_transform_and_residual_then_locates(store):
     position = LivePosition(store, AREA)
     try:
