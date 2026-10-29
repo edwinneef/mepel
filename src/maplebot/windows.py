@@ -18,6 +18,19 @@ class Window:
     dpi: int
 
 
+class TitleBarInfo(ctypes.Structure):
+    _fields_ = [("size", wintypes.DWORD), ("rect", wintypes.RECT),
+                ("states", wintypes.DWORD * 6)]
+
+
+def caption_point(info: TitleBarInfo, client: Rect) -> tuple[int, int]:
+    rect = info.rect
+    if (info.states[0] & 0x18001 or rect.right - rect.left < 240
+            or rect.bottom <= rect.top or rect.bottom > client.y):
+        raise RuntimeError("Visible native title bar unavailable; no focus click sent")
+    return rect.left + 64, (rect.top + rect.bottom) // 2
+
+
 class Windows:
     def __init__(self) -> None:
         if os.name != "nt":
@@ -109,23 +122,21 @@ class Windows:
         api.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
         api.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
         api.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
-        api.SendMessageTimeoutW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM,
-                                          wintypes.LPARAM, wintypes.UINT, wintypes.UINT,
-                                          ctypes.POINTER(ctypes.c_size_t)]
-        api.SendMessageTimeoutW.restype = wintypes.LPARAM
+        api.GetTitleBarInfo.argtypes = [wintypes.HWND, ctypes.POINTER(TitleBarInfo)]
         api.mouse_event.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.DWORD,
                                    wintypes.DWORD, ctypes.c_size_t]
         rect, saved = wintypes.RECT(), wintypes.POINT()
         if (not api.GetWindowRect(hwnd, ctypes.byref(rect))
                 or not api.GetCursorPos(ctypes.byref(saved))):
             raise RuntimeError("Focus caption geometry unavailable")
-        point = wintypes.POINT(rect.left + 100, rect.top + 12)
-        hit = ctypes.c_size_t()
-        packed = (point.x & 0xffff) | ((point.y & 0xffff) << 16)
-        if (api.GetAncestor(api.WindowFromPoint(point), 2) != hwnd
-                or not api.SendMessageTimeoutW(hwnd, 0x84, 0, packed, 2, 250, ctypes.byref(hit))
-                or hit.value != 2):  # WM_NCHITTEST must return HTCAPTION.
-            raise RuntimeError("Game title bar is covered or unavailable; no focus click sent")
+        info = TitleBarInfo()
+        info.size = ctypes.sizeof(info)
+        if not api.GetTitleBarInfo(hwnd, ctypes.byref(info)):
+            raise RuntimeError("Native title bar query failed; no focus click sent")
+        point = wintypes.POINT(*caption_point(info, self.get(hwnd).client))
+        covering = api.GetAncestor(api.WindowFromPoint(point), 2)
+        if covering != hwnd:
+            raise RuntimeError(f"Game caption covered by {covering}; no focus click sent")
         if not api.SetCursorPos(point.x, point.y):
             raise RuntimeError("Could not position focus click")
         try:

@@ -41,3 +41,22 @@ def test_click_fallback_is_opt_in_and_attempted_only_once(allowed):
     windows._click_caption = lambda hwnd: calls.append(hwnd)
     assert not windows.focus(42, click_fallback=allowed)
     assert calls == ([42] if allowed else [])
+
+@pytest.mark.parametrize("state,bottom,width", [(0x8000,30,600),(0x10000,30,600),
+                                               (1,30,600),(0,80,600),(0,30,100)])
+def test_caption_geometry_rejects_hidden_client_overlap_and_buttons(state, bottom, width):
+    from maplebot.geometry import Rect
+    from maplebot.windows import TitleBarInfo, caption_point
+    info = TitleBarInfo()
+    info.rect.left, info.rect.top, info.rect.right, info.rect.bottom = 25, 7, 25+width, bottom
+    info.states[0] = state
+    with pytest.raises(RuntimeError, match="title bar"):
+        caption_point(info, Rect(3,30,1366,768))
+
+
+def test_native_caption_point_is_outside_gameplay_and_window_buttons():
+    from maplebot.geometry import Rect
+    from maplebot.windows import TitleBarInfo, caption_point
+    info = TitleBarInfo()
+    info.rect.left, info.rect.top, info.rect.right, info.rect.bottom = 25,7,1369,30
+    assert caption_point(info, Rect(3,30,1366,768)) == (89,18)
