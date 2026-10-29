@@ -113,3 +113,15 @@ def test_farming_policy_stop_releases_and_alarms_with_clip(app):
     assert app.controller.stopped.is_set()
     assert app.alarm.snapshot()["active"]
     assert app.stop_record.clip_path
+
+
+def test_no_consumables_disables_all_sustain_and_food(app):
+    app.farming = Farming({"pet_recovery": False, "no_consumables": True, "feed_seconds": 1})
+    app.probed.update({"hp_potion", "mp_potion"})
+    app._start_sustain()
+    assert app.sustain == () and not app.potter.enabled
+    assert app.farming.next_feed is None
+    now = app.farming.started
+    assert app.farming.check(now, readings(), True) is None
+    assert "HP low" in app.farming.check(now, readings(hp=50), True)
+    assert "MP low" in app.farming.check(now, readings(mp=50), True)

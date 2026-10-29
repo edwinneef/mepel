@@ -1225,7 +1225,7 @@ class Application:
             farming = Farming(payload["farming"]) if "farming" in payload else None
             if farming and not all(r in self.potter.bars for r in ("hp", "mp")):
                 raise ValueError("Farming needs calibrated HP and MP bars")
-            if farming and not farming.pet_recovery:
+            if farming and not farming.pet_recovery and not farming.no_consumables:
                 if not all(f"{r}_potion" in self.probed for r in ("hp", "mp")):
                     raise ValueError("No-pet farming needs verified HP and MP potion keys")
                 if any(self.potter.settings[f"{r}_threshold"] < farming.settings[f"{r}_threshold"]
@@ -1269,7 +1269,7 @@ class Application:
             farming = Farming(payload["farming"]) if "farming" in payload else None
             if farming and not all(r in self.potter.bars for r in ("hp", "mp")):
                 raise ValueError("Farming needs calibrated HP and MP bars")
-            if farming and not farming.pet_recovery:
+            if farming and not farming.pet_recovery and not farming.no_consumables:
                 if not all(f"{r}_potion" in self.probed for r in ("hp", "mp")):
                     raise ValueError("No-pet farming needs verified HP and MP potion keys")
                 if any(self.potter.settings[f"{r}_threshold"] < farming.settings[f"{r}_threshold"]
@@ -1488,7 +1488,7 @@ class Application:
         self.arbiter.reset()
         if self.farming is not None:
             self.farming.start(time.perf_counter())
-            if self.farming.pet_recovery:
+            if self.farming.pet_recovery or self.farming.no_consumables:
                 self.sustain = ()
                 self.potter.stop()
                 return

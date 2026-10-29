@@ -1,4 +1,4 @@
-"""Bounded no-pet farming check; normal engine commands retain all input gates."""
+"""Bounded no-consumables farming check; normal engine commands retain all input gates."""
 import argparse
 import json
 import time
@@ -20,7 +20,8 @@ def run(api, output: Path, *, area: str, clock=time.monotonic, sleep=time.sleep)
     result = {"before": before, "samples": [], "error": None, "stop_error": None}
     started = clock()
     try:
-        api.command("arm", {"farming": {"session_minutes": 15, "pet_recovery": False}})
+        api.command("arm", {"farming": {"session_minutes": 15, "pet_recovery": False,
+                                        "no_consumables": True}})
         while clock() - started < 910:
             sample = api.status()
             result["samples"].append({key: sample.get(key) for key in (

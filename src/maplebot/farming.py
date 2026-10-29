@@ -7,10 +7,13 @@ class Farming:
     def __init__(self, settings: dict) -> None:
         if not isinstance(settings, dict):
             raise ValueError("Farming settings must be an object")
+        self.no_consumables = settings.get("no_consumables", False)
+        if not isinstance(self.no_consumables, bool):
+            raise ValueError("farming.no_consumables must be boolean")
         self.pet_recovery = settings.get("pet_recovery", True)
         if not isinstance(self.pet_recovery, bool):
             raise ValueError("farming.pet_recovery must be boolean")
-        self.settings = {"pet_recovery": self.pet_recovery}
+        self.settings = {"pet_recovery": self.pet_recovery, "no_consumables": self.no_consumables}
         for name, default, lower, upper in (
             ("session_minutes", 15, 1, 120),
             ("hp_threshold", 50, 1, 95),
@@ -33,7 +36,7 @@ class Farming:
 
     def start(self, now: float) -> None:
         self.started = now
-        interval = self.settings["feed_seconds"]
+        interval = None if self.no_consumables else self.settings["feed_seconds"]
         self.next_feed = now + interval if interval is not None else None
         self.last_progress = now
         self.low_since.clear()
@@ -54,6 +57,8 @@ class Farming:
             if resource == "hp" and value == 0:
                 return "HP empty: possible death; restart manually"
             if value <= self.settings[f"{resource}_threshold"]:
+                if self.no_consumables:
+                    return f"{resource.upper()} low; no consumables available, stopped"
                 since = self.low_since.setdefault(resource, now)
                 if now - since >= self.settings["recovery_seconds"]:
                     return f"{resource.upper()} recovery failed; check pet and potions"

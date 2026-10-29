@@ -24,7 +24,8 @@ class Api:
 def test_session_uses_no_pet_and_always_stops(tmp_path):
     api = Api()
     result = run(api, tmp_path / "run", area="island")
-    assert api.calls[0][1]["farming"] == {"session_minutes": 15, "pet_recovery": False}
+    assert api.calls[0][1]["farming"] == {
+        "session_minutes": 15, "pet_recovery": False, "no_consumables": True}
     assert api.calls[-1][0] == "stop"
     assert result["error"] is None
     assert json.loads((tmp_path / "run/result.json").read_text())["after"]["mode"] == "capture"
