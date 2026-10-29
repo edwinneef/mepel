@@ -29,6 +29,7 @@ from .contracts import (
 )
 from .decision import Action, Agent, Decision, PolicyInput
 from .display_loop import DisplayLoop, DisplaySource
+from .farming import Farming
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
 from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win32Input
@@ -243,6 +244,7 @@ class Application:
             on_stop=self._controller_stop,
         )
         self.navigation = NavigationRuntime(self)
+        self.farming: Farming | None = None
         self.rotation = Rotation(config.agent.clear_seconds)
         self.rotating = False
         self.monster_search = True
@@ -443,6 +445,7 @@ class Application:
                 "sustain": list(self.sustain),
                 "navigation": self.navigation.snapshot(),
                 "rotation": {**self.rotation.snapshot(), "enabled": self.rotating},
+                "farming": self.farming.snapshot() if self.farming else None,
                 "monster_search": self.monster_search,
                 "player_threshold": self.config.perception.confidence,
                 "calibration": asdict(self.calibration) if self.calibration else {},
@@ -895,6 +898,7 @@ class Application:
         self.potion_hud_missing_since = None
         self.arbiter.reset()
         self.sustain = ()
+        self.farming = None
         if not (preserve_completed_probe and self.active_probe
                 and self.active_probe.phase == "awaiting_confirmation"):
             self._cancel_active_probe(message)
@@ -1215,7 +1219,10 @@ class Application:
             return {"variants": len(self.detector.templates), "catalog": self.detector.catalog_info}
         if name == "dry_run":
             self._stop("DRY_RUN_STOP", "Dry run: no keyboard input")
-            self._prepare_rotation(payload.get("rotate") is True)
+            farming = Farming(payload["farming"]) if "farming" in payload else None
+            if farming and not all(r in self.potter.bars for r in ("hp", "mp")):
+                raise ValueError("Farming needs calibrated HP and MP bars")
+            self._prepare_rotation(farming is not None or payload.get("rotate") is True)
             with self.stop_lock:
                 if self.area_editing:
                     raise ValueError("Finish area editing before starting preview decisions")
@@ -1250,7 +1257,10 @@ class Application:
             missing = sorted(REQUIRED_PROBES - self.probed)
             if missing:
                 raise ValueError("Confirm required probes first: " + ", ".join(missing))
-            self._prepare_rotation(payload.get("rotate") is True)
+            farming = Farming(payload["farming"]) if "farming" in payload else None
+            if farming and not all(r in self.potter.bars for r in ("hp", "mp")):
+                raise ValueError("Farming needs calibrated HP and MP bars")
+            self._prepare_rotation(farming is not None or payload.get("rotate") is True)
             with self.stop_lock:
                 if self.alarm.snapshot()["active"]:
                     raise ValueError("Acknowledge the active alarm before arming combat")
@@ -1260,6 +1270,7 @@ class Application:
                     context.validate(self.command_epoch - 1)
                 self.stop_requested.clear()
                 self._clear_stop_banner()
+                self.farming = farming
                 self.mode = "pending_arm"
                 self.pending_at = time.perf_counter() + 3
                 self.combat_evidence.start("combat")
@@ -1459,6 +1470,11 @@ class Application:
     def _start_sustain(self) -> None:
         """Let live combat press the potions whose bar, threshold and probe are all ready."""
         self.arbiter.reset()
+        if self.farming is not None:
+            self.sustain = ()
+            self.potter.stop()
+            self.farming.start(time.perf_counter())
+            return
         self.sustain = tuple(
             resource for resource in ("hp", "mp")
             if resource in self.potter.bars and f"{resource}_potion" in self.probed
@@ -1472,6 +1488,27 @@ class Application:
         self, combat: Action, suggestion: str | None, *, renew_movement: bool = False,
     ) -> int | str:
         """Queue the arbiter's choice; return the combat ticket or why combat was not sent."""
+        farm = self.farming
+        if farm and farm.started is not None:
+            if farm.feed_ticket is not None:
+                if farm.feed_ticket in self.arbiter.in_flight:
+                    return "deferred: pet food in flight"
+                farm.feed_ticket = None
+            if farm.next_feed is not None and time.perf_counter() >= farm.next_feed:
+                self.controller.release_movement()
+                if self.arbiter.in_flight:
+                    return "deferred: waiting to feed pet"
+                submitted = self.controller.submit(Action(
+                    "pet_food", min(.1, self.config.input.max_action_seconds),
+                ))
+                if not isinstance(submitted, int):
+                    self._stop("INPUT_BACKEND_FAILURE", f"Pet food not queued: {submitted}")
+                    return submitted
+                self.arbiter.submitted(submitted, "pet_food")
+                farm.feed_ticket = submitted
+                farm.next_feed = time.perf_counter() + farm.settings["feed_seconds"]
+                self.combat_evidence.record("queued", "pet_food", ticket=submitted)
+                return "deferred: pet food queued; effect unconfirmed"
         choice = self.arbiter.choose(
             sustain=suggestion if suggestion in self.sustain else None, combat=combat
         )
@@ -1868,6 +1905,9 @@ class Application:
                     readings.get(r, {}).get("percent") is None
                     or readings[r]["confidence"] < .9 for r in self.sustain)):
                 self._stop("PLAYER_UNCERTAIN", "Navigation sustain HUD unreadable or HP empty")
+        if self.farming and self.mode in {"live", "navigation"}:
+            if reason := self.farming.check(now, potter["readings"], potion_evidence_safe):
+                self._stop("POLICY_STOP", reason)
         self.navigation.tick(potter["suggestion"], now)
         if self.mode == "live" and self.sustain:
             readings = potter["readings"]

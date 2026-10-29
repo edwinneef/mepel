@@ -12,6 +12,23 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+it('requires an explicit feeding interval before farming and defaults to pet potion thresholds', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
+    if (String(url).startsWith('/api/v1/frame')) return new Response(new Blob(['image']));
+    if (url === '/api/v1/status') return json(snapshot({ capture_only: false }));
+    return json({ ok: true, areas: [] });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  render(<App client={new EngineClient('token', fetcher)} />);
+  await waitFor(() => expect(screen.getByRole('img')).toBeTruthy());
+  fireEvent.change(screen.getByRole('combobox', { name: 'Run mode' }), { target: { value: 'farming' } });
+  expect((screen.getByLabelText('Session minutes') as HTMLInputElement).value).toBe('15');
+  expect((screen.getByLabelText('Pet HP trigger %') as HTMLInputElement).value).toBe('50');
+  expect((screen.getByLabelText('Pet MP trigger %') as HTMLInputElement).value).toBe('50');
+  expect((screen.getByLabelText('Feed every (seconds)') as HTMLInputElement).value).toBe('');
+  expect(screen.getByRole('button', { name: /Start farming$/ }).hasAttribute('disabled')).toBe(true);
+});
+
 it('keeps navigation Start locked in capture-only even if backend readiness is optimistic', async () => {
   const commands: string[] = [];
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {

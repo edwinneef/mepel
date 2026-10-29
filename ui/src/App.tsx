@@ -16,8 +16,12 @@ export function App({ client }: { client: EngineClient }) {
   const state = useSyncExternalStore(client.subscribe, client.getState);
   const s = state.snapshot;
   const [tool, setTool] = useState<Tool | null>(null);
-  const [runMode, setRunMode] = useState<'preview' | 'live' | 'navigation'>('preview');
+  const [runMode, setRunMode] = useState<'preview' | 'live' | 'navigation' | 'farming'>('preview');
   const [navigationTab, setNavigationTab] = useState<'map' | 'routes' | 'setup'>('map');
+  const [farmMinutes, setFarmMinutes] = useState(15);
+  const [feedSeconds, setFeedSeconds] = useState('');
+  const [farmHp, setFarmHp] = useState(50);
+  const [farmMp, setFarmMp] = useState(50);
   const [supervised, setSupervised] = useState(false);
   const [routeCurrent, setRouteCurrent] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -39,7 +43,7 @@ export function App({ client }: { client: EngineClient }) {
     ? view.image.sourceId === displayFrame?.source_id : view.image.key === displayFrame?.id));
   const liveFrame = state.connected && displayed && Boolean(displayFrame?.available
     && view.image?.capturedAt != null && now - view.image.capturedAt * 1000 <= 1000);
-  const eligible = !disabled && !areaEditing && Boolean(gate?.ready) && fresh && (s?.preview_frame ? liveFrame : displayed);
+  const eligible = !disabled && !areaEditing && (runMode !== 'farming' || (Number(feedSeconds) >= 1 && Number(feedSeconds) <= 3600 && farmMinutes >= 1 && farmMinutes <= 120 && farmHp >= 1 && farmHp <= 95 && farmMp >= 1 && farmMp <= 95)) && Boolean(gate?.ready) && fresh && (s?.preview_frame ? liveFrame : displayed);
   useEffect(() => { setReadySince(eligible ? Date.now() : null); }, [eligible]);
   const canStart = eligible && readySince !== null && now - readySince >= 1000;
   const act = async (operation: () => Promise<unknown>) => {
@@ -55,7 +59,7 @@ export function App({ client }: { client: EngineClient }) {
       setSupervised(false); // A started route consumes the opt-in; a refused start keeps it.
       return result;
     }
-    return client.command(runMode === 'preview' ? 'dry_run' : 'arm');
+    return client.command(runMode === 'preview' ? 'dry_run' : 'arm', runMode === 'farming' ? { farming: { session_minutes: farmMinutes, feed_seconds: Number(feedSeconds), hp_threshold: farmHp, mp_threshold: farmMp } } : {});
   });
   const stop = (name: 'stop' | 'pause') => act(async () => {
     await client.command(name);
@@ -75,17 +79,24 @@ export function App({ client }: { client: EngineClient }) {
       {s?.alarm.active && <button className="danger" disabled={!alarmId} onClick={() => alarmId && void act(() => client.command('acknowledge', { incident_id: alarmId }))}>Acknowledge alarm</button>}
       <div className="run-controls" aria-label="Run controls">
         <select aria-label="Run mode" value={runMode} disabled={disabled || areaEditing} onChange={e => {
-          setRunMode(e.target.value as 'preview' | 'live' | 'navigation');
+          setRunMode(e.target.value as 'preview' | 'live' | 'navigation' | 'farming');
           if (e.target.value === 'navigation') { setTool('Navigation'); setNavigationTab('routes'); }
         }}>
-          <option value="preview">Preview</option><option value="navigation">Navigation</option><option value="live" disabled={!s || s.capture_only}>Live combat</option>
+          <option value="preview">Preview</option><option value="navigation">Navigation</option><option value="live" disabled={!s || s.capture_only}>Live combat</option><option value="farming" disabled={!s || s.capture_only}>Farming (pet potions)</option>
         </select>
-        <button className="primary" disabled={!canStart} title={gate?.reason ?? 'Waiting for the engine'} onClick={() => void start()}><span aria-hidden="true">▶</span> {runMode === 'preview' ? 'Start preview' : runMode === 'navigation' ? 'Start navigation' : 'Start combat'}</button>
+        <button className="primary" disabled={!canStart} title={gate?.reason ?? 'Waiting for the engine'} onClick={() => void start()}><span aria-hidden="true">▶</span> {runMode === 'preview' ? 'Start preview' : runMode === 'navigation' ? 'Start navigation' : runMode === 'farming' ? 'Start farming' : 'Start combat'}</button>
         <button disabled={state.process !== 'running'} onClick={() => void stop('pause')}>Pause</button>
         <button className="stop-button" disabled={state.process !== 'running'} onClick={() => void stop('stop')}>Stop <kbd>F8</kbd></button>
       </div>
       {!canStart && state.connected && <p className="run-blocker">{gate?.ready ? 'Waiting for steady fresh recognition' : gate?.reason}</p>}
     </header>
+    {runMode === 'farming' && <section className="go-bar" aria-label="Farming settings">
+      <label>Session minutes <input type="number" min="1" max="120" value={farmMinutes} onChange={e => setFarmMinutes(Number(e.target.value))} /></label>
+      <label>Feed every (seconds) <input type="number" min="1" max="3600" value={feedSeconds} placeholder="Required" onChange={e => setFeedSeconds(e.target.value)} /></label>
+      <label>Pet HP trigger % <input type="number" min="1" max="95" value={farmHp} onChange={e => setFarmHp(Number(e.target.value))} /></label>
+      <label>Pet MP trigger % <input type="number" min="1" max="95" value={farmMp} onChange={e => setFarmMp(Number(e.target.value))} /></label>
+      <span>Pet supplies both potions. Stops after 5 seconds below a trigger. Feeding timing needs verification; Home sends food without confirming consumption.</span>
+    </section>}
     <nav className="workspace-nav" aria-label="Workspace tools">
       <button aria-pressed={!tool} onClick={() => setTool(null)}>Overview</button>
       {(['Tracking', 'Combat', 'Navigation', 'Potions'] as const).map(name => <button key={name} aria-pressed={tool === name} onClick={() => showTool(name)}>{name === 'Tracking' ? 'Recognition' : name}</button>)}
