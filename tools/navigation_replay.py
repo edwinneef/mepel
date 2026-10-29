@@ -9,7 +9,8 @@ from maplebot.navigation import Route, RouteMap
 from maplebot.navigation_executor import Feedback, Navigator
 
 
-def simulate(graph: RouteMap, route: Route, fps: float = 10) -> dict:
+def simulate(graph: RouteMap, route: Route, fps: float = 10,
+             origin_feet: tuple | None = None) -> dict:
     agent = Navigator(graph, route, 0)
     now = 0.0
     proposals = 0
@@ -20,7 +21,7 @@ def simulate(graph: RouteMap, route: Route, fps: float = 10) -> dict:
         proposals += bool(motion.holds or motion.vertical)
         now += 1 / fps
 
-    previous = route.edges[0].launch
+    previous = origin_feet if origin_feet is not None else route.edges[0].launch
     for edge in route.edges:
         for _ in range(math.ceil(fps) + 2):
             if agent.stage != "settle_origin":

@@ -95,4 +95,5 @@ def test_all_routes_covers_every_ordered_platform_pair():
     pairs = set(zip(route, route[1:], strict=False))
     nodes = ("floor", "ledge", "top")
     assert {(a, b) for a in nodes for b in nodes if a != b} <= pairs
+    assert len(route) == len(nodes) * (len(nodes) - 1) + 1
     assert not any(a == b for a, b in pairs)

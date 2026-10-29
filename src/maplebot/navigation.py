@@ -2,9 +2,10 @@
 
 import copy
 import hashlib
+import heapq
+import itertools
 import json
 import math
-from collections import deque
 from dataclasses import asdict, dataclass
 
 import numpy as np
@@ -216,9 +217,14 @@ class RouteMap:
                                  + (" over proven moves" if trusted_only else ""))
         if not 1 <= max_edges <= 8:
             raise ValueError("Route edge budget must be between one and eight")
-        queue, seen = deque([(origin, (), origin_feet)]), set()
+        # Fewer transitions can hide a long cross-map approach that exhausts an
+        # edge deadline. Rank actual travel plus a modest settling cost instead.
+        # This is a preference only: input deadlines and the edge budget stay fixed.
+        serial = itertools.count()
+        queue = [(0.0, next(serial), origin, (), origin_feet)]
+        best = {}
         while queue:
-            node, path, feet = queue.popleft()
+            cost, _, node, path, feet = heapq.heappop(queue)
             if node == target:
                 return Route(self.profile["id"], self.profile["revision"], self.fingerprint,
                              origin, target, path)
@@ -227,13 +233,20 @@ class RouteMap:
             for edge in self.edges.values():
                 if trusted_only and edge.id not in self.proven:
                     continue
-                if edge.source != node or edge.id in seen:
+                if edge.source != node:
                     continue
                 if feet is not None and self.path_blocker((feet, edge.launch)):
                     continue
-                # Arrivals on one platform may be on opposite sides of a portal.
-                seen.add(edge.id)
-                queue.append((edge.target, (*path, edge), edge.landing))
+                travel = (math.dist(feet, edge.launch) if feet is not None else 0) + sum(
+                    math.dist(a, b) for a, b in zip(edge.trace, edge.trace[1:], strict=False))
+                candidate = cost + travel + 100
+                # Keep different remaining budgets and arrival positions distinct.
+                key = (edge.id, len(path) + 1)
+                if candidate >= best.get(key, math.inf):
+                    continue
+                best[key] = candidate
+                heapq.heappush(queue, (candidate, next(serial), edge.target,
+                                      (*path, edge), edge.landing))
         raise ValueError("No evidenced safe route within the eight-edge budget")
 
     def verify(self, route: Route) -> None:

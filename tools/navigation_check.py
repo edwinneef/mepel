@@ -78,16 +78,16 @@ def all_routes(status: dict) -> list[str]:
              if n["kind"] == "platform" and not n["excluded"]]
     if here not in nodes or len(nodes) < 2:
         raise ValueError("All-routes check needs a known origin and two platforms")
-    queue = []
-    for origin in nodes:
-        for target in nodes:
-            if target == origin:
-                continue
-            if here != origin:
-                queue.append(origin)
-            queue.append(target)
-            here = target
-    return queue
+    # Euler circuit of the directed platform pairs: each pair exactly once,
+    # without returning to the origin solely to set up the next check.
+    remaining = {origin: [target for target in nodes if target != origin] for origin in nodes}
+    stack, circuit = [here], []
+    while stack:
+        if remaining[stack[-1]]:
+            stack.append(remaining[stack[-1]].pop())
+        else:
+            circuit.append(stack.pop())
+    return list(reversed(circuit))[1:]
 
 
 def compact(status: dict) -> dict:
@@ -98,7 +98,7 @@ def compact(status: dict) -> dict:
 
 
 def run(api, output: Path, *, limit: int, chosen: list[str] | None = None,
-        clock=time.monotonic, sleep=time.sleep) -> dict:
+        clock=time.monotonic, sleep=time.sleep, coverage: dict | None = None) -> dict:
     status = api.status()
     problem = readiness(status)
     if problem:
@@ -109,8 +109,13 @@ def run(api, output: Path, *, limit: int, chosen: list[str] | None = None,
     routes, failure = [], None
     try:
         for target in queue[:limit]:
-            row = {"target": target, "before": compact(api.status())}
+            current = api.status()
+            row = {"target": target, "before": compact(current)}
             routes.append(row)
+            if coverage and (current.get("navigation", {}).get("map") or {}).get(
+                    "map_hash") != coverage["map_hash"]:
+                failure = row["outcome"] = "Map changed during coverage batch"
+                break
             waited = clock()
             # nav_go plans from the current platform; wait out brief name-tag dropouts.
             while not ((api.status().get("position") or {}).get("surface_id") or None):
@@ -154,6 +159,8 @@ def run(api, output: Path, *, limit: int, chosen: list[str] | None = None,
         result = {"limit": limit, "routes": routes, "failure": failure,
                   "arrived": sum(r.get("outcome") == "arrived" for r in routes),
                   "proven_after": compact(api.status())["proven"]}
+        if coverage:
+            result["coverage"] = coverage
         (output / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result
 
@@ -167,6 +174,7 @@ def main():
     parser.add_argument("--all-routes", action="store_true",
                         help="Exercise every ordered pair of non-excluded platforms")
     parser.add_argument("--targets", help="comma-separated platform IDs, in order")
+    parser.add_argument("--profile", type=Path, help="Saved area JSON for all-routes coverage")
     parser.add_argument("--focus", action="store_true",
                         help="Request game focus through the engine before --run")
     parser.add_argument("--focus-click", action="store_true",
@@ -195,10 +203,24 @@ def main():
               / time.strftime("%Y%m%d-%H%M%S"))
     if args.all_routes and args.targets:
         parser.error("--all-routes cannot be combined with --targets")
-    chosen = all_routes(api.status()) if args.all_routes else (
+    initial = api.status()
+    chosen = all_routes(initial) if args.all_routes else (
         args.targets.split(",") if args.targets else None)
+    coverage = None
+    if args.all_routes:
+        if __package__:
+            from .navigation_journeys import expand
+        else:
+            from navigation_journeys import expand
+
+        snapshot = initial["navigation"]["map"]
+        profile_path = args.profile or (Path(__file__).resolve().parents[1] / "data" / "areas"
+                                        / f"{snapshot['area_id']}.json")
+        coverage = expand(json.loads(profile_path.read_text("utf-8")), snapshot,
+                          initial["position"]["surface_id"], chosen)
+        chosen = coverage["targets"]
     result = run(api, output, limit=len(chosen) if args.all_routes else max(1, args.routes),
-                 chosen=chosen)
+                 chosen=chosen, coverage=coverage)
     print(json.dumps({"evidence": str(output / "result.json"), "arrived": result["arrived"],
                       "routes": len(result["routes"]), "failure": result["failure"],
                       "proven_after": result["proven_after"]}))
