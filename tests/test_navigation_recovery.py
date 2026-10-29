@@ -91,6 +91,15 @@ def test_operator_stop_cannot_be_undone_by_recognition_returning(route):
     assert app.controller.backend.events == []
 
 
+def test_fresh_sprite_without_name_corroboration_does_not_resume_name_recovery(route):
+    app, nav, _, observe = route
+    observe(tracked=True, confidence=.82522)
+    for _ in range(4):
+        observe(identity="fresh:pose", confidence=.95)
+    assert nav.recovery and app.controller.suspended and not app.controller.held
+    assert not any(e["result"] == "resumed" for e in nav.recovery_log)
+
+
 def test_focus_loss_stops_the_watchdog_during_recovery(route):
     app, _, _, observe = route
     observe(tracked=True, confidence=.82522)

@@ -738,6 +738,7 @@ class TemplateDetector:
         players: list[Detection],
         tags: list[tuple[Detection, NameTag]],
         failures: list[str],
+        gray: Image,
     ) -> tuple[Detection | None, float, bool]:
         player = players[0] if players and players[0].confidence >= self.config.confidence else None
         if player and len(players) > 1:
@@ -746,7 +747,7 @@ class TemplateDetector:
                 failures.append("Ambiguous player: multiple similar matches")
         if not self.nametags:
             return player, 0.0, False
-        return self._fuse_nametag(tags, player, failures)
+        return self._fuse_nametag(tags, player, failures, gray)
 
     def detect(self, image: Image, now: float | None = None, *,
                monsters: bool = True) -> Observation:
@@ -890,14 +891,14 @@ class TemplateDetector:
         players = [item for item in kept if item.kind == "player"]
         tags = self._nametag_candidates(gray)
         failures: list[str] = []
-        player, tag_confidence, conflict = self._resolve(players, tags, failures)
+        player, tag_confidence, conflict = self._resolve(players, tags, failures, gray)
         if player is None and not conflict and self.fresh:
             # Snapshots are only searched when the taught templates and the tag fall short.
             fresh = [item for group in self.fresh for item in group]
             kept = self._suppress(candidates + self._candidates(image, gray, fresh, floor))
             players = [item for item in kept if item.kind == "player"]
             failures = []
-            player, tag_confidence, conflict = self._resolve(players, tags, failures)
+            player, tag_confidence, conflict = self._resolve(players, tags, failures, gray)
         if conflict:
             self.fresh.clear()
             self.track = None
@@ -1032,7 +1033,11 @@ class TemplateDetector:
         )
         distinct: list[tuple[Detection, NameTag]] = []
         for match, tag in matches:
-            if not any(match.box.iou(other.box) > 0.25 for other, _ in distinct):
+            if not any(match.box.iou(other.box) > 0.25
+                       and (tag.name == other_tag.name
+                            or np.array_equal(tag.text, other_tag.text)
+                            or other.confidence >= self.config.nametag_confidence)
+                       for other, other_tag in distinct):
                 distinct.append((match, tag))
         return distinct
 
@@ -1041,10 +1046,16 @@ class TemplateDetector:
         distinct: list[tuple[Detection, NameTag]],
         sprite: Detection | None,
         failures: list[str],
+        gray: Image,
     ) -> tuple[Detection | None, float, bool]:
         """Returns the player, the tag confidence used, and whether tag and sprite conflict."""
         # The name tag survives gear changes and climbing poses; the sprite cross-checks it.
-        if not distinct or distinct[0][0].confidence < self.config.nametag_confidence:
+        partial_score = (self._occluded_tag_score(gray, distinct[0][1], distinct[0][0].box)
+                         if distinct and sprite and not sprite.tracked
+                         and distinct[0][0].confidence < self.config.nametag_confidence else 0)
+        partial = partial_score >= self.config.nametag_confidence
+        if not distinct or (distinct[0][0].confidence < self.config.nametag_confidence
+                            and not partial):
             if sprite:
                 failures.append("Name tag not found; located by player sprite")
             return sprite, 0.0, False
@@ -1063,12 +1074,35 @@ class TemplateDetector:
             if not near:
                 failures.append("Name tag and player sprite disagree")
                 return None, match.confidence, True
-        confidence = max(match.confidence, sprite.confidence if sprite else 0)
+        confidence = (min(partial_score, sprite.confidence) if partial else
+                      max(match.confidence, sprite.confidence if sprite else 0))
+        if partial:
+            failures.append("Occluded name corroborated by fresh player sprite")
         name = f"nametag:{tag.name}"
         if not sprite:
             failures.append("Player sprite not matched; located by name tag")
             name += ":tag-only"
         return Detection("player", body, round(confidence, 6), name), match.confidence, False
+
+    def _occluded_tag_score(self, gray: Image, tag: NameTag, box: Rect) -> float:
+        """Visible glyph precision, requiring evidence across both halves of the name.
+
+        Only a fresh, independently matched sprite may corroborate this score. It never
+        refreshes a sprite or turns positional tracking into identity evidence.
+        """
+        if box.x < 0 or box.y < 0 or box.x + box.width > gray.shape[1] or box.feet > gray.shape[0]:
+            return 0
+        observed = gray[box.y:box.y + box.height, box.x:box.x + box.width] >= NAMETAG_TEXT
+        expected = tag.text > 0
+        shared = observed & expected
+        if shared.sum() < self.config.nametag_partial * expected.sum():
+            return 0
+        middle = box.width // 2
+        for part in (slice(None, middle), slice(middle, None)):
+            count = expected[:, part].sum()
+            if not count or shared[:, part].sum() < .5 * count:
+                return 0
+        return float(shared.sum() / max(1, observed.sum()))
 
 
 def annotate(

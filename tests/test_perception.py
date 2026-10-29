@@ -7,7 +7,7 @@ import pytest
 
 from maplebot.config import PerceptionConfig
 from maplebot.geometry import Rect
-from maplebot.perception import CameraTracker, TemplateDetector
+from maplebot.perception import CameraTracker, Detection, TemplateDetector
 
 
 def test_annotation_does_not_cover_game_pixels_with_a_status_strip(tmp_path):
@@ -337,6 +337,57 @@ def test_partly_covered_tag_far_from_last_position_is_not_tracked(tmp_path):
     covered = tag.copy()
     covered[:, 30:] = (90, 140, 60)
     assert detector.detect(tag_scene(covered, x=250), now=0.3).player is None
+
+
+def test_occluded_name_requires_a_fresh_matching_sprite_and_glyphs_across_the_name(tmp_path):
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    cv2.imwrite(str(tmp_path / "nametag" / "same-glyphs.png"), tag)
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    covered = tag.copy()
+    covered[:, 14:22] = 40
+    covered[:, 38:46] = 40
+    gray = cv2.cvtColor(tag_scene(covered), cv2.COLOR_BGR2GRAY)
+    matches = detector._nametag_candidates(gray)
+    assert matches and matches[0][0].confidence < detector.config.nametag_confidence
+    body = detector.body_from_nametag(matches[0][1], matches[0][0].box)
+    sprite = Detection("player", body, .95, "pose")
+    player, score, conflict = detector._resolve([sprite], matches, [], gray)
+    assert not conflict and not player.tracked and player.template == "nametag:name"
+    assert player.confidence >= .9 and score < .9  # Occlusion cannot refresh a sprite.
+    assert detector._resolve([], matches, [], gray)[0] is None
+    weak = Detection("player", body, .85, "pose")
+    assert detector._resolve([weak], matches, [], gray)[0] is None
+    tracked = Detection("player", body, .95, "tracked", tracked=True)
+    assert detector._resolve([tracked], matches, [], gray)[0].template == "tracked"
+    distant = Detection("player", body.translated(100, 0), .95, "pose")
+    assert detector._resolve([distant], matches, [], gray)[2]
+
+
+@pytest.mark.parametrize("cover", ["half", "extra", "duplicate", "different_name"])
+def test_occluded_name_rejects_a_prefix_background_or_ambiguous_copy(tmp_path, cover):
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    if cover == "different_name":
+        other = tag.copy()
+        other[:, 14:22] = tag[:, 14:22][:, ::-1]
+        cv2.imwrite(str(tmp_path / "nametag" / "other.png"), other)
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    covered = tag.copy()
+    covered[:, 14:22] = 40
+    covered[:, 38:46] = 40
+    if cover == "half":
+        covered[:, 30:] = 40
+    elif cover == "extra":
+        covered[0:5, :] = 255
+    frame = tag_scene(covered)
+    if cover == "duplicate":
+        frame[150:163, 200:260] = covered
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    matches = detector._nametag_candidates(gray)
+    sprite = Detection("player", Rect(118, 86, 44, 64), .95, "pose")
+    player, _, _ = detector._resolve([sprite], matches, [], gray)
+    assert player is sprite  # Fresh sprite alone does not claim the missing name identity.
 
 
 def test_conflicting_tag_and_sprite_drops_fresh_sprites_and_track(tmp_path):

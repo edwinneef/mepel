@@ -145,6 +145,29 @@ def test_marker_only_destination_never_counts_as_settled():
     assert nav.stage == "arrived"
 
 
+@pytest.mark.parametrize(("launch", "landing", "heights", "direction"), [
+    (342.1, 312.1, (438.76, 360.02, 328.52, 312.77), "up"),
+    (312.1, 342.1, (250, 296.35, 328.52, 344.27), "down"),
+])
+def test_rope_launch_height_overshoot_keeps_the_route_direction(
+        launch, landing, heights, direction):
+    profile, evidence = fixture()
+    graph = RouteMap(profile, evidence)
+    graph.profile["ropes"] = [{"id": "rope", "start": {"x": 150, "y": 200},
+                               "end": {"x": 150, "y": 450}}]
+    graph.nodes["rope"] = graph.profile["ropes"][0]
+    edge = Edge("off", "rope", "ledge", "climb", (150, launch), (150, landing),
+                ((150, launch), (150, landing)), "saved")
+    route = Route(profile["id"], 4, graph.fingerprint, "rope", "ledge", (edge,))
+    nav = Navigator(graph, route, 0)
+    nav.stage = "approach"
+    for i, y in enumerate(heights):
+        motion = nav.step(Feedback(.2 * (i + 1), graph.fingerprint, (150, y), None, True))
+        assert motion.vertical == direction or motion.release
+        assert not motion.holds
+    assert nav.stage == "flight"
+
+
 def edge_step(feet=(450, 400)):
     profile, evidence = fixture()
     graph = RouteMap(profile, evidence)

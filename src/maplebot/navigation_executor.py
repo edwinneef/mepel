@@ -156,11 +156,18 @@ class Navigator:
             if rope:
                 if not self.graph.on_surface(origin, f.feet):
                     return self.stop("Lost rope alignment before the next movement")
-                if abs(f.feet[1] - edge.launch[1]) > 12:
+                # A quantized marker can skip the launch-height band while climbing.
+                # Once past it toward this edge's landing, keep going in that direction.
+                direction = edge.landing[1] - edge.launch[1]
+                progress = (f.feet[1] - edge.launch[1]) * (1 if direction > 0 else -1)
+                passed_launch = direction != 0 and 0 <= progress <= abs(direction) + 16
+                if abs(f.feet[1] - edge.launch[1]) > 12 and not passed_launch:
                     if self.graph.path_blocker((f.feet, edge.launch)):
                         return self.stop("Rope approach crosses a boundary or excluded zone")
                     self.reason = "Approaching recorded rope launch height"
                     return Motion(vertical="up" if edge.launch[1] < f.feet[1] else "down")
+                if distance(f.feet, edge.trace) > 64:
+                    return self.stop("Movement departed the recorded corridor")
             if abs(f.feet[0] - edge.launch[0]) > 12:
                 if self.graph.path_blocker((f.feet, edge.launch)):
                     return self.stop("Approach crosses a boundary or excluded zone")
@@ -244,6 +251,10 @@ class Navigator:
             if not target_rope and abs(f.feet[1] - edge.landing[1]) <= 16:
                 if abs(f.feet[0] - edge.landing[0]) > 12:
                     return self._walk(f.feet[0], edge.landing[0])
+                if ((f.feet[1] - edge.landing[1])
+                        * (edge.landing[1] - edge.launch[1]) >= 0):
+                    # Wait for contact evidence instead of reversing at a quantized exit.
+                    return Motion(release=True)
             # Still on the launch floor below the rope: the takeoff chord can be dropped
             # while a walk pulse is in flight, and plain "up" cannot reach an overhead rope.
             grab = (f.surface == edge.source and edge.landing[1] < f.feet[1]
