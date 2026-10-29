@@ -32,8 +32,11 @@ def test_click_fallback_is_opt_in_and_attempted_only_once(allowed):
     class RaiseWindow:
         def __call__(self, *args):
             return True
+    class WindowStyle:
+        def __call__(self, *args):
+            return 0
     windows.api = SimpleNamespace(SetForegroundWindow=lambda hwnd: None,
-                                  SetWindowPos=RaiseWindow())
+                                  SetWindowPos=RaiseWindow(), GetWindowLongW=WindowStyle())
     windows._wait_foreground = lambda hwnd: False
     windows._click_caption = lambda hwnd: calls.append(hwnd)
     assert not windows.focus(42, click_fallback=allowed)

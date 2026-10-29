@@ -80,11 +80,17 @@ class Windows:
         if click_fallback:
             self.api.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int,
                                             ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
-            # Raise only the attached game without activation, movement or resizing.
-            if not self.api.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x13):
+            self.api.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+            was_topmost = bool(self.api.GetWindowLongW(hwnd, -20) & 8)
+            # Temporarily expose the caption even when the covering app is topmost.
+            if not self.api.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x13):
                 raise RuntimeError("Could not expose game title bar; no focus click sent")
-            self._click_caption(hwnd)
-            return self._wait_foreground(hwnd)
+            try:
+                self._click_caption(hwnd)
+                return self._wait_foreground(hwnd)
+            finally:
+                if not was_topmost:
+                    self.api.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x13)
         return False
 
     def _wait_foreground(self, hwnd: int) -> bool:
