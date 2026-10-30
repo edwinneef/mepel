@@ -119,7 +119,9 @@ def required_poses(route: Route, ropes: set[str]) -> set[str]:
         elif edge.kind == "climb":
             poses.add("climb/back")
             if edge.landing[1] < edge.launch[1] and edge.source not in ropes:
-                poses.add("air/back")  # The jump onto a rope or ladder.
+                # The jump onto a rope or ladder shows the sideways jump, then the climb.
+                straight = abs(edge.landing[0] - edge.launch[0]) < 8
+                poses.add("air/any" if straight else f"air/{side}")
     return poses
 
 

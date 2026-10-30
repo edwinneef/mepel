@@ -2,7 +2,16 @@ import copy
 
 import pytest
 
-from maplebot.navigation import RouteMap, map_hash, pose_gaps, problems, required_poses, surface_y
+from maplebot.navigation import (
+    Edge,
+    Route,
+    RouteMap,
+    map_hash,
+    pose_gaps,
+    problems,
+    required_poses,
+    surface_y,
+)
 
 
 def fixture():
@@ -132,3 +141,17 @@ def test_routes_require_recognition_in_each_pose_they_show():
     assert pose_gaps(required_poses(up, set()), verified) == ["air/right"]
     assert pose_gaps(required_poses(down, set()), verified) == []
     assert pose_gaps({"air/any", "climb/back"}, {"walk/left"}) == ["air/any", "climb/back"]
+
+
+def test_jumping_onto_a_rope_needs_the_sideways_jump_and_the_climb():
+    def climb(launch, landing, source="floor"):
+        edge = Edge("c", source, "rope", "climb", launch, landing, (launch, landing), "session")
+        return Route("a", 1, "f", source, "rope", (edge,))
+
+    walking = {"walk/left", "walk/right"}
+    assert required_poses(climb((100, 400), (130, 340)), set()) == walking | {
+        "climb/back", "air/right"}
+    assert required_poses(climb((100, 400), (102, 340)), set()) == walking | {
+        "climb/back", "air/any"}
+    assert required_poses(climb((100, 300), (100, 200), "rope"), {"rope"}) == walking | {
+        "climb/back"}

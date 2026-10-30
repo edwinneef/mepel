@@ -30,7 +30,7 @@ from maplebot.perception import TemplateDetector
 from maplebot.reacquisition import RECOVERY_SECONDS, Reacquisition
 from tools.perception_benchmark import perception_config, reset, settle_map
 
-POSES = ("stand", "walk", "air", "climb", "hit")
+POSES = ("stand", "walk", "air", "climb", "hit", "prone", "transition")
 FACINGS = ("left", "right", "back")
 OCCLUSIONS = ("none", "tag", "player")
 # Detected centre x and feet within this many pixels of the label count as the same place.
@@ -40,7 +40,7 @@ POSITION_TOLERANCE = 16
 COVERAGE_FRAMES = 5
 COVERAGE_RECALL = 0.9
 # Pairs the taught routes can need (see maplebot.navigation.required_poses).
-ROUTE_POSES = ("walk/left", "walk/right", "air/left", "air/right", "air/back", "climb/back")
+ROUTE_POSES = ("walk/left", "walk/right", "air/left", "air/right", "climb/back")
 
 
 @dataclass(frozen=True)
