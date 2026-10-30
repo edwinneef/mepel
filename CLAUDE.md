@@ -15,8 +15,12 @@ terminals open on 2026-10-26. Tell the operator before restarting; it ends any a
 
 ## Unattended testing
 
-Standing operator permission, granted 2026-10-29: agents may run gameplay tests without
-asking first. This covers restarting the engine and overlay (`tools/restart_engine.ps1
+Operator correction, 2026-10-29: live gameplay tests require the operator to be present
+and explicitly authorize that batch. Leave the game open on failure; release all keys,
+save the clip and sound the alarm, then hand control back immediately so the operator
+can move to safety. Do not leave the character exposed while investigating. Offline
+work and input-free setup remain authorized. The supervised testing scope includes
+restarting the engine and overlay (`tools/restart_engine.ps1
 -EnableGameplayInput`, then `tools/start_overlay.ps1 -WaitForEngine`), tracking and importing
 maps, control probes, navigation routes (`tools/navigation_check.py --run`), rotation, and
 combat checks (`tools/combat_check.py --run`). Read each failure's clip, fix the cause, and
@@ -28,7 +32,13 @@ Limits that still apply:
   Never weaken, bypass or disable a safety gate, the watchdog, F8 or the overlay lease to
   make a test pass; a test that needs a gate changed goes to the operator.
 - Stop a batch at its first failure; never repeat an unchanged failing run.
-- If the game is not focused, not on the expected map, or the player is not recognized,
-  report it and stop rather than taking over the window.
+- Agents may restore focus to the attached MapleStory window whenever focus is lost,
+  including after startup or restart, without asking the operator. Use only the engine's
+  guarded `focus_game` command; its verified title-bar click fallback is allowed.
+  Stop active gameplay first, confirm focus was restored, and recheck map, player and
+  all safety gates before starting input. Focus loss during gameplay still stops input;
+  restoring focus does not authorize repeating an unchanged failed run. If the focus
+  request fails or is denied, report it and stop; do not loop or bypass the refusal.
+  If the map is wrong or the player is not recognized, report it and stop.
 - Do not delete recordings, calibration or saved maps; backups stay as they are.
 - Report every run in the final reply: what ran, the result, and evidence or clip paths.
