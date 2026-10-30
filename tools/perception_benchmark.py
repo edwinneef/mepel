@@ -111,6 +111,7 @@ def reset(detector: TemplateDetector) -> None:
     detector.fresh.clear()
     detector.refreshed = float("-inf")
     detector.track = None
+    detector.world_step, detector.predicted, detector.track_tag = (0.0, 0.0), None, None
     detector.previous_monsters = ()
     detector.strip = None
     detector.camera = CameraTracker()

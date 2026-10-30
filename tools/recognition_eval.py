@@ -6,7 +6,8 @@ created.
 
 Labels (data/recognition-labels.json) hold reviewed segments: pose, facing and occlusion for
 sequence ranges of one engine run. Boxes come from recorded frames whose name tag confirmed
-the player; a segment with "box": "recorded" accepts the recorded box after visual review.
+the player; a segment with "box": "recorded" accepts the recorded box after visual review,
+and "boxes" gives measured boxes per sequence.
 
 The report gives, per clip and per pose x facing: identity recall, wrong identities, position
 error, the longest gap without a fresh confirmed identity, and a simulated recognition
@@ -112,7 +113,9 @@ def build_labels(found: dict[str, list[dict]], spec: dict, confidence: float
                          and not player.get("tracked")
                          and player.get("confidence", 0) >= confidence)
             box = None
-            if player and (confirmed or segment.get("box") == "recorded"):
+            if str(sequence) in segment.get("boxes", {}):
+                box = tuple(segment["boxes"][str(sequence)])
+            elif player and (confirmed or segment.get("box") == "recorded"):
                 b = player["box"]
                 box = (b["x"], b["y"], b["width"], b["height"])
             labels[frame] = Label(box, segment["pose"], segment["facing"],
@@ -232,6 +235,9 @@ def aggregate(frames: list[dict]) -> dict:
         "wrong_identity": sum(f["wrong_identity"] for f in frames),
         "sprite_only": sum(f["sprite_only"] for f in frames),
         "tracked": sum(f["tracked"] for f in frames),
+        # Tracked boxes away from the labeled player: input would aim at the wrong place.
+        "tracked_off": sum(f["tracked"] and f["error"] is not None
+                           and f["error"] > POSITION_TOLERANCE for f in frames),
         "missing": sum(f["detected"] is False for f in frames),
         "error_median": round(statistics.median(errors), 1) if errors else None,
         "error_max": max(errors) if errors else None,

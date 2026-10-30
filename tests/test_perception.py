@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -339,6 +340,17 @@ def test_partly_covered_tag_far_from_last_position_is_not_tracked(tmp_path):
     assert detector.detect(tag_scene(covered, x=250), now=0.3).player is None
 
 
+def test_partly_covered_tag_of_another_player_never_extends_the_track(tmp_path):
+    mine, other = name_tag(), name_tag(seed=11)
+    teach_tag(tmp_path, mine)
+    cv2.imwrite(str(tmp_path / "nametag" / "other.png"), other)
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    assert detector.detect(tag_scene(mine), now=0).player.template == "nametag:name:tag-only"
+    covered = other.copy()
+    covered[:, 30:] = (90, 140, 60)
+    assert detector.detect(tag_scene(covered), now=0.3).player is None
+
+
 def test_occluded_name_requires_a_fresh_matching_sprite_and_glyphs_across_the_name(tmp_path):
     tag = name_tag()
     teach_tag(tmp_path, tag)
@@ -592,3 +604,19 @@ def test_edge_strip_limits_the_whole_frame_search_and_keeps_frame_coordinates(tm
     other = TemplateDetector(tmp_path, PerceptionConfig())
     other.strip = (0, 120)
     assert other.detect(frame, monsters=False).player is None
+
+
+def test_prediction_follows_camera_and_world_motion_and_never_marks_a_frame_fresh():
+    state = SimpleNamespace(track=(Rect(100, 100, 44, 64), 1.0, 1.0), world_step=(0.0, 0.0),
+                            predicted=None)
+    TemplateDetector._predict(state, (-12.0, 0.0), 0.9)  # camera scrolls, player stands
+    assert state.track == (Rect(88, 100, 44, 64), 1.0, 1.0)  # confirmation times unchanged
+    state.track = (Rect(100, 100, 44, 64), 2.0, 2.0)  # found where the camera kept it
+    TemplateDetector._learn_motion(state, 2.0)
+    assert state.world_step == (12.0, 0.0)  # walking right under a following camera
+    TemplateDetector._predict(state, (-12.0, 0.0), 0.9)
+    assert state.track[0] == Rect(100, 100, 44, 64)
+    TemplateDetector._learn_motion(state, 3.0)  # missed: keep the motion, stay unconfirmed
+    assert state.world_step == (12.0, 0.0) and state.track[2] == 2.0
+    TemplateDetector._predict(state, (30.0, 0.0), 0.2)  # uncertain camera: no shift
+    assert state.track[0] == Rect(100, 100, 44, 64) and state.world_step == (0.0, 0.0)

@@ -182,6 +182,10 @@ SPRITE_BATCH = 32
 COARSE_FLOOR = 0.45
 # Search radius around the last confirmed position: base plus walking speed, capped.
 TRACK_RADIUS, TRACK_SPEED, TRACK_MAX_RADIUS = 12, 240, 80
+# The last box moves by the camera shift only when the shift is this certain, and by at most
+# this much of the player's own per-frame world motion; otherwise it stays where it was.
+PREDICTION_RESPONSE = 0.35
+PREDICTION_MAX_STEP = 40
 
 
 def nametag_parts(image: Image) -> tuple[Image, int, tuple[int, int]]:
@@ -259,6 +263,14 @@ class TemplateDetector:
         self.refreshed = float("-inf")
         # Last position, when it was last confirmed, and when evidence last supported it.
         self.track: tuple[Rect, float, float] | None = None
+        # The player's world motion per frame (screen motion minus camera shift), and the
+        # box and shift this frame's prediction started from. Prediction only centres the
+        # search; it never confirms identity or makes a frame fresh.
+        self.world_step = (0.0, 0.0)
+        self.predicted: tuple[Rect, tuple[float, float]] | None = None
+        # Name of the tag that last confirmed the player. Following accepts partial evidence
+        # only from this tag, never from another player's.
+        self.track_tag: str | None = None
         # Previous confident monster boxes (full frame) and the current search origin.
         # Together with the player track they mark pixels that may cover a sprite.
         self.previous_monsters: tuple[Rect, ...] = ()
@@ -324,6 +336,7 @@ class TemplateDetector:
         ]
         self.fresh.clear()
         self.track = None
+        self.world_step, self.predicted, self.track_tag = (0.0, 0.0), None, None
         self.previous_monsters = ()
         self.camera = CameraTracker()
         self.catalog_info = {
@@ -997,9 +1010,11 @@ class TemplateDetector:
         )
         self.catalog_info["catalog_paused"] = paused
         self.catalog_info["active_variants"] = len(templates)
+        self._predict(*camera.result())
         player, monsters, failures, tag_confidence = self._observe_window(
             image, now, templates, floor, player_only=not monsters
         )
+        self._learn_motion(now)
         self.previous_monsters = tuple(
             item.box for item in monsters if item.confidence >= self.config.confidence
         )
@@ -1007,6 +1022,34 @@ class TemplateDetector:
             self._refresh_sprite(image, player, monsters, now)
         shift, response = camera.result()
         return Observation(player, monsters, failures, shift, response)
+
+    def _predict(self, shift: tuple[float, float], response: float) -> None:
+        """Move the last box to where the player should appear in this frame."""
+        self.predicted = None
+        if self.track is None:
+            return
+        if response < PREDICTION_RESPONSE:
+            self.world_step = (0.0, 0.0)  # Unknown camera motion: search unshifted.
+            return
+        box, confirmed, seen = self.track
+        self.predicted = (box, shift)
+        self.track = (box.translated(self.world_step[0] + shift[0],
+                                     self.world_step[1] + shift[1]), confirmed, seen)
+
+    def _learn_motion(self, now: float) -> None:
+        """Update the world motion from a box found in this frame; a miss keeps it."""
+        if self.track is None or self.predicted is None:
+            if self.track is None:
+                self.world_step = (0.0, 0.0)
+            return
+        box, _, seen = self.track
+        if seen != now:
+            return
+        (x0, y0), shift = self.predicted[0].center, self.predicted[1]
+        x1, y1 = box.center
+        self.world_step = tuple(
+            float(np.clip(value, -PREDICTION_MAX_STEP, PREDICTION_MAX_STEP))
+            for value in (x1 - x0 - shift[0], y1 - y0 - shift[1]))
 
     def _active_templates(self, allowed: set[str] | None, monsters: bool) -> list[Template]:
         """Templates for the allowed species; reused while the selection is unchanged."""
@@ -1145,9 +1188,11 @@ class TemplateDetector:
             player, tag_confidence, conflict = self._resolve(players, tags, failures, gray)
         if conflict:
             self.fresh.clear()
-            self.track = None
+            self.track, self.track_tag = None, None
         elif player is not None:
             self.track = (player.box, now, now)
+            if player.template.startswith("nametag:"):
+                self.track_tag = player.template.split(":")[1]
         else:
             player = self._follow(gray, players, now, failures)
         if player is None:
@@ -1234,7 +1279,7 @@ class TemplateDetector:
             failures.append("Ambiguous player near last confirmed position")
             return None
         box, confidence = (near[0].box, near[0].confidence) if near else (None, 0.0)
-        for tag in self.nametags:
+        for tag in (tag for tag in self.nametags if tag.name == self.track_tag):
             score, body = self._partial_nametag(gray, tag, last, radius)
             if body is not None and score >= self.config.nametag_partial:
                 # The tag fixes the feet more precisely than a loose sprite box.
