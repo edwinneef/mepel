@@ -11,7 +11,7 @@ and "boxes" gives measured boxes per sequence.
 
 The report gives, per clip and per pose x facing: identity recall, wrong identities, position
 error, the longest gap without a fresh confirmed identity, and a simulated recognition
-recovery that follows navigation_runtime (2 fresh agreeing frames within 2 s, else stop).
+recovery using maplebot.reacquisition (2 fresh agreeing frames within 2 s, else stop).
 
     python -m tools.recognition_eval --report artifacts/recognition-eval/baseline.json
 """
@@ -26,8 +26,8 @@ from pathlib import Path
 
 import cv2
 
-from maplebot.navigation_runtime import RECOGNITION_RECOVERY_SECONDS
 from maplebot.perception import TemplateDetector
+from maplebot.reacquisition import RECOVERY_SECONDS, Reacquisition
 from tools.perception_benchmark import perception_config, reset, settle_map
 
 POSES = ("stand", "walk", "air", "climb", "hit")
@@ -35,8 +35,6 @@ FACINGS = ("left", "right", "back")
 OCCLUSIONS = ("none", "tag", "player")
 # Detected centre x and feet within this many pixels of the label count as the same place.
 POSITION_TOLERANCE = 16
-RESUME_MATCHES = 2
-RESUME_SPACING = 0.15
 # A pose/facing pair is verified with at least this many uncovered labeled frames, nearly all
 # recognized by name tag in every clip that replays them.
 COVERAGE_FRAMES = 5
@@ -154,44 +152,29 @@ def score_frame(label: Label, detection: dict | None, identity: str, confidence:
 
 
 def simulate_recovery(frames: list[dict], ended: float | None = None) -> dict:
-    """Navigation's bounded recovery replayed on detector outputs (minimap and focus gates
-    are not simulated). frames: [{"now", "frame", "identified", "identity", "occlusion"}].
+    """maplebot.reacquisition replayed on detector outputs (minimap and focus gates are not
+    simulated). frames: [{"now", "frame", "identified", "identity", "occlusion"}].
     ended is when the clip's recorded stop happened on the same clock, if after the frames."""
-    identity, recovery, events = None, None, []
+    tracker, recovery, events = Reacquisition(), None, []
     for frame in frames:
-        now = frame["now"]
-        if recovery:
-            if now - recovery["started"] >= RECOGNITION_RECOVERY_SECONDS:
-                return finish(events, recovery, "timeout", now)
-            if frame["identity"] != identity:
-                if frame["identity"] and frame["identity"].startswith("nametag:"):
-                    return finish(events, recovery, "different_identity", now)
-                recovery["matches"], recovery["first"] = 0, None
-                recovery["frames"].append(frame)
-                continue
-            recovery["matches"] += 1
-            recovery["first"] = now if recovery["first"] is None else recovery["first"]
+        step = tracker.step(frame["identity"] if frame["identified"] else None, frame["now"])
+        if step.state == "pause":
+            recovery = {"started": frame["now"], "frames": [], "frame": frame["frame"]}
+        if recovery is not None:
             recovery["frames"].append(frame)
-            if (recovery["matches"] >= RESUME_MATCHES
-                    and now - recovery["first"] >= RESUME_SPACING):
-                events.append({"result": "resumed", "frame": recovery["frame"],
-                               "seconds": round(now - recovery["started"], 3)})
-                recovery = None
-            continue
-        if not frame["identified"]:
-            if identity is None:
-                continue  # Nothing confirmed yet; live arming would not start.
-            recovery = {"started": now, "matches": 0, "first": None, "frames": [frame],
-                        "frame": frame["frame"]}
-            continue
-        if (identity and identity.startswith("nametag:")
-                and frame["identity"].startswith("nametag:") and frame["identity"] != identity):
-            events.append({"result": "stopped", "reason": "identity_changed", "at": now})
-            return {"events": events, "stopped": True}
-        if not identity or frame["identity"].startswith("nametag:"):
-            identity = frame["identity"]
-    if recovery and ended is not None and ended - recovery["started"] >= (
-            RECOGNITION_RECOVERY_SECONDS):
+        if step.state == "stop":
+            reason = ("timeout" if "timed out" in step.reason else "different_identity"
+                      if "Different" in step.reason else "identity_changed")
+            if recovery is None:
+                events.append({"result": "stopped", "reason": reason, "frame": frame["frame"]})
+                return {"events": events, "stopped": True}
+            return finish(events, recovery, reason, frame["now"])
+        if step.state == "resume":
+            tracker.resumed()
+            events.append({"result": "resumed", "frame": recovery["frame"],
+                           "seconds": round(frame["now"] - recovery["started"], 3)})
+            recovery = None
+    if recovery and ended is not None and ended - recovery["started"] >= RECOVERY_SECONDS:
         return finish(events, recovery, "timeout", ended)
     if recovery:
         events.append({"result": "unfinished", "frame": recovery["frame"],
@@ -357,7 +340,7 @@ def main() -> None:
         detector.map_filter.close()
     report = {"labels": str(args.labels), "labeled_frames": len(labels),
               "unlabeled_frames": missing, "position_tolerance": POSITION_TOLERANCE,
-              "recovery_seconds": RECOGNITION_RECOVERY_SECONDS, **report}
+              "recovery_seconds": RECOVERY_SECONDS, **report}
     if args.coverage:
         if args.clip or missing:
             raise SystemExit("Coverage needs every clip and every frame labeled")

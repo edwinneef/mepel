@@ -315,7 +315,9 @@ def test_live_processing_continues_while_submitted_key_is_held(app, monkeypatch)
     app.agent.start()
     app.mode = "live"
     monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: type("O", (), {
-        "player": type("P", (), {"confidence": 1.0})(), "failures": [], "camera_shift": (0, 0),
+        "player": type("P", (), {"confidence": 1.0, "tracked": False,
+                                 "template": "nametag:me"})(),
+        "failures": [], "camera_shift": (0, 0),
         "camera_confidence": 1.0, "monsters": []
     })())
     monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image)

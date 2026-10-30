@@ -40,6 +40,7 @@ from .potion_evidence import PotionEvidence, PotionFrame
 from .preview_stream import PreviewSource, PreviewStream
 from .probe_store import ProbeStore
 from .profiles import AreaStore
+from .reacquisition import Reacquisition
 from .recorder import SessionRecorder
 from .rotation import Rotation, routable, visible_by_surface
 from .scheduler import SUSTAIN, Arbiter
@@ -204,6 +205,7 @@ class Application:
         )
         self.encoder = FrameEncoder(self._encoded)
         self.player_uncertain = False
+        self.reacquisition = Reacquisition()
         self.sequence = 0
         self.policy_outcome: dict[str, Any] = {"status": "not_sent"}
         self.session_capture_started: float | None = None
@@ -989,6 +991,35 @@ class Application:
             if reason.severity is StopSeverity.ALARM:
                 self.alarm.start(record.id)
             return record
+
+    def _reacquire(self, player, now: float) -> str | None:
+        """Bounded recovery for a live or dry-run frame without fresh player identity.
+
+        Returns why the policy must not run this frame (keys stay released), or None.
+        """
+        fresh = (player is not None and not player.tracked
+                 and player.confidence >= self.config.perception.confidence)
+        step = self.reacquisition.step(
+            player.template.removesuffix(":tag-only") if fresh else None, now)
+        live = self.mode == "live"
+        if step.state in {"pass", "ok"}:
+            return None
+        if step.state == "stop":
+            self._stop("PLAYER_UNCERTAIN", step.reason)
+            return step.reason
+        if step.state == "pause" and live and not self.controller.suspend():
+            reason = "Cannot suspend combat input for recognition recovery"
+            self._stop("INPUT_BACKEND_FAILURE", reason)
+            return reason
+        if step.state == "resume":
+            if not live or self.controller.resume():
+                self.reacquisition.resumed()
+                self.note(step.reason)
+                return None
+            step.reason = "Player reacquired; waiting for released keys before resuming"
+        self.last_action = "release (recognition recovery)"
+        self.policy_outcome = {"status": "not_sent"}
+        return step.reason
 
     def _stop(self, code: str, message: str) -> StopRecord:
         return self.safe_stop(code, message)
@@ -1897,6 +1928,7 @@ class Application:
                 else:
                     self.mode = "live"
                     self.agent.start()
+                    self.reacquisition.reset()
                     self._start_sustain()
                     if self.config.recording.auto:
                         self.recorder.start("combat")
@@ -1958,65 +1990,70 @@ class Application:
                 observation, policy_now, self.policy_outcome, self.mp_percent
             )
             policy_before = self.agent.snapshot()
-            decision = self.agent.step_input(policy_input)
-            moving = None if decision.state == "IDLE" else self._rotate(
-                decision, observation, now)
-            if decision.state == "IDLE":
-                self._stop("PLAYER_UNCERTAIN" if uncertain else "POLICY_STOP", decision.reason)
-                self.policy_outcome = {"status": "not_sent"}
-            elif moving:
-                decision = replace(decision, reason=moving)
-                self.last_action = moving
-                self.policy_outcome = {"status": "not_sent"}
-            elif self.mode == "live":
-                if decision.state == "SEARCH" or self.agent.missing_frames:
-                    for ticket, lane in tuple(self.arbiter.in_flight.items()):
-                        if lane == "combat":
-                            self.controller.cancel_ticket(ticket)
-                renew_movement = False
-                if (decision.state == "APPROACH" and decision.action.kind in {"left", "right"}
-                        and decision.target is not None and observation.player is not None):
-                    gap = abs(decision.target.box.center[0] - observation.player.box.center[0])
-                    # Use short steps near attack range; bridge frame gaps only well outside it.
-                    margin = max(self.config.agent.attack_range, observation.player.box.width * 2)
-                    renew_movement = gap - self.config.agent.attack_range > margin
-                    if renew_movement:
-                        decision = replace(decision, action=Action(
-                            decision.action.kind, self.config.input.max_action_seconds,
-                        ))
-                submitted = self._arbitrate(
-                    decision.action, potter["suggestion"], renew_movement=renew_movement,
-                )
-                held = submitted == f"held: {decision.action.kind}"
-                if self.farming:
-                    active = (decision.action.kind != "release"
-                              and (isinstance(submitted, int) or held))
-                    if reason := self.farming.progress(now, active=active):
-                        self._stop("POLICY_STOP", reason)
-                if (self.mode == "live" and decision.action.kind != "release"
-                        and not isinstance(submitted, int) and not held):
-                    self.agent.defer_action(policy_before)
-                    decision = Decision(self.agent.state, decision.action,
-                                        f"{decision.action.kind.capitalize()} {submitted}",
-                                        decision.target)
-                self.last_action = (
-                    f"{decision.action.kind} queued ({submitted})"
-                    if isinstance(submitted, int)
-                    else submitted
-                )
-                if decision.action.kind != "release":
-                    self.combat_evidence.record("decision", self.last_action,
-                                                action=decision.action.kind)
-                self.policy_outcome = (
-                    {"status": "held", "action": decision.action.kind,
-                     "result": f"{decision.action.kind} held"} if held else
-                    {"status": "pending", "ticket": submitted}
-                    if isinstance(submitted, int)
-                    else {"status": "not_sent", "result": submitted}
-                )
+            paused = self._reacquire(observation.player, now)
+            if paused is not None:
+                decision = Decision(self.agent.state, Action(), paused, self.agent.target)
             else:
-                self.last_action = f"dry run: intended {decision.action.kind}"
-                self.policy_outcome = {"status": "not_sent"}
+                decision = self.agent.step_input(policy_input)
+                moving = None if decision.state == "IDLE" else self._rotate(
+                    decision, observation, now)
+                if decision.state == "IDLE":
+                    self._stop("PLAYER_UNCERTAIN" if uncertain else "POLICY_STOP", decision.reason)
+                    self.policy_outcome = {"status": "not_sent"}
+                elif moving:
+                    decision = replace(decision, reason=moving)
+                    self.last_action = moving
+                    self.policy_outcome = {"status": "not_sent"}
+                elif self.mode == "live":
+                    if decision.state == "SEARCH" or self.agent.missing_frames:
+                        for ticket, lane in tuple(self.arbiter.in_flight.items()):
+                            if lane == "combat":
+                                self.controller.cancel_ticket(ticket)
+                    renew_movement = False
+                    if (decision.state == "APPROACH" and decision.action.kind in {"left", "right"}
+                            and decision.target is not None and observation.player is not None):
+                        gap = abs(decision.target.box.center[0] - observation.player.box.center[0])
+                        # Use short steps near attack range; bridge frame gaps only well outside it.
+                        margin = max(self.config.agent.attack_range,
+                                     observation.player.box.width * 2)
+                        renew_movement = gap - self.config.agent.attack_range > margin
+                        if renew_movement:
+                            decision = replace(decision, action=Action(
+                                decision.action.kind, self.config.input.max_action_seconds,
+                            ))
+                    submitted = self._arbitrate(
+                        decision.action, potter["suggestion"], renew_movement=renew_movement,
+                    )
+                    held = submitted == f"held: {decision.action.kind}"
+                    if self.farming:
+                        active = (decision.action.kind != "release"
+                                  and (isinstance(submitted, int) or held))
+                        if reason := self.farming.progress(now, active=active):
+                            self._stop("POLICY_STOP", reason)
+                    if (self.mode == "live" and decision.action.kind != "release"
+                            and not isinstance(submitted, int) and not held):
+                        self.agent.defer_action(policy_before)
+                        decision = Decision(self.agent.state, decision.action,
+                                            f"{decision.action.kind.capitalize()} {submitted}",
+                                            decision.target)
+                    self.last_action = (
+                        f"{decision.action.kind} queued ({submitted})"
+                        if isinstance(submitted, int)
+                        else submitted
+                    )
+                    if decision.action.kind != "release":
+                        self.combat_evidence.record("decision", self.last_action,
+                                                    action=decision.action.kind)
+                    self.policy_outcome = (
+                        {"status": "held", "action": decision.action.kind,
+                         "result": f"{decision.action.kind} held"} if held else
+                        {"status": "pending", "ticket": submitted}
+                        if isinstance(submitted, int)
+                        else {"status": "not_sent", "result": submitted}
+                    )
+                else:
+                    self.last_action = f"dry run: intended {decision.action.kind}"
+                    self.policy_outcome = {"status": "not_sent"}
             if self.status.get("reason") != decision.reason or decision.action.kind != "release":
                 self.note(f"{decision.state}: {decision.reason} · {self.last_action}")
             policy_ms = (time.perf_counter() - policy_began) * 1000
