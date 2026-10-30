@@ -98,6 +98,18 @@ def test_controller_refusal_survives_a_new_frame_before_stop_callback(app, monke
     assert app.controller.backend.events == []
 
 
+def test_watchdog_recognition_timeout_is_not_reported_as_focus_loss(app):
+    nav = preview(app)
+    app.mode = "navigation"
+    nav.last_input_refusal = "Player recognition recovery timed out"
+    app._controller_stop("FOCUS_LOSS", "Target focus, geometry, or visibility lost")
+    assert app.stop_record.code == "PLAYER_UNCERTAIN"
+    assert app.stop_record.message == "Player recognition recovery timed out"
+    assert app.mode == "capture" and not app.controller.enabled
+    assert not app.controller.held
+    assert app.alarm.snapshot()["active"]
+
+
 def preview(app):
     profile, evidence = fixture()
     nav = app.navigation

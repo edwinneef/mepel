@@ -881,7 +881,10 @@ class Application:
             except Exception as error:
                 detail = str(error)
             if detail:
-                message = f"{message}: {detail}"
+                if self.mode == "navigation" and detail == "Player recognition recovery timed out":
+                    code, message = "PLAYER_UNCERTAIN", detail
+                else:
+                    message = f"{message}: {detail}"
         self.safe_stop(code, message)
 
     def safe_stop(
