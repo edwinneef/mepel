@@ -479,6 +479,12 @@ class NavigationRuntime:
                           if isinstance(self.agent, EdgeStep)
                           else Navigator(self.graph, self.route, now, pulse=pulse))
             self.counted = 0
+        if self.ticket is not None and self.ticket not in app.arbiter.in_flight:
+            self.ticket = None
+        if self.ticket is not None and not isinstance(self.agent, EdgeStep):
+            # A key pulse is still running. Stepping now could choose a takeoff that the
+            # busy lane would drop while the navigator believes it was sent.
+            return
         if isinstance(self.agent, EdgeStep):
             motion = self.agent.step(f)
         else:
@@ -493,8 +499,6 @@ class NavigationRuntime:
                 return
             app._stop("POLICY_STOP", self.agent.reason)
             return
-        if self.ticket is not None and self.ticket not in app.arbiter.in_flight:
-            self.ticket = None
         if motion.horizontal:
             proposal = Action(motion.horizontal, app.config.input.max_action_seconds)
         elif motion.vertical:

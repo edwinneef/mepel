@@ -204,7 +204,13 @@ class Navigator:
             return Motion(tuple(holds))
         if distance(f.feet, edge.trace) > 64:
             return self.stop("Movement departed the recorded corridor")
-        self.departed |= (math.dist(f.feet, edge.launch) >= 12 or f.surface != edge.source)
+        if edge.kind in {"jump", "drop"}:
+            # Coasting past the launch point on the source platform is not a takeoff; only
+            # height change or another surface is. A missing surface is a name-tag dropout.
+            self.departed |= (abs(f.feet[1] - edge.launch[1]) >= 12
+                              or f.surface not in (edge.source, None))
+        else:
+            self.departed |= (math.dist(f.feet, edge.launch) >= 12 or f.surface != edge.source)
         target_rope = edge.target in {p["id"] for p in self.graph.profile["ropes"]}
         on_target = (f.surface == edge.target if not target_rope
                      else self.graph.on_surface(edge.target, f.feet)

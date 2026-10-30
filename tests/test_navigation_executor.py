@@ -227,3 +227,14 @@ def test_edge_step_needs_a_fresh_marker_and_focus():
     for changes in ({"age": .6}, {"focused": False}, {"feet": None}, {"fingerprint": "x"}):
         step, f = edge_step()
         assert step.step(replace(f, **changes)).release and step.stage == "stopped"
+
+
+def test_coasting_past_the_launch_on_the_source_platform_is_not_a_takeoff():
+    nav, f = setup()
+    takeoff(nav, f)
+    # The jump never happened: the marker slid 22 px along the floor.
+    for now in (.8, 1.0, 1.2):
+        nav.step(replace(f, now=now, feet=(172, 400)))
+    assert not nav.departed
+    assert nav.step(replace(f, now=1.7, feet=(172, 400))).release
+    assert nav.retries == 1 and nav.stage == "settle_origin"

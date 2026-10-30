@@ -315,6 +315,25 @@ def test_a_brief_name_tag_dropout_while_walking_to_the_launch_point_is_ridden_ou
     assert app.mode == "capture" and app.stop_record.code == "PLAYER_UNCERTAIN"
 
 
+def test_navigator_waits_for_a_running_pulse_so_a_takeoff_is_never_dropped(app, monkeypatch):
+    nav = preview(app)
+    app._command("nav_start", {"opt_in": True})
+    app.pending_at = 0
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (150, 400), "floor", True)
+    nav.tick(None, time.perf_counter())
+    steps = []
+    monkeypatch.setattr(nav.agent, "step", lambda f: steps.append(f) or nav.agent.stop("test"))
+    nav.ticket = 41
+    app.arbiter.submitted(41, "navigation")
+    nav.feedback = replace(nav.feedback, now=time.perf_counter())
+    nav.tick(None, time.perf_counter())
+    assert steps == [] and app.mode == "navigation"
+    app.arbiter.finished(41)
+    nav.feedback = replace(nav.feedback, now=time.perf_counter())
+    nav.tick(None, time.perf_counter())
+    assert len(steps) == 1 and nav.ticket is None
+
+
 def test_start_and_settling_ride_out_a_name_tag_dropout_on_the_origin(app):
     nav = preview(app)
     now = time.perf_counter()
