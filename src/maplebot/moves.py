@@ -15,6 +15,9 @@ WALK_GAP_PX = 32  # same-height neighbours closer than this are walked across
 LEVEL_PX = 24  # surfaces this close in height count as level (the navigator's tolerance)
 CLIMB_PX = 30  # feet move this far along a rope to confirm a grab or a climb-off
 INSET_PX = 16  # launch and landing stay this far inside a platform's end
+# Jumps off an end start farther in: the approach stops within 12 px of the launch, and a
+# launch 8 px from the end let a live jump walk off the edge before it fired.
+JUMP_INSET_PX = 24
 SIMPLER = {"walk": 0, "climb": 1, "drop": 2, "jump": 3}
 
 
@@ -70,6 +73,7 @@ def generate(profile: dict) -> list[Move]:
             # Off this end: walk across a hairline gap, fall to what lies under the end,
             # or jump to a platform beyond or above it.
             launch = _point(a, edge - side * INSET_PX / 2)
+            takeoff = _point(a, edge - side * min(JUMP_INSET_PX, (a_right - a_left) / 2))
             for b in platforms:
                 if b is a:
                     continue
@@ -87,12 +91,13 @@ def generate(profile: dict) -> list[Move]:
                 if abs(rise) <= LEVEL_PX and gap <= WALK_GAP_PX:
                     add(a["id"], b["id"], "walk", launch, landing)
                 elif -LEVEL_PX < rise <= JUMP_RISE_PX and gap <= JUMP_GAP_PX:
-                    peak = min(launch[1], landing[1]) - 40
-                    add(a["id"], b["id"], "jump", launch, ((launch[0] + landing[0]) / 2, peak),
-                        landing)
+                    peak = min(takeoff[1], landing[1]) - 40
+                    add(a["id"], b["id"], "jump", takeoff,
+                        ((takeoff[0] + landing[0]) / 2, peak), landing)
                 elif (rise <= -LEVEL_PX and gap <= FALL_GAP_PX
                       and _below(platforms, landing[0], launch[1]) is b):
-                    add(a["id"], b["id"], "jump", launch, (landing[0], launch[1] - 30), landing)
+                    add(a["id"], b["id"], "jump", takeoff, (landing[0], takeoff[1] - 30),
+                        landing)
         for b in platforms:
             if b is a:
                 continue

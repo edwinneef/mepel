@@ -67,3 +67,15 @@ def test_rope_foot_within_a_jump_is_reached_by_jumping():
             "end": {"x": 500, "y": 600 - JUMP_RISE_PX + 5}}
     profile = {"platforms": [flat("floor", 0, 1000, 600)], "ropes": [rope]}
     assert kinds(profile) == {("floor", "rope"): "climb"}
+
+
+def test_jumps_off_an_end_take_off_well_inside_it():
+    profile = {"platforms": [flat("a", 0, 200, 300), flat("b", 220, 400, 300),
+                             flat("c", 480, 600, 300), flat("low", 620, 700, 400),
+                             flat("tiny", 900, 930, 300)], "ropes": []}
+    moves = {(m.source, m.target): m for m in generate(profile)}
+    assert moves[("a", "b")].trace[0] == (192.0, 300.0)  # walks still start at the end
+    assert moves[("b", "c")].trace[0] == (376.0, 300.0)  # level jump: 24 px from the end
+    assert moves[("c", "low")].trace[0] == (576.0, 300.0)  # fall off the end
+    tiny = [m for m in moves.values() if m.source == "tiny" and m.kind == "jump"]
+    assert all(915 - 15 <= m.trace[0][0] <= 915 + 15 for m in tiny)  # narrow: centre

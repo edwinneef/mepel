@@ -179,6 +179,12 @@ class Navigator:
                 if f.surface != origin or not self._settled(f, origin):
                     self.reason = "Braking at rope launch; waiting for settled origin"
                     return Motion(release=True)
+            if edge.kind in {"jump", "drop"} and not rope:
+                # Take off from rest: arriving mid-walk carried a live jump past the edge
+                # before the jump key fired.
+                if f.surface != origin or not self._settled(f, origin):
+                    self.reason = "Braking at jump launch; waiting for settled origin"
+                    return Motion(release=True)
             self.stage, self.takeoff_at = "flight", f.now
             self.reason = "Following observed movement"
             self.departed, self.settle_since = False, None

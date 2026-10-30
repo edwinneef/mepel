@@ -238,3 +238,17 @@ def test_coasting_past_the_launch_on_the_source_platform_is_not_a_takeoff():
     assert not nav.departed
     assert nav.step(replace(f, now=1.7, feet=(172, 400))).release
     assert nav.retries == 1 and nav.stage == "settle_origin"
+
+
+def test_jump_takes_off_only_after_braking_at_the_launch():
+    nav, f = setup()
+    for now in (0, .2, .4):
+        nav.step(replace(f, now=now))
+    assert nav.stage == "approach"
+    assert nav.step(replace(f, now=.5, feet=(110, 400))).horizontal == "right"
+    # Arriving at the launch straight from a walk: brake first, keys released.
+    assert nav.step(replace(f, now=.6, feet=(158, 400))).release
+    assert nav.stage == "approach" and "Braking at jump launch" in nav.reason
+    assert nav.step(replace(f, now=.8, feet=(158, 400))).release
+    motion = nav.step(replace(f, now=.95, feet=(158, 400)))
+    assert [hold.action for hold in motion.holds] == ["right", "jump"]
