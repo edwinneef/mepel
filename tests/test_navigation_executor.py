@@ -261,6 +261,22 @@ def test_falling_back_onto_the_launch_platform_releases_keys_then_retries_once()
     assert nav.stage == "stopped" and "retry budget exhausted" in nav.reason
 
 
+def test_knocked_off_the_origin_settles_then_replans_from_the_new_surface():
+    # Live: a snail knocked the player off a settled landing before the next route began.
+    nav, f = setup()
+    ledge = replace(f, feet=(280, 300), surface="ledge")
+    for now in (0, .2, .4):
+        assert nav.step(replace(ledge, now=now)).release
+        assert nav.stage == "settle_origin" and "replan" in nav.reason
+    assert nav.replans == 1 and nav.route.edges == ()
+    for now in (.6, .8, 1.0):
+        nav.step(replace(ledge, now=now))
+    assert nav.stage == "arrived"
+    nav, f = setup()
+    assert nav.step(replace(f, feet=(100, 200), surface="island")).release
+    assert nav.stage == "stopped" and "Origin no longer matches" in nav.reason
+
+
 def test_jump_takes_off_only_after_braking_at_the_launch():
     nav, f = setup()
     for now in (0, .2, .4):

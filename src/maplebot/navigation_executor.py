@@ -97,6 +97,24 @@ class Navigator:
         self.last_feet = feedback.feet
         return self.settle_since is not None and feedback.now - self.settle_since >= .3
 
+    def _replan(self, f: Feedback) -> Motion:
+        """Settle on an unplanned safe surface, then plan from it; at most twice."""
+        self.reason = "Unexpected safe surface; settling before bounded replan"
+        if self._settled(f, f.surface):
+            if self.replans >= 2:
+                return self.stop("Replan budget exhausted")
+            try:
+                self.route = self.graph.plan(f.surface, self.route.target,
+                                             max_edges=max(1, 8 - self.completed),
+                                             trusted_only=self.trusted_only,
+                                             origin_feet=f.feet)
+            except ValueError as error:
+                return self.stop(str(error))
+            self.replans += 1
+            self.index, self.stage, self.edge_started = 0, "settle_origin", f.now
+            self.settle_since = self.settle_surface = None  # settle again, not never
+        return Motion(release=True)
+
     def _run_out(self, surface: str, x: float, direction: str) -> float:
         """How much platform lies past x in the walking direction."""
         left, right = span(self.graph.nodes[surface])
@@ -132,7 +150,10 @@ class Navigator:
                 self.settle_since = None
                 return Motion(release=True)
             if f.surface != origin:
-                return self.stop("Origin no longer matches the previewed route")
+                # A monster knocked the player off a settled landing before the next edge.
+                if f.surface in self.graph.excluded or f.surface not in self.graph.nodes:
+                    return self.stop("Origin no longer matches the previewed route")
+                return self._replan(f)
             if self._settled(f, origin):
                 if edge is None:
                     self.stage, self.reason = "arrived", "Destination settled; keys released"
@@ -143,21 +164,7 @@ class Navigator:
         if f.surface not in (None, edge.source, edge.target):
             if f.surface in self.graph.excluded or f.surface not in self.graph.nodes:
                 return self.stop("Unexpected or excluded surface")
-            self.reason = "Unexpected safe surface; settling before bounded replan"
-            if self._settled(f, f.surface):
-                if self.replans >= 2:
-                    return self.stop("Replan budget exhausted")
-                try:
-                    self.route = self.graph.plan(f.surface, self.route.target,
-                                                 max_edges=max(1, 8 - self.completed),
-                                                 trusted_only=self.trusted_only,
-                                                 origin_feet=f.feet)
-                except ValueError as error:
-                    return self.stop(str(error))
-                self.replans += 1
-                self.index, self.stage, self.edge_started = 0, "settle_origin", f.now
-                self.settle_since = None
-            return Motion(release=True)
+            return self._replan(f)
         if self.stage == "approach":
             rope = origin in {p["id"] for p in self.graph.profile["ropes"]}
             # No surface for a frame is a name-tag dropout, bounded by the runtime's grace.
