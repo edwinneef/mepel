@@ -1107,18 +1107,37 @@ class TemplateDetector:
             return self._observe_full(image, now, templates, floor)
         saved = self.track
         assert saved is not None
+        found = self._observe_in(image, window, now, templates, floor)
+        if found[0] is not None:
+            return found
+        self.track = saved
+        if player_only and now - saved[1] <= self.config.track_seconds:
+            # Shortly after a confirmed frame the player is near the prediction. Searching
+            # the whole frame here takes about five times longer, which can push a recovery
+            # frame past its freshness limit; it resumes once the track expires.
+            wider = self._window(image)
+            if wider is not None and wider != window:
+                found = self._observe_in(image, wider, now, templates, floor)
+            if found[0] is None:
+                self.track = saved
+                found[2].append("Player not found near the last confirmed position")
+            return found
+        return self._observe_full(image, now, templates, floor)
+
+    def _observe_in(
+        self, image: Image, window: Rect, now: float, templates: list[Template], floor: float,
+    ) -> tuple[Detection | None, list[Detection], list[str], float]:
+        """Observe inside `window`; boxes come back in full-frame coordinates."""
+        saved = self.track
+        assert saved is not None
         local = (saved[0].translated(-window.x, -window.y), saved[1], saved[2])
         self.track = local
         crop = image[window.y : window.y + window.height, window.x : window.x + window.width]
         self.origin = (window.x, window.y)
-        # Player templates need only the movement-sized area; a miss below still
-        # searches the whole frame with every template.
+        # Player templates need only the movement-sized area around the track.
         self.player_area = self._player_area(local[0], crop)
         player, monsters, failures, tag_confidence = self._observe(crop, now, templates, floor)
         self.origin, self.player_area = (0, 0), None
-        if player is None:
-            self.track = saved  # Lost inside the window: search the whole frame.
-            return self._observe_full(image, now, templates, floor)
         if self.track is not None:
             box, confirmed, seen = self.track
             self.track = (box.translated(window.x, window.y), confirmed, seen)
@@ -1126,7 +1145,8 @@ class TemplateDetector:
         def shifted(item: Detection) -> Detection:
             return replace(item, box=item.box.translated(window.x, window.y))
 
-        return shifted(player), [shifted(item) for item in monsters], failures, tag_confidence
+        return (shifted(player) if player else None,
+                [shifted(item) for item in monsters], failures, tag_confidence)
 
     def _observe_full(
         self, image: Image, now: float, templates: list[Template], floor: float

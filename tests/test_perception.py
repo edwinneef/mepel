@@ -507,6 +507,12 @@ def test_search_window_falls_back_to_the_whole_frame_when_the_player_jumps_away(
     frame[300:328, 100:124] = 30
     frame[40:68, 500:524] = player
     moved = detector.detect(frame, 0.3, monsters=monsters)
+    if not monsters:
+        # Movement searches only near a recent confirmation, keeping recovery frames fast;
+        # the whole frame is searched again once the track expires.
+        assert moved.player is None
+        assert "Player not found near the last confirmed position" in moved.failures
+        moved = detector.detect(frame, 1.4, monsters=monsters)
     assert moved.player is not None and moved.player.box == Rect(500, 40, 24, 28)
 
 

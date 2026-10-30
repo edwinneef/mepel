@@ -90,8 +90,10 @@ def build_labels(found: dict[str, list[dict]], spec: dict, confidence: float
     identity = f"nametag:{spec['identity']}"
     for segment in spec["segments"]:
         if (segment["pose"] not in POSES or segment["facing"] not in FACINGS
-                or segment["occlusion"] not in OCCLUSIONS or segment["clip"] not in run_of):
+                or segment["occlusion"] not in OCCLUSIONS):
             raise ValueError(f"Invalid label segment: {segment}")
+    # The recorder prunes old sessions; a segment whose clip is gone labels nothing.
+    segments = [s for s in spec["segments"] if s["clip"] in run_of]
     labels, missing = {}, []
     for name, records in found.items():
         for record in records:
@@ -99,7 +101,7 @@ def build_labels(found: dict[str, list[dict]], spec: dict, confidence: float
             if frame in labels:
                 continue
             sequence = record["sequence"]
-            matches = [s for s in spec["segments"]
+            matches = [s for s in segments
                        if run_of[s["clip"]] == run_of[name]
                        and s["sequences"][0] <= sequence <= s["sequences"][1]]
             if not matches:
