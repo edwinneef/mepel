@@ -122,6 +122,7 @@ STOP_REASONS = {
     "CALIBRATION": StopReason(StopSeverity.SILENT, True),
     "POLICY_STOP": StopReason(StopSeverity.SILENT),
     "FARMING_STOP": StopReason(StopSeverity.ALARM),
+    "NAVIGATION_FAILURE": StopReason(StopSeverity.ALARM),
     "DRY_RUN_STOP": StopReason(StopSeverity.SILENT),
 }
 

@@ -279,6 +279,20 @@ class Navigator:
                 return Motion(release=True)
             return Motion(release=True) if not target_rope else Motion(
                 vertical="up" if edge.landing[1] < edge.launch[1] else "down")
+        ropes = {p["id"] for p in self.graph.profile["ropes"]}
+        if (self.departed and edge.kind in {"jump", "drop"} and edge.source not in ropes
+                and self.graph.on_surface(edge.source, f.feet, tolerance=16)):
+            # Back on the launch platform after leaving it: a live knockback off the landing
+            # put the player there, and steering on toward the landing walked off its end.
+            self.reason = "Back on the launch platform; keys released"
+            if not self._settled(f, edge.source):
+                return Motion(release=True)
+            if self.retries < 1:
+                self.retries += 1
+                self.stage, self.departed, self.settle_since = "settle_origin", False, None
+                self.reason = "Fell back to the launch platform; one settled-origin retry"
+                return Motion(release=True)
+            return self.stop("Fell back to the launch platform; retry budget exhausted")
         self.settle_since, self.last_feet, self.rope_start = None, f.feet, None
         if not self.departed and f.now - self.takeoff_at >= 1:
             if f.surface == edge.source and self.retries < 1:

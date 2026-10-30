@@ -497,7 +497,9 @@ class NavigationRuntime:
                 self.resume_combat = False
                 app.resume_combat(self.route.target, now)
                 return
-            app._stop("POLICY_STOP", self.agent.reason)
+            # A failed route alarms like any other failure; arriving stops quietly.
+            app._stop("NAVIGATION_FAILURE" if self.agent.stage == "stopped" else "POLICY_STOP",
+                      self.agent.reason)
             return
         if motion.horizontal:
             proposal = Action(motion.horizontal, app.config.input.max_action_seconds)

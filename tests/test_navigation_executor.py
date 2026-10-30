@@ -242,6 +242,25 @@ def test_coasting_past_the_launch_on_the_source_platform_is_not_a_takeoff():
     assert nav.retries == 1 and nav.stage == "settle_origin"
 
 
+def test_falling_back_onto_the_launch_platform_releases_keys_then_retries_once():
+    # Live: knocked back off the landing onto the launch platform, the steer toward the
+    # landing walked off its end.
+    nav, f = setup()
+    for attempt in (0, 2):
+        for now in (0, .2, .4):
+            nav.step(replace(f, now=attempt + now))
+        assert nav.step(replace(f, now=attempt + .6)).holds
+        nav.step(replace(f, now=attempt + .8, feet=(220, 260), surface=None))
+        assert nav.departed
+        for now in (1.0, 1.2):
+            motion = nav.step(replace(f, now=attempt + now, feet=(120, 390), surface=None))
+            assert motion.release and not motion.horizontal and not motion.holds
+            assert "Back on the launch platform" in nav.reason
+        nav.step(replace(f, now=attempt + 1.4, feet=(120, 390), surface=None))
+        f = replace(f, feet=(150, 400))
+    assert nav.stage == "stopped" and "retry budget exhausted" in nav.reason
+
+
 def test_jump_takes_off_only_after_braking_at_the_launch():
     nav, f = setup()
     for now in (0, .2, .4):

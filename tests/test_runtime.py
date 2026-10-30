@@ -811,6 +811,7 @@ def test_stop_reason_registry_classifies_every_declared_safety_path():
         "PLAYER_UNCERTAIN",
         "DEBUGGER_TIMEOUT",
         "FARMING_STOP",
+        "NAVIGATION_FAILURE",
     }
     silent = {
         "EMERGENCY_STOP",
