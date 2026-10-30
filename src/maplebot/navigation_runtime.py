@@ -8,7 +8,7 @@ from dataclasses import replace
 from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
 from .move_proofs import MoveProofs
-from .navigation import RouteMap, map_hash
+from .navigation import RouteMap, map_hash, pose_gaps, required_poses
 from .navigation_executor import EdgeStep, Feedback, Navigator, distance
 from .scheduler import SUSTAIN
 
@@ -18,6 +18,8 @@ FLIGHT_GRACE_SECONDS = 0.8
 # Screen width searched beside a map end during an edge step; covers the walk-in band.
 EDGE_STRIP = 480
 RECOGNITION_RECOVERY_SECONDS = 2
+# Written beside data/areas by tools/recognition_eval.py --coverage.
+POSE_COVERAGE = "recognition-coverage.json"
 # Stops that blame the move itself; focus, feedback or budget stops do not.
 MOVE_FAILURES = ("Movement departed the recorded corridor", "Landing overshoot",
                  "Departure not observed", "Edge deadline exhausted",
@@ -103,7 +105,19 @@ class NavigationRuntime:
         if not self.route or not self.graph:
             return "Preview an evidenced route first" if not self.app.capture_only else (
                 "Capture-only session: navigation input locked")
-        return self._gate(self._route_controls())
+        return self._gate(self._route_controls()) or self._pose_blocker()
+
+    def _pose_blocker(self) -> str | None:
+        """Refuse routes whose poses lack offline-verified player recognition."""
+        try:
+            coverage = json.loads((self.app.areas.directory.parent / POSE_COVERAGE)
+                                  .read_text("utf-8"))
+            verified = {str(pose) for pose in coverage["verified"]}
+        except (OSError, ValueError, KeyError, TypeError):
+            return "Verify player recognition offline first: python -m tools.recognition_eval"
+        ropes = {rope["id"] for rope in self.graph.profile["ropes"]}
+        gaps = pose_gaps(required_poses(self.route, ropes), verified)
+        return "Player recognition unverified for pose: " + ", ".join(gaps) if gaps else None
 
     def _route_controls(self) -> set[str]:
         controls = {"left", "right"}

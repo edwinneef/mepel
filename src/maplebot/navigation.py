@@ -107,6 +107,28 @@ class Route:
         return asdict(self)
 
 
+def required_poses(route: Route, ropes: set[str]) -> set[str]:
+    """Pose/facing pairs the player shows on a route; drops may face either way."""
+    poses = {"walk/left", "walk/right"}
+    for edge in route.edges:
+        side = "left" if edge.landing[0] < edge.launch[0] else "right"
+        if edge.kind == "jump":
+            poses.add(f"air/{side}")
+        elif edge.kind == "drop":
+            poses.add("air/any")
+        elif edge.kind == "climb":
+            poses.add("climb/back")
+            if edge.landing[1] < edge.launch[1] and edge.source not in ropes:
+                poses.add("air/back")  # The jump onto a rope or ladder.
+    return poses
+
+
+def pose_gaps(required: set[str], verified: set[str]) -> list[str]:
+    """Required poses without offline-verified recognition."""
+    return sorted(pose for pose in required if pose not in verified and not (
+        pose.endswith("/any") and any(v.startswith(pose[:-3]) for v in verified)))
+
+
 class RouteMap:
     def __init__(self, profile: dict, evidence: dict, *, links: list[dict] | None = None,
                  proven: set[str] | None = None) -> None:

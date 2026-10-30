@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 from dataclasses import replace
@@ -10,6 +11,7 @@ from test_runtime import app as _app
 from maplebot.input_timing import KeyHold
 from maplebot.navigation import RouteMap
 from maplebot.navigation_executor import Feedback
+from maplebot.navigation_runtime import POSE_COVERAGE
 
 app, controller = _app, _controller
 
@@ -119,6 +121,19 @@ def preview(app):
                             "floor", True)
     app.probed.update({"left", "right", "jump"})
     return nav
+
+
+def test_routes_need_offline_verified_recognition_in_every_pose(app):
+    nav = preview(app)
+    path = app.areas.directory.parent / POSE_COVERAGE
+    assert nav.blocker() is None
+    path.write_text(json.dumps({"verified": ["walk/left", "walk/right", "air/left"]}))
+    assert nav.blocker() == "Player recognition unverified for pose: air/right"
+    with pytest.raises(ValueError, match="unverified for pose: air/right"):
+        app._command("nav_start", {"opt_in": True})
+    path.unlink()
+    assert nav.blocker().startswith("Verify player recognition offline first")
+    assert app.mode == "capture" and app.controller.backend.events == []
 
 
 def test_proof_disk_write_waits_until_controller_is_stopped(app, monkeypatch):

@@ -12,6 +12,7 @@ from maplebot.capture import Calibration
 from maplebot.config import Config
 from maplebot.contracts import CommandContext
 from maplebot.geometry import Rect
+from maplebot.navigation_runtime import POSE_COVERAGE
 from maplebot.runtime import REQUIRED_PROBES, STOP_REASONS, Application, StopSeverity
 from maplebot.windows import Window
 
@@ -195,6 +196,9 @@ def app(monkeypatch, tmp_path):
     config = Config()
     config = replace(config, capture=replace(config.capture, data_dir=str(tmp_path)))
     app = Application(config)
+    # Offline recognition counts as verified in every pose unless a test says otherwise.
+    (app.areas.directory.parent / POSE_COVERAGE).write_text(json.dumps({"verified": [
+        "walk/left", "walk/right", "air/left", "air/right", "air/back", "climb/back"]}))
     monkeypatch.setattr(app.alarm.backend, "play", lambda path: None)
     monkeypatch.setattr(app.alarm.backend, "stop", lambda: None)
     monkeypatch.setattr(app.alarm.backend, "beep", lambda: None)

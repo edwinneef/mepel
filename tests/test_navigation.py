@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from maplebot.navigation import RouteMap, map_hash, problems, surface_y
+from maplebot.navigation import RouteMap, map_hash, pose_gaps, problems, required_poses, surface_y
 
 
 def fixture():
@@ -120,3 +120,15 @@ def test_anchors_on_a_sloped_platform_end_follow_its_bends():
     graph = RouteMap(profile, evidence)
     assert graph.on_surface("floor", (60, 430)) and graph.on_surface("floor", (150, 400))
     assert not graph.on_surface("floor", (60, 400))
+
+
+def test_routes_require_recognition_in_each_pose_they_show():
+    profile, evidence = fixture()
+    graph = RouteMap(profile, evidence)
+    up, down = graph.plan("floor", "ledge"), graph.plan("ledge", "floor")
+    assert required_poses(up, set()) == {"walk/left", "walk/right", "air/right"}
+    assert required_poses(down, set()) == {"walk/left", "walk/right", "air/any"}
+    verified = {"walk/left", "walk/right", "air/left"}
+    assert pose_gaps(required_poses(up, set()), verified) == ["air/right"]
+    assert pose_gaps(required_poses(down, set()), verified) == []
+    assert pose_gaps({"air/any", "climb/back"}, {"walk/left"}) == ["air/any", "climb/back"]
