@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from .input_timing import MIN_CHORD_LEAD_SECONDS, KeyHold
 from .navigation import Route, RouteMap
+from .public_map import span
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,10 @@ class Motion:
 # is cut off; inside this band of the hunting boundary a short inward walk restores it.
 EDGE_ZONE = 160
 EDGE_SECONDS = 4
+# A launch with less platform than this past it is approached from rest. A live walk
+# braked by the marker 24 px before an end and slid off: recorded walks run on 55-65 px
+# after the last hold, and the marker lags a frame and moves in 16 px steps.
+BRAKE_PX = 96
 
 
 def distance(point: tuple, trace: tuple) -> float:
@@ -91,6 +96,11 @@ class Navigator:
             self.settle_since, self.settle_surface = feedback.now, surface
         self.last_feet = feedback.feet
         return self.settle_since is not None and feedback.now - self.settle_since >= .3
+
+    def _run_out(self, surface: str, x: float, direction: str) -> float:
+        """How much platform lies past x in the walking direction."""
+        left, right = span(self.graph.nodes[surface])
+        return right - x if direction == "right" else x - left
 
     def _walk(self, x: float, target: float, *, precision: float = 32) -> Motion:
         direction = "right" if target > x else "left"
@@ -168,9 +178,23 @@ class Navigator:
                     return Motion(vertical="up" if edge.launch[1] < f.feet[1] else "down")
                 if distance(f.feet, edge.trace) > 64:
                     return self.stop("Movement departed the recorded corridor")
-            if abs(f.feet[0] - edge.launch[0]) > 12:
+            gap = abs(f.feet[0] - edge.launch[0])
+            if gap > 12:
                 if self.graph.path_blocker((f.feet, edge.launch)):
                     return self.stop("Approach crosses a boundary or excluded zone")
+                self.reason = "Approaching recorded launch position"
+                direction = "right" if edge.launch[0] > f.feet[0] else "left"
+                if (not rope and edge.kind != "walk" and gap <= BRAKE_PX
+                        and self._run_out(origin, edge.launch[0], direction) < BRAKE_PX):
+                    if not self._settled(f, origin):
+                        self.reason = "Braking before an edge launch; waiting for settled origin"
+                        return Motion(release=True)
+                    # One step from rest, then settle again; recorded taps from rest
+                    # moved about 5 px, so a far stop takes a longer one.
+                    self.settle_since = self.settle_surface = None
+                    self.reason = "Stepping from rest toward the edge launch"
+                    return Motion((KeyHold(direction, self.pulse if gap > 32
+                                           else min(.06, self.pulse)),))
                 self.last_feet = f.feet
                 self.settle_since = self.settle_surface = None
                 return self._walk(f.feet[0], edge.launch[0],

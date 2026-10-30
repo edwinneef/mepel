@@ -180,13 +180,15 @@ def test_rope_approach_brakes_before_takeoff_instead_of_jumping_with_horizontal_
     nav = Navigator(graph, route, 0)
     nav.stage = "approach"
     f = Feedback(.2, graph.fingerprint, (207, 400), "floor", True)
-    braking = nav.step(f)  # Recorded pre-launch distance: 43 pixels.
-    assert braking.horizontal is None and [h.action for h in braking.holds] == ["right"]
-    assert braking.holds[0].seconds <= .06
-    for now, x in ((.4, 240), (.6, 250), (.8, 250)):
+    # Recorded pre-launch distance: 43 pixels, past the floor's end: step from rest.
+    assert nav.step(f).release and nav.step(replace(f, now=.4)).release
+    step = nav.step(replace(f, now=.55))
+    assert step.horizontal is None and [h.action for h in step.holds] == ["right"]
+    assert step.holds[0].seconds == nav.pulse
+    for now, x in ((.6, 240), (.7, 250), (.9, 250)):
         assert nav.step(replace(f, now=now, feet=(x, 400))).release
         assert nav.stage == "approach"
-    takeoff = nav.step(replace(f, now=1, feet=(250, 400)))
+    takeoff = nav.step(replace(f, now=1.1, feet=(250, 400)))
     assert nav.stage == "flight" and takeoff.vertical == "up"
     assert takeoff.horizontal is None and [h.action for h in takeoff.holds] == ["jump"]
 
@@ -245,10 +247,37 @@ def test_jump_takes_off_only_after_braking_at_the_launch():
     for now in (0, .2, .4):
         nav.step(replace(f, now=now))
     assert nav.stage == "approach"
-    assert nav.step(replace(f, now=.5, feet=(110, 400))).horizontal == "right"
+    assert nav.step(replace(f, now=.5, feet=(52, 400))).horizontal == "right"
     # Arriving at the launch straight from a walk: brake first, keys released.
     assert nav.step(replace(f, now=.6, feet=(158, 400))).release
     assert nav.stage == "approach" and "Braking at jump launch" in nav.reason
     assert nav.step(replace(f, now=.8, feet=(158, 400))).release
     motion = nav.step(replace(f, now=.95, feet=(158, 400)))
     assert [hold.action for hold in motion.holds] == ["right", "jump"]
+
+
+def test_launch_near_a_platform_end_is_reached_from_rest_in_short_steps():
+    # Live: a walk braked by the marker 24 px before an end and slid off the platform.
+    nav, f = setup()  # The launch at 150 has 50 px of floor past it.
+    for now in (0, .2, .4):
+        nav.step(replace(f, now=now, feet=(52, 400)))
+    assert nav.step(replace(f, now=.5, feet=(52, 400))).horizontal == "right"
+    for now in (.6, .8):
+        assert nav.step(replace(f, now=now, feet=(110, 400))).release
+        assert "Braking before an edge launch" in nav.reason
+    step = nav.step(replace(f, now=.95, feet=(110, 400)))
+    assert step.horizontal is None and [h.action for h in step.holds] == ["right"]
+    assert step.holds[0].seconds == nav.pulse  # 40 px short: a full pulse
+    for now in (1.0, 1.2):  # settle after each step
+        assert nav.step(replace(f, now=now, feet=(124, 400))).release
+    step = nav.step(replace(f, now=1.35, feet=(124, 400)))
+    assert [h.action for h in step.holds] == ["right"] and step.holds[0].seconds <= .06
+    for now in (1.4, 1.6):
+        nav.step(replace(f, now=now, feet=(145, 400)))
+    motion = nav.step(replace(f, now=1.75, feet=(145, 400)))
+    assert [hold.action for hold in motion.holds] == ["right", "jump"]
+    # Walking toward the launch away from the end needs no stop: overshooting stays on it.
+    nav, f = setup()
+    for now in (0, .2, .4):
+        nav.step(replace(f, now=now, feet=(190, 400)))
+    assert nav.step(replace(f, now=.5, feet=(190, 400))).horizontal == "left"
