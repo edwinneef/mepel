@@ -334,6 +334,48 @@ def test_navigator_waits_for_a_running_pulse_so_a_takeoff_is_never_dropped(app, 
     assert len(steps) == 1 and nav.ticket is None
 
 
+@pytest.mark.parametrize(("started", "edge_started", "completed", "reason"), [
+    (90, 92, 0, "Edge deadline exhausted; no blind retry"),
+    (40, 99, 0, "Route time or edge budget exhausted"),
+    (99, 99, 8, "Route time or edge budget exhausted"),
+    (90, 92.001, 0, None),
+])
+def test_pending_ticket_still_enforces_budgets_and_uses_normal_stop(
+        app, monkeypatch, started, edge_started, completed, reason):
+    from types import SimpleNamespace
+
+    from maplebot import navigation_runtime
+    from maplebot.navigation_executor import Navigator
+
+    nav = preview(app)
+    nav.agent = Navigator(nav.graph, nav.route, started)
+    nav.agent.edge_started, nav.agent.completed = edge_started, completed
+    nav.feedback = replace(nav.feedback, now=100)
+    nav.ticket = 41
+    app.arbiter.submitted(41, "navigation")
+    app.mode = "navigation"
+    monkeypatch.setattr(navigation_runtime, "time", SimpleNamespace(perf_counter=lambda: 100))
+    monkeypatch.setattr(app, "_input_block_reason", lambda: None)
+    steps = []
+    original_step = nav.agent.step
+    monkeypatch.setattr(nav.agent, "step", lambda f: steps.append(nav.agent.active)
+                        or original_step(f))
+    with app.controller.lock:
+        app.controller.held["right"] = time.perf_counter() + 1
+    nav.tick(None, 100)
+    if reason is None:
+        assert app.mode == "navigation" and nav.ticket == 41
+        assert steps == [] and app.controller.held
+    else:
+        assert app.mode == "capture" and nav.agent.stage == "stopped"
+        assert app.stop_record.code == "NAVIGATION_FAILURE"
+        assert app.stop_record.message == reason
+        assert steps == [False]  # Only an already-stopped navigator is stepped.
+        assert not app.controller.enabled and not app.controller.held
+        assert nav.ticket is None and not app.arbiter.in_flight
+        assert app.alarm.snapshot()["active"]
+
+
 def test_start_and_settling_ride_out_a_name_tag_dropout_on_the_origin(app):
     nav = preview(app)
     now = time.perf_counter()

@@ -33,8 +33,9 @@ def test_no_delivered_commands_cannot_teleport_to_expected_trace():
 
 def test_pending_input_cannot_hide_exceeded_navigation_deadlines():
     result = run(Experiment(targets=("ledge",), input_delay=10, expected="safe_stop"))
-    assert not result["passed"] and result["outcome"] == "incomplete"
-    assert result["violations"] == ["Edge deadline exceeded while input ticket pending"]
+    assert result["passed"] and result["outcome"] == "safe_stop"
+    assert result["violations"] == []
+    assert result["stops"][-1]["reason"] == "Edge deadline exhausted; no blind retry"
     assert result["keys"] == []
     assert result["held_after"] == []
     assert result["pending_after"] == result["tickets_after"] == 0
@@ -176,7 +177,9 @@ def test_cli_evaluates_saved_map_without_writing_native_proofs(monkeypatch, tmp_
 
 def test_cli_exits_nonzero_and_saves_counterexample(monkeypatch, tmp_path):
     settings = tmp_path / "settings.json"
-    settings.write_text('{"targets":["ledge"],"input_delay":10}', encoding="utf-8")
+    # An incorrect arrival expectation must still fail, even though the stall now stops.
+    settings.write_text('{"targets":["ledge"],"input_delay":10,"expected":"arrived"}',
+                        encoding="utf-8")
     output = tmp_path / "failed.json"
     monkeypatch.setattr("sys.argv", ["navigation_harness", "--experiment", str(settings),
                                    "--output", str(output)])
@@ -184,7 +187,7 @@ def test_cli_exits_nonzero_and_saves_counterexample(monkeypatch, tmp_path):
         main()
     assert done.value.code == 1
     report = json.loads(output.read_text("utf-8"))
-    assert report["passed"] == 0 and report["runs"][0]["violations"]
+    assert report["passed"] == 0 and report["runs"][0]["outcome"] == "safe_stop"
 
 
 def test_cli_refuses_output_inside_protected_data(monkeypatch):

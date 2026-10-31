@@ -126,6 +126,14 @@ class Navigator:
             return Motion(horizontal=direction)
         return Motion((KeyHold(direction, min(.06, self.pulse)),))
 
+    def budget_blocker(self, now: float) -> str | None:
+        """Check budgets without advancing movement while a controller ticket runs."""
+        if now - self.started >= 60 or self.completed >= 8:
+            return "Route time or edge budget exhausted"
+        if self.index < len(self.route.edges) and now - self.edge_started >= 8:
+            return "Edge deadline exhausted; no blind retry"
+        return None
+
     def step(self, f: Feedback) -> Motion:
         if not self.active:
             return Motion(release=True)
@@ -136,15 +144,13 @@ class Navigator:
                 or not math.isfinite(f.age) or not 0 <= f.age <= .5 or f.feet is None
                 or not all(math.isfinite(v) for v in f.feet)):
             return self.stop("Fresh fused position, map revision or focus lost")
-        if f.now - self.started >= 60 or self.completed >= 8:
-            return self.stop("Route time or edge budget exhausted")
+        if reason := self.budget_blocker(f.now):
+            return self.stop(reason)
         blocker = self.graph.path_blocker((f.feet, f.feet))
         if blocker:
             return self.stop(blocker)
         edge = self.route.edges[self.index] if self.index < len(self.route.edges) else None
         origin = edge.source if edge else self.route.target
-        if edge and f.now - self.edge_started >= 8:
-            return self.stop("Edge deadline exhausted; no blind retry")
         if self.stage == "settle_origin":
             if f.surface is None:  # name-tag dropout: wait, keys released, bounded by the runtime
                 self.settle_since = None

@@ -33,8 +33,10 @@ Other useful fields are `fps`, `seed`, `feedback_delay`, `speed`, `acceleration`
 `braking`, `jump_speed`, `gravity`, `drop_input`, `expected` and `expected_reason`.
 An independent deadline check fails an experiment if a pending input ticket
 hides an exceeded eight-second edge or 60-second route budget. For example,
-`{"targets":["ledge"],"input_delay":10}` reports this counterexample, cancels
-the virtual pending keys and exits nonzero. This injected stall exceeds normal
+`{"targets":["ledge"],"input_delay":10,"expected":"safe_stop"}` now stops through
+the runtime's normal navigation failure path, cancels virtual pending keys and
+passes without an oracle violation. An arrival expectation still exits nonzero.
+This injected stall exceeds normal
 timing settings; it is not an observation of a native controller stall.
 
 The default dynamics are illustrative, not a calibrated MapleStory model. Fit

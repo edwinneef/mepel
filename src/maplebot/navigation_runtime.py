@@ -484,7 +484,11 @@ class NavigationRuntime:
         if self.ticket is not None and not isinstance(self.agent, EdgeStep):
             # A key pulse is still running. Stepping now could choose a takeoff that the
             # busy lane would drop while the navigator believes it was sent.
-            return
+            # Waiting must not hide expired budgets; use the normal failure/Stop path.
+            if reason := self.agent.budget_blocker(now):
+                self.agent.stop(reason)
+            else:
+                return
         if isinstance(self.agent, EdgeStep):
             motion = self.agent.step(f)
         else:
