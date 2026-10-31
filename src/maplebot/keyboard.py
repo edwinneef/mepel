@@ -6,6 +6,7 @@ import ctypes
 import queue
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Sequence
 from ctypes import wintypes
 from dataclasses import asdict, dataclass
@@ -14,6 +15,8 @@ from typing import Protocol
 from .config import InputConfig, TimingConfig
 from .decision import Action
 from .input_timing import ACTIONS, KeyHold, TimingPlanner
+
+EVENT_HISTORY_LIMIT = 256
 
 KEYS = {
     "left": 0x25,
@@ -183,6 +186,8 @@ class KeyboardController:
         self.planner = TimingPlanner(config, timing or TimingConfig())
         self.execution_started = time.perf_counter()
         self.last_timing: dict = {"schedule": None, "events": [], "outcome": "none"}
+        self.event_history: deque[dict] = deque(maxlen=EVENT_HISTORY_LIMIT)
+        self.event_sequence = 0
         self.reason = "Input disabled"
         self.watchdog = threading.Thread(target=self._watch, name="key-watchdog", daemon=True)
         self.executor = threading.Thread(
@@ -494,10 +499,14 @@ class KeyboardController:
         at_seconds = clock - self.execution_started
         issued_at = time.time()
         self.backend.send(key, down)
-        self.last_timing["events"].append({
+        self.event_sequence += 1
+        event = {
             "key": key, "down": down, "at_seconds": at_seconds,
             "clock": clock, "finished_clock": time.perf_counter(), "issued_at": issued_at,
-        })
+            "sequence": self.event_sequence,
+        }
+        self.last_timing["events"].append(event)
+        self.event_history.append(event)
 
     def _release_keys(self, keys: list[str]) -> None:
         for key in keys:
@@ -519,7 +528,10 @@ class KeyboardController:
 
     def timing_snapshot(self) -> dict:
         with self.lock:
-            return copy.deepcopy(self.last_timing)
+            return copy.deepcopy({**self.last_timing, "history": list(self.event_history),
+                                  "history_limit": EVENT_HISTORY_LIMIT,
+                                  "history_dropped": self.event_sequence - len(self.event_history),
+                                  "history_last_sequence": self.event_sequence})
 
     def execute(self, action: Action) -> str:
         submitted = self.submit(action)

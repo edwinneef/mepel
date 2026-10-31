@@ -79,6 +79,50 @@ def test_failed_backend_call_is_not_recorded_as_a_sent_event(controller, monkeyp
     with pytest.raises(OSError):
         control._send("right", True)
     assert control.timing_snapshot()["events"] == []
+    assert control.timing_snapshot()["history"] == []
+    assert control.event_sequence == 0
+
+
+def test_event_history_survives_plans_without_draining_or_exposing_mutable_state(controller):
+    control, _, _ = controller
+    control.planner.config = TimingConfig(enabled=False)
+    control.enable()
+    for action in ("right", "left", "jump"):
+        control.execute(Action(action, .01))
+    snapshot = control.timing_snapshot()
+    assert len(snapshot["events"]) == 2
+    assert [e["sequence"] for e in snapshot["history"]] == list(range(1, 7))
+    assert len(control.timing_snapshot()["history"]) == 6
+    snapshot["history"][0]["key"] = "changed"
+    snapshot["events"].clear()
+    assert control.timing_snapshot()["history"][0]["key"] == "right"
+    assert len(control.timing_snapshot()["events"]) == 2
+
+
+def test_event_history_has_a_fixed_bound_and_reports_evictions(controller):
+    from maplebot.keyboard import EVENT_HISTORY_LIMIT
+
+    control, _, _ = controller
+    with control.lock:
+        for _ in range(EVENT_HISTORY_LIMIT + 4):
+            control.last_timing = {"events": []}
+            control._send("right", True)
+    snapshot = control.timing_snapshot()
+    assert len(snapshot["history"]) == snapshot["history_limit"] == EVENT_HISTORY_LIMIT
+    assert snapshot["history_dropped"] == 4
+    assert snapshot["history"][0]["sequence"] == 5
+    assert snapshot["history"][-1]["sequence"] == snapshot["history_last_sequence"]
+
+
+def test_stop_retains_history_including_physical_release_request(controller):
+    control, _, _ = controller
+    control.enable()
+    control.refresh_movement("right", .25)
+    control.stop(notify=False)
+    snapshot = control.timing_snapshot()
+    assert [(e["key"], e["down"]) for e in snapshot["history"]] == [
+        ("right", True), ("right", False)]
+    assert not control.held and not control.enabled
 
 
 def test_repeated_movement_renewals_do_not_repress_the_key(controller):

@@ -117,6 +117,17 @@ def test_equal_relative_offsets_are_distinct_and_wall_clock_is_not_used(tmp_path
     assert [e["clock"] for e in result["events"]] == [100.025, 100.125]
 
 
+def test_retained_history_is_preferred_and_deduplicated_across_frames(tmp_path):
+    rows = jump(100)
+    history = [dispatch(100.025), dispatch(100.125, False)]
+    for row in rows:
+        row["input_timing"]["history"] = history
+        row["input_timing"]["events"] = [history[-1]]
+    write(tmp_path, "a", rows)
+    result = calibrate(tmp_path)["input_alignment"]
+    assert result["unique_events"] == result["aligned_events"] == 2
+
+
 def test_conflicting_event_copies_are_rejected(tmp_path):
     rows = jump(100)
     rows[0]["input_timing"]["events"] = [dispatch(100.025)]

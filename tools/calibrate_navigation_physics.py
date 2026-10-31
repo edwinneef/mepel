@@ -14,7 +14,8 @@ from tools.navigation_harness import Experiment
 
 def event_clocks(row, basis, collected):
     """Read successful dispatch observations; never reconstruct legacy clocks."""
-    for event in (row.get("input_timing") or {}).get("events", []):
+    timing = row.get("input_timing") or {}
+    for event in timing.get("history", timing.get("events", [])):
         if "clock" not in event:
             collected["legacy_event_snapshots"] += 1
             continue

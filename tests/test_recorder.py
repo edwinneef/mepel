@@ -3,9 +3,13 @@ import os
 import time
 
 import pytest
+from test_keyboard import controller as _controller
 
-from maplebot.config import RecordingConfig
+from maplebot.config import RecordingConfig, TimingConfig
+from maplebot.decision import Action
 from maplebot.recorder import SessionRecorder
+
+controller = _controller
 
 
 @pytest.fixture
@@ -51,6 +55,23 @@ def test_recording_preserves_absolute_key_clocks_and_legacy_events(recorder):
     assert rows[0]["input_timing"]["events"] == events
     assert rows[0]["capture_clock"] - events[0]["clock"] == pytest.approx(.15)
     assert "clock" not in rows[1]["input_timing"]["events"][0]
+
+
+def test_recording_retains_plans_completed_between_frames(recorder, controller):
+    control, _, _ = controller
+    control.planner.config = TimingConfig(enabled=False)
+    control.enable()
+    path = recorder.start("offline-history-test")
+    for action in ("right", "left", "jump"):
+        control.execute(Action(action, .01))
+    recorder.observe("00000000", b"png", {"capture_clock": time.perf_counter(),
+                     "input_timing": control.timing_snapshot()}, 0)
+    recorder.close()
+    row = json.loads((path / "decisions.jsonl").read_text().splitlines()[0])
+    timing = row["input_timing"]
+    assert len(timing["events"]) == 2 and len(timing["history"]) == 6
+    assert [e["key"] for e in timing["history"][::2]] == ["right", "left", "space"]
+    assert timing["history_dropped"] == 0 and timing["history_last_sequence"] == 6
 
 
 def test_trigger_flushes_buffer_then_records_post_window_and_closes(recorder):

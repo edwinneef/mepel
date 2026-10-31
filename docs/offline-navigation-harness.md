@@ -103,3 +103,16 @@ explicit gap. The reported displacement only describes neighboring observations;
 it does not establish that a key caused movement. No horizontal parameter is
 promoted from timestamp alignment alone. The historical corpus still has no
 absolute event clocks, so its calibration remains height-only.
+
+`input_timing.history` retains the latest 256 successful key events across plans
+and Stop, including release requests. Each event has a controller-lifetime
+`sequence`; snapshots include `history_limit`, `history_last_sequence` and the
+cumulative `history_dropped` eviction count. Snapshot reads do not drain history.
+This is a count bound, not an unlimited delivery guarantee: consumers can detect
+eviction by comparing successive retained sequence ranges. Process restart starts
+a new history. Existing `events` still describes only the latest plan.
+
+Recording snapshots preserve the history, so several plans completed between
+frames remain available. Calibration prefers `history` when present and falls
+back to `events` for older recordings; absolute-clock deduplication removes
+repeated snapshots. No game input or settings are changed by retaining history.
