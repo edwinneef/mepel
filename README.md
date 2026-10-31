@@ -251,6 +251,8 @@ change (`-EnableGameplayInput` explicitly selects an input-capable restart).
 `-DryRun` lists the steps without running them. A failed step stops the sequence;
 timings and build backups go to `artifacts/dev-cycle/<timestamp>/`.
 See [town movement checks](docs/town-validation.md) for the bounded Mushroom Park run.
+Use the [offline navigation harness](docs/offline-navigation-harness.md) to test
+command timing, modeled movement and route handoffs without running the game.
 
 ```powershell
 .venv\Scripts\python.exe -m pytest -q

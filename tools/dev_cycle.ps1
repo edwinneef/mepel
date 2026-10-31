@@ -2,7 +2,8 @@
 param(
     [ValidateSet('engine', 'ui', 'all')][string]$Scope = 'engine',
     [string[]]$PythonTests = @('tests/test_dev_cycle.py', 'tests/test_town_check.py',
-        'tests/test_navigation_check.py', 'tests/test_navigation_runtime.py'),
+        'tests/test_navigation_check.py', 'tests/test_navigation_runtime.py',
+        'tests/test_navigation_harness.py'),
     [string[]]$UiTests = @(),
     [switch]$BuildUi,
     [switch]$Restart,

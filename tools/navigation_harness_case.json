@@ -1,0 +1,19 @@
+{
+  "source": "artifacts/navigation-checks/20261030-195826/result.json",
+  "clip": "data/recordings/session-1793386720435146300-clip",
+  "observed": {
+    "first_target": "fh97",
+    "first_result": "arrived",
+    "next_target": "fh1",
+    "next_origin_before": "fh97",
+    "next_surface_after": "fh175",
+    "failure": "Origin no longer matches the previewed route"
+  },
+  "scope": "Failure signature from the saved result, reproduced on synthetic geometry. The island stands for an excluded unexpected surface; neither the original topology nor the cause of displacement is reconstructed.",
+  "experiment": {
+    "name": "recorded-handoff-failure-signature",
+    "fault": "handoff",
+    "expected": "safe_stop",
+    "expected_reason": "Origin no longer matches the previewed route"
+  }
+}
