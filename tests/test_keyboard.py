@@ -41,6 +41,46 @@ def test_disabled_input_and_replay_send_no_keys(controller):
     assert backend.events == []
 
 
+def test_key_event_clocks_bracket_backend_call_and_keep_relative_time(controller, monkeypatch):
+    from types import SimpleNamespace
+
+    from maplebot import keyboard
+
+    control, backend, _ = controller
+    clock = [100.25]
+    monkeypatch.setattr(keyboard, "time", SimpleNamespace(
+        perf_counter=lambda: clock[0], time=lambda: 1800000000.5))
+    control.execution_started = 100
+
+    def send(key, down):
+        backend.events.append((key, down))
+        clock[0] += .02
+
+    monkeypatch.setattr(backend, "send", send)
+    with control.lock:
+        control._send("right", True)
+        control._send("right", False)
+    events = control.timing_snapshot()["events"]
+    assert [event["down"] for event in events] == [True, False]
+    for event in events:
+        assert event["clock"] - 100 == pytest.approx(event["at_seconds"])
+        assert event["finished_clock"] - event["clock"] == pytest.approx(.02)
+        assert event["issued_at"] == 1800000000.5
+    assert events[1]["clock"] == events[0]["finished_clock"]
+
+
+def test_failed_backend_call_is_not_recorded_as_a_sent_event(controller, monkeypatch):
+    control, backend, _ = controller
+
+    def fail(key, down):
+        raise OSError("test backend rejected event")
+
+    monkeypatch.setattr(backend, "send", fail)
+    with pytest.raises(OSError):
+        control._send("right", True)
+    assert control.timing_snapshot()["events"] == []
+
+
 def test_repeated_movement_renewals_do_not_repress_the_key(controller):
     control, backend, _ = controller
     control.enable()

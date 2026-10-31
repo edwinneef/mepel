@@ -490,9 +490,14 @@ class KeyboardController:
                 or not self.enabled or self.suspended)
 
     def _send(self, key: str, down: bool) -> None:
-        at_seconds = time.perf_counter() - self.execution_started
+        clock = time.perf_counter()
+        at_seconds = clock - self.execution_started
+        issued_at = time.time()
         self.backend.send(key, down)
-        self.last_timing["events"].append({"key": key, "down": down, "at_seconds": at_seconds})
+        self.last_timing["events"].append({
+            "key": key, "down": down, "at_seconds": at_seconds,
+            "clock": clock, "finished_clock": time.perf_counter(), "issued_at": issued_at,
+        })
 
     def _release_keys(self, keys: list[str]) -> None:
         for key in keys:

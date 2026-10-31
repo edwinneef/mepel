@@ -36,6 +36,23 @@ def test_session_logs_every_decision_but_saves_no_frames_without_incident(record
     assert not list(path.glob("*.png"))
 
 
+def test_recording_preserves_absolute_key_clocks_and_legacy_events(recorder):
+    path = recorder.start("offline-clock-test")
+    events = [{"key": "right", "down": True, "at_seconds": .25, "clock": 100.25,
+               "finished_clock": 100.251, "issued_at": 1800000000.5},
+              {"key": "right", "down": False, "at_seconds": .37, "clock": 100.37,
+               "finished_clock": 100.371, "issued_at": 1800000000.62}]
+    recorder.observe("00000000", b"png", {"capture_clock": 100.4,
+                     "input_timing": {"events": events}}, 0)
+    recorder.observe("00000001", b"png", {"input_timing": {"events": [
+        {"key": "right", "down": True, "at_seconds": .25}]}}, .1)
+    recorder.close()
+    rows = [json.loads(line) for line in (path / "decisions.jsonl").read_text().splitlines()]
+    assert rows[0]["input_timing"]["events"] == events
+    assert rows[0]["capture_clock"] - events[0]["clock"] == pytest.approx(.15)
+    assert "clock" not in rows[1]["input_timing"]["events"][0]
+
+
 def test_trigger_flushes_buffer_then_records_post_window_and_closes(recorder):
     path = recorder.start("combat")
     feed(recorder, 0, 10)

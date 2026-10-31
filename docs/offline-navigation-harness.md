@@ -75,3 +75,17 @@ absolute key start times. Illustrative defaults stay unchanged.
 against the recorded constraint before a run. Reports retain fitted fields,
 constraints and unidentified fields; they never claim full calibration.
 Calibration refuses output within saved data/recordings and never overwrites files.
+
+New diagnostic records include absolute timestamps on successful backend key
+calls in `input_timing.events`: `clock` and `finished_clock` bracket the call in
+`time.perf_counter()` seconds, matching the frame's `capture_clock` time domain.
+`issued_at` is Unix wall time sampled before dispatch. Existing `at_seconds`
+remains relative to the current input sequence. These are dispatch observations,
+not proof of game receipt or movement. Failed backend calls have no successful
+event entry. Repeated frame snapshots may contain the same event; deduplicate by
+absolute event clock, never by relative offset alone.
+
+Historical recordings remain unchanged and may omit the new fields. The saved
+corpus still lacks these timestamps; full physics calibration remains incomplete.
+Timestamps are recorded on future sessions after loading this code. No restart
+or gameplay is required to run the offline tests.
