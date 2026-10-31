@@ -125,8 +125,21 @@ saved those events. Repeated snapshots do not increase missing counts.
 
 Malformed metadata, legacy snapshots and conflicting/reset sequence identities
 make coverage unknown. Ambiguous lifetimes have no numeric missing count.
-Clips are assessed separately because controller-lifetime IDs are unavailable;
+Histories without valid controller-lifetime IDs are assessed separately;
 their histories are not assumed to fill each other's gaps. Complete means only
 that the observed counter range is covered, not that later input was recorded
 or that recorded keys caused game effects. Coverage is diagnostic and does not
 promote physics parameters or authorize input.
+
+New controllers generate a random `history_id` once. It appears in each event
+and timing snapshot, survives Stop and plan changes, and differs after controller
+replacement. Calibration validates the ID and rejects mismatched event IDs.
+Event and motion deduplication preserve lifetime boundaries.
+
+Coverage adds `lifetimes`, merging overlapping clips only for an identical valid
+ID. The overall status uses these merged lifetimes plus any unidentified clip
+sections. `clips` retains local coverage per clip/ID, so a local prefix gap can
+be filled by another identified clip. A restart within a clip creates separate
+sections. Conflicting ID reuse, backward clocks or decreasing counters in capture
+time order remain unknown. Legacy histories stay local and are never assigned
+invented IDs. Existing saved recordings are not modified.

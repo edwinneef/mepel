@@ -72,6 +72,8 @@ def test_recording_retains_plans_completed_between_frames(recorder, controller):
     assert len(timing["events"]) == 2 and len(timing["history"]) == 6
     assert [e["key"] for e in timing["history"][::2]] == ["right", "left", "space"]
     assert timing["history_dropped"] == 0 and timing["history_last_sequence"] == 6
+    assert timing["history_id"] == control.history_id
+    assert all(e["history_id"] == control.history_id for e in timing["history"])
 
 
 def test_trigger_flushes_buffer_then_records_post_window_and_closes(recorder):

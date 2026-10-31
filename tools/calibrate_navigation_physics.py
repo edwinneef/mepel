@@ -21,7 +21,19 @@ def valid_dispatch(event):
             and bool(event["key"]))
 
 
-def history_snapshot(row, coverage):
+def valid_history_id(value):
+    return isinstance(value, str) and len(value) == 32 and all(
+        char in "0123456789abcdef" for char in value)
+
+
+def new_coverage(history_id=None):
+    return {"seen": {}, "last": 0, "previous_last": None, "evictions_seen": 0,
+            "ambiguous_lifetime": False, "legacy_snapshots": 0,
+            "invalid_snapshots": 0, "history_snapshots": 0, "history_id": history_id,
+            "snapshot_counters": {}}
+
+
+def history_snapshot(row, coverage, *, ordered=True):
     timing = row.get("input_timing") or {}
     if "history" not in timing:
         coverage["legacy_snapshots"] += 1
@@ -34,15 +46,25 @@ def history_snapshot(row, coverage):
             or len(history) != min(last, limit) or dropped != last - len(history)):
         coverage["invalid_snapshots"] += 1
         return
-    if coverage["previous_last"] is not None and last < coverage["previous_last"]:
+    if ordered and coverage["previous_last"] is not None and last < coverage["previous_last"]:
         coverage["ambiguous_lifetime"] = True
     coverage["previous_last"] = last
     coverage["last"] = max(coverage["last"], last)
     coverage["evictions_seen"] = max(coverage["evictions_seen"], dropped)
     coverage["history_snapshots"] += 1
+    if coverage["history_id"] is not None:
+        clock = row.get("capture_clock")
+        if type(clock) not in (int, float) or not math.isfinite(clock):
+            coverage["invalid_snapshots"] += 1
+        else:
+            previous = coverage["snapshot_counters"].get(clock)
+            if previous is not None and previous != last:
+                coverage["ambiguous_lifetime"] = True
+            coverage["snapshot_counters"][clock] = last
     for sequence, event in enumerate(history, dropped + 1):
         if (not isinstance(event, dict) or type(event.get("sequence")) is not int
-                or event["sequence"] != sequence or not valid_dispatch(event)):
+                or event["sequence"] != sequence or not valid_dispatch(event)
+                or event.get("history_id") != coverage["history_id"]):
             coverage["invalid_snapshots"] += 1
             continue
         signature = tuple(event.get(k) for k in
@@ -55,6 +77,11 @@ def history_snapshot(row, coverage):
 def history_report(coverage, source):
     missing, next_sequence = [], 1
     previous_clock = float("-inf")
+    previous_counter = -1
+    for _, counter in sorted(coverage["snapshot_counters"].items()):
+        if counter < previous_counter:
+            coverage["ambiguous_lifetime"] = True
+        previous_counter = counter
     # Work scales with recorded events, not potentially huge sequence counters.
     for sequence in sorted(coverage["seen"]):
         clock = coverage["seen"][sequence][0]
@@ -70,6 +97,7 @@ def history_report(coverage, source):
                or coverage["ambiguous_lifetime"] or not coverage["history_snapshots"])
     ambiguous = coverage["ambiguous_lifetime"]
     return {"source": source, "status": "unknown" if unknown else "gaps" if missing else "complete",
+            "history_id": coverage["history_id"],
             "missing_ranges": None if ambiguous else missing,
             "missing_events": None if ambiguous else sum(b - a + 1 for a, b in missing),
             "observed_events": len(coverage["seen"]), "last_sequence": coverage["last"],
@@ -81,6 +109,10 @@ def history_report(coverage, source):
 def event_clocks(row, basis, collected):
     """Read successful dispatch observations; never reconstruct legacy clocks."""
     timing = row.get("input_timing") or {}
+    history_id = timing.get("history_id")
+    if history_id is not None and not valid_history_id(history_id):
+        collected["invalid_event_snapshots"] += 1
+        return
     values = timing.get("history", timing.get("events", []))
     if not isinstance(values, list):
         collected["invalid_event_snapshots"] += 1
@@ -92,13 +124,14 @@ def event_clocks(row, basis, collected):
         if "clock" not in event:
             collected["legacy_event_snapshots"] += 1
             continue
-        if not valid_dispatch(event):
+        if not valid_dispatch(event) or event.get("history_id") != history_id:
             collected["invalid_event_snapshots"] += 1
             continue
         value = {"basis": basis, "key": event["key"], "down": event["down"],
+                 "history_id": history_id,
                  "clock": event["clock"], "finished_clock": event["finished_clock"],
                  "issued_at": event.get("issued_at")}
-        key = (*basis, event["key"], event["clock"])
+        key = (*basis, history_id, event["key"], event["clock"])
         if key in collected["events"] and collected["events"][key] != value:
             collected["conflicts"].add(key)
         else:
@@ -144,19 +177,26 @@ def observations(root, *, events=None):
     for path in sorted(root.glob("*/decisions.jsonl")):
         raw = path.read_bytes()
         sources.append({"path": str(path), "sha256": hashlib.sha256(raw).hexdigest()})
-        coverage = {"seen": {}, "last": 0, "previous_last": None, "evictions_seen": 0,
-                    "ambiguous_lifetime": False, "legacy_snapshots": 0,
-                    "invalid_snapshots": 0, "history_snapshots": 0}
+        groups = {}
         for line in raw.decode("utf-8").splitlines():
             row = json.loads(line)
+            raw_id = (row.get("input_timing") or {}).get("history_id")
+            history_id = raw_id if valid_history_id(raw_id) else None
             if events is not None:
+                coverage = groups.setdefault(history_id, new_coverage(history_id))
                 history_snapshot(row, coverage)
+                if raw_id is not None and history_id is None:
+                    coverage["invalid_snapshots"] += 1
+                if history_id is not None:
+                    lifetime = events["lifetimes"].setdefault(history_id, new_coverage(history_id))
+                    history_snapshot(row, lifetime, ordered=False)
+                    events["lifetime_sources"].setdefault(history_id, set()).add(str(path))
             position, player = row.get("position") or {}, row.get("player") or {}
             clock, feet = row.get("capture_clock"), position.get("feet")
             if (not position.get("area_id") or type(clock) not in (int, float)
                     or not math.isfinite(clock)):
                 continue
-            key = (position["area_id"], clock)
+            key = (position["area_id"], clock, history_id)
             valid = (row.get("focused") and feet and len(feet) == 2
                      and all(isinstance(v, (int, float)) and math.isfinite(v) for v in feet)
                      and player.get("confidence", 0) >= .85 and not player.get("tracked")
@@ -172,6 +212,8 @@ def observations(root, *, events=None):
                                   for e in (row.get("input_timing") or {})
                                   .get("schedule", {}).get("events", []))
                       if (row.get("input_timing") or {}).get("schedule") else False}
+            if history_id is not None:
+                sample["basis"].append(history_id)
             if events is not None:
                 event_clocks(row, sample["basis"], events)
             if key in found and (found[key]["feet"], found[key]["surface"]) != (
@@ -180,7 +222,8 @@ def observations(root, *, events=None):
             else:
                 found[key] = sample
         if events is not None:
-            events["coverage"].append(history_report(coverage, str(path)))
+            events["coverage"].extend(history_report(coverage, str(path))
+                                      for coverage in groups.values())
     for key in conflicts:
         found[key]["feet"] = None
     return sorted(found.values(), key=lambda s: (s["area"], s["t"])), sources, len(conflicts)
@@ -244,16 +287,20 @@ def fit(ground, air, landing):
 
 def calibrate(root):
     events = {"events": {}, "conflicts": set(), "legacy_event_snapshots": 0, "coverage": [],
-              "invalid_event_snapshots": 0}
+              "invalid_event_snapshots": 0, "lifetimes": {}, "lifetime_sources": {}}
     samples, sources, conflicts = observations(root, events=events)
     alignment = align_events(samples, events)
     reports = events["coverage"]
+    lifetimes = [{**history_report(group, "merged identified lifetime"),
+                  "sources": sorted(events["lifetime_sources"][history_id])}
+                 for history_id, group in sorted(events["lifetimes"].items())]
+    effective = [*lifetimes, *(r for r in reports if r["history_id"] is None)]
     alignment["history_coverage"] = {
-        "status": ("unknown" if not reports or any(r["status"] == "unknown" for r in reports)
-                   else "gaps" if any(r["status"] == "gaps" for r in reports) else "complete"),
-        "clips": reports,
-        "scope": "Per clip, sequence 1 through last counter; no cross-clip lifetime merging",
-        "limitations": "Prefix may predate recording; resets/conflicts mean unknown lifetime."
+        "status": ("unknown" if not effective or any(r["status"] == "unknown" for r in effective)
+                   else "gaps" if any(r["status"] == "gaps" for r in effective) else "complete"),
+        "clips": reports, "lifetimes": lifetimes,
+        "scope": "Merge only explicit lifetime IDs; unidentified histories stay per clip",
+        "limitations": "Prefix may predate recording; reused IDs with conflicts remain unknown."
     }
     windows = list(flights(samples))
     candidates = [fit(*flight) for flight in windows]

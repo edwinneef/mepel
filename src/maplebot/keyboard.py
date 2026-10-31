@@ -6,6 +6,7 @@ import ctypes
 import queue
 import threading
 import time
+import uuid
 from collections import deque
 from collections.abc import Callable, Sequence
 from ctypes import wintypes
@@ -188,6 +189,7 @@ class KeyboardController:
         self.last_timing: dict = {"schedule": None, "events": [], "outcome": "none"}
         self.event_history: deque[dict] = deque(maxlen=EVENT_HISTORY_LIMIT)
         self.event_sequence = 0
+        self.history_id = uuid.uuid4().hex
         self.reason = "Input disabled"
         self.watchdog = threading.Thread(target=self._watch, name="key-watchdog", daemon=True)
         self.executor = threading.Thread(
@@ -504,6 +506,7 @@ class KeyboardController:
             "key": key, "down": down, "at_seconds": at_seconds,
             "clock": clock, "finished_clock": time.perf_counter(), "issued_at": issued_at,
             "sequence": self.event_sequence,
+            "history_id": self.history_id,
         }
         self.last_timing["events"].append(event)
         self.event_history.append(event)
@@ -529,6 +532,7 @@ class KeyboardController:
     def timing_snapshot(self) -> dict:
         with self.lock:
             return copy.deepcopy({**self.last_timing, "history": list(self.event_history),
+                                  "history_id": self.history_id,
                                   "history_limit": EVENT_HISTORY_LIMIT,
                                   "history_dropped": self.event_sequence - len(self.event_history),
                                   "history_last_sequence": self.event_sequence})

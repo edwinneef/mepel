@@ -117,12 +117,29 @@ def test_event_history_has_a_fixed_bound_and_reports_evictions(controller):
 def test_stop_retains_history_including_physical_release_request(controller):
     control, _, _ = controller
     control.enable()
+    history_id = control.timing_snapshot()["history_id"]
     control.refresh_movement("right", .25)
     control.stop(notify=False)
     snapshot = control.timing_snapshot()
+    assert snapshot["history_id"] == history_id
+    assert all(e["history_id"] == history_id for e in snapshot["history"])
     assert [(e["key"], e["down"]) for e in snapshot["history"]] == [
         ("right", True), ("right", False)]
     assert not control.held and not control.enabled
+
+
+def test_new_controller_gets_a_distinct_history_id(controller):
+    import uuid
+
+    control, _, _ = controller
+    other = KeyboardController(Backend(), InputConfig(), lambda: True, lambda: False)
+    try:
+        first = control.timing_snapshot()["history_id"]
+        second = other.timing_snapshot()["history_id"]
+        assert first != second and uuid.UUID(hex=first).hex == first
+        assert uuid.UUID(hex=second).hex == second
+    finally:
+        other.close()
 
 
 def test_repeated_movement_renewals_do_not_repress_the_key(controller):

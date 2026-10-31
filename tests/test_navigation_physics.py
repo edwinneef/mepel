@@ -143,6 +143,77 @@ def coverage(root):
     return calibrate(root)["input_alignment"]["history_coverage"]
 
 
+def identified_row(sequences, history_id="a" * 32, **kwargs):
+    row = history_row(sequences, **kwargs)
+    row["input_timing"]["history_id"] = history_id
+    for event in row["input_timing"]["history"]:
+        event["history_id"] = history_id
+    return row
+
+
+def test_identified_overlapping_clips_fill_each_others_gaps(tmp_path):
+    write(tmp_path, "z-first", [identified_row([1, 2])])
+    write(tmp_path, "a-later", [identified_row([3, 4])])
+    result = coverage(tmp_path)
+    assert result["status"] == "complete"
+    assert any(c["status"] == "gaps" for c in result["clips"])
+    assert len(result["lifetimes"]) == 1
+    lifetime = result["lifetimes"][0]
+    assert lifetime["missing_events"] == 0 and lifetime["observed_events"] == 4
+    assert len(lifetime["sources"]) == 2
+
+
+def test_distinct_controller_lifetimes_are_never_merged(tmp_path):
+    write(tmp_path, "a", [identified_row([1, 2])])
+    write(tmp_path, "b", [identified_row([3, 4], history_id="b" * 32)])
+    result = coverage(tmp_path)
+    assert result["status"] == "gaps"
+    assert len(result["lifetimes"]) == 2
+    assert result["lifetimes"][1]["missing_ranges"] == [[1, 2]]
+
+
+def test_restart_inside_one_clip_is_separated_by_id(tmp_path):
+    write(tmp_path, "a", [identified_row([1, 2]), identified_row([1], history_id="b" * 32)])
+    result = coverage(tmp_path)
+    assert result["status"] == "complete" and len(result["lifetimes"]) == 2
+    assert len(result["clips"]) == 2
+
+
+def test_reused_id_with_reset_across_clips_is_unknown(tmp_path):
+    first, second = identified_row([1, 2]), identified_row([])
+    second["capture_clock"] = 200
+    write(tmp_path, "a", [first])
+    write(tmp_path, "b", [second])
+    result = coverage(tmp_path)
+    assert result["status"] == "unknown"
+    assert result["lifetimes"][0]["ambiguous_lifetime"]
+    assert result["lifetimes"][0]["missing_events"] is None
+
+
+@pytest.mark.parametrize("bad_id", ["", "invalid", "A" * 32, 5])
+def test_invalid_lifetime_id_is_unknown_and_not_pooled(tmp_path, bad_id):
+    write(tmp_path, "a", [identified_row([1, 2], history_id=bad_id)])
+    result = coverage(tmp_path)
+    assert result["status"] == "unknown" and result["lifetimes"] == []
+
+
+def test_event_with_wrong_lifetime_id_is_rejected(tmp_path):
+    row = identified_row([1, 2])
+    row["input_timing"]["history"][0]["history_id"] = "b" * 32
+    write(tmp_path, "a", [row])
+    report = calibrate(tmp_path)["input_alignment"]
+    assert report["invalid_event_snapshots"] == 1
+    assert report["history_coverage"]["status"] == "unknown"
+
+
+def test_event_and_motion_deduplication_preserve_lifetime_boundaries(tmp_path):
+    write(tmp_path, "a", [identified_row([1, 2])])
+    write(tmp_path, "b", [identified_row([1, 2], history_id="b" * 32)])
+    report = calibrate(tmp_path)
+    assert report["input_alignment"]["unique_events"] == 4
+    assert report["unique_observations"] == 2
+
+
 def test_evicted_events_already_saved_are_not_reported_missing(tmp_path):
     write(tmp_path, "a", [history_row([1, 2]), history_row([3, 4]), history_row([3, 4])])
     result = coverage(tmp_path)
