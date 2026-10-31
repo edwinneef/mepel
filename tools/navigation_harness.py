@@ -394,6 +394,7 @@ def main():
     parser.add_argument("--feet", type=float, nargs=2, default=(230, 400))
     parser.add_argument("--targets", nargs="+", default=("ledge", "floor"))
     parser.add_argument("--experiment", type=Path, help="Optional Experiment settings JSON")
+    parser.add_argument("--physics", type=Path, help="Offline calibration report/constraints")
     args = parser.parse_args()
     if not 1 <= args.seeds <= 1000:
         parser.error("--seeds must be between 1 and 1000")
@@ -418,11 +419,34 @@ def main():
             settings.append(Experiment(**case["experiment"]))
             settings.append(Experiment(name="lost-input", drop_input=True,
                                        expected="safe_stop"))
+    calibration = None
+    if args.physics:
+        calibration = json.loads(args.physics.read_text("utf-8"))
+        if calibration.get("schema_version") != 1:
+            parser.error("Unsupported physics calibration schema")
+        parameters = calibration.get("parameters", {})
+        if set(parameters) - {"gravity", "jump_speed"}:
+            parser.error("Unsupported fitted physics fields")
+        settings = [replace(setting, **parameters) for setting in settings]
+        bound = calibration.get("constraints", {}).get("jump_rise_px")
+        if not parameters and not bound:
+            parser.error("Calibration has no supported parameters or constraints")
+        if bound:
+            low, high = bound["min"] - bound["margin_px"], bound["max"] + bound["margin_px"]
+            if not all(math.isfinite(v) for v in (low, high)) or not 0 < low <= high:
+                parser.error("Invalid calibrated jump height bounds")
+            if any(not low <= s.jump_speed ** 2 / (2 * s.gravity) <= high for s in settings):
+                parser.error("Experiment jump height contradicts recorded constraint")
     results = [run(setting, graph=graph, feet=args.feet, origin=args.origin)
                for setting in settings]
     report = {"scope": "Synthetic platform dynamics and controller; real navigation/runtime/timing",
               "input_sent": False, "native_acceptance": False, "runs": results,
               "passed": sum(row["passed"] for row in results), "total": len(results)}
+    if calibration is not None:
+        report["calibration"] = {"path": str(args.physics),
+                                 "parameters": calibration["parameters"],
+                                 "constraints": calibration.get("constraints", {}),
+                                 "unidentified": calibration["unidentified"]}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x", encoding="utf-8") as handle:
         handle.write(json.dumps(report, indent=2) + "\n")

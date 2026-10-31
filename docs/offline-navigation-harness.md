@@ -49,3 +49,29 @@ Live gameplay remains deferred until a separately authorized supervised batch.
 
 `tools/dev_cycle.ps1` includes the harness regression tests by default. The
 original `tools/navigation_replay.py` remains a saved-anchor compatibility smoke.
+
+## Calibrate from saved clips
+
+```powershell
+.venv/Scripts/python.exe -m tools.calibrate_navigation_physics --output artifacts/navigation-harness/physics.json
+.venv/Scripts/python.exe -m tools.navigation_harness --physics artifacts/navigation-harness/physics.json --output artifacts/navigation-harness/physics-run.json
+```
+
+Calibration reads saved decision logs only. It records source hashes, deduplicates
+overlapping clips by area/capture clock, rejects conflicting copies and gaps, and
+uses fresh recognized, focused, calibrated observations. Ballistic fits train on
+alternating airborne frames and report error on held-out frames. Promotion needs
+two distinct supported flights in one coordinate area and consistent parameters.
+This holdout checks interpolation within a flight, not independent gameplay.
+
+The available evidence supports only an approximate jump-height constraint:
+two jumps rose about 78 pixels, with a 16-pixel measurement margin for quantization
+(not a statistical confidence interval). No ballistic fit passed validation.
+Height alone cannot determine gravity and jump speed separately. Horizontal
+speed, acceleration and braking remain unidentified: saved input events lack
+absolute key start times. Illustrative defaults stay unchanged.
+
+`--physics` applies supported fits, or checks the model's implied jump height
+against the recorded constraint before a run. Reports retain fitted fields,
+constraints and unidentified fields; they never claim full calibration.
+Calibration refuses output within saved data/recordings and never overwrites files.
