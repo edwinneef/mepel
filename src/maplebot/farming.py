@@ -7,13 +7,17 @@ class Farming:
     def __init__(self, settings: dict) -> None:
         if not isinstance(settings, dict):
             raise ValueError("Farming settings must be an object")
+        self.single_platform = settings.get("single_platform", False)
+        if not isinstance(self.single_platform, bool):
+            raise ValueError("farming.single_platform must be boolean")
         self.no_consumables = settings.get("no_consumables", False)
         if not isinstance(self.no_consumables, bool):
             raise ValueError("farming.no_consumables must be boolean")
         self.pet_recovery = settings.get("pet_recovery", True)
         if not isinstance(self.pet_recovery, bool):
             raise ValueError("farming.pet_recovery must be boolean")
-        self.settings = {"pet_recovery": self.pet_recovery, "no_consumables": self.no_consumables}
+        self.settings = {"pet_recovery": self.pet_recovery, "no_consumables": self.no_consumables,
+                         "single_platform": self.single_platform}
         for name, default, lower, upper in (
             ("session_minutes", 15, 1, 120),
             ("hp_threshold", 50, 1, 95),

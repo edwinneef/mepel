@@ -1,10 +1,12 @@
 import pytest
 from test_runtime import app as _app
+from test_runtime import potion_app as _potion_app
 
 from maplebot.decision import Action
 from maplebot.farming import Farming
 
 app = _app
+potion_app = _potion_app
 
 
 def readings(hp=80, mp=80):
@@ -125,3 +127,102 @@ def test_no_consumables_disables_all_sustain_and_food(app):
     assert app.farming.check(now, readings(), True) is None
     assert "HP low" in app.farming.check(now, readings(hp=50), True)
     assert "MP low" in app.farming.check(now, readings(mp=50), True)
+
+
+@pytest.mark.parametrize("value", [0, 1, "false", None])
+def test_single_platform_flag_is_explicit_boolean(value):
+    with pytest.raises(ValueError, match="single_platform"):
+        Farming({"single_platform": value})
+
+
+def test_single_platform_arms_without_routes_preserving_health_stops(app):
+    from maplebot.runtime import REQUIRED_PROBES
+
+    app.probed.update(REQUIRED_PROBES)
+    app.potter.bars = {"hp": object(), "mp": object()}
+    settings = {"single_platform": True, "no_consumables": True, "pet_recovery": False}
+    assert app._command("arm", {"farming": settings})["mode"] == "pending_arm"
+    assert not app.rotating
+    app._clear_stop_banner()  # The live countdown clears the preparation Stop banner.
+    app._start_sustain()
+    app.recorder.start("combat")  # Live activation opens the combat recording.
+    assert app.farming.snapshot()["settings"]["single_platform"]
+    assert not app.sustain and app.farming.next_feed is None
+    reason = app.farming.check(app.farming.started, readings(mp=50), True)
+    app._stop("POLICY_STOP", reason)
+    assert app.controller.stopped.is_set() and app.farming is None
+    assert app.alarm.snapshot()["active"] and app.stop_record.clip_path
+
+
+def test_rotation_stays_required_for_existing_farming_mode(app):
+    from maplebot.runtime import REQUIRED_PROBES
+
+    app.probed.update(REQUIRED_PROBES)
+    app.potter.bars = {"hp": object(), "mp": object()}
+    with pytest.raises(ValueError, match="Track a saved map"):
+        app._command("arm", {"farming": {"no_consumables": True}})
+
+
+def test_one_platform_policy_repeats_approach_attack_and_reacquisition():
+    from maplebot.config import AgentConfig
+    from maplebot.decision import Agent
+    from maplebot.geometry import Rect
+    from maplebot.perception import Detection, Observation
+
+    agent = Agent(AgentConfig(attack_range=65))
+    agent.start()
+    player = Detection("player", Rect(100, 100, 24, 28), .99)
+    far = Observation(player, [Detection("monster", Rect(240, 100, 24, 28), .99)])
+    near = Observation(player, [Detection("monster", Rect(165, 100, 24, 28), .99)])
+    farm = Farming({"single_platform": True, "no_consumables": True})
+    farm.start(0)
+    now = 0
+    for acquisition in (1, 2):
+        assert agent.step(far, now).state == "APPROACH"
+        assert agent.acquisitions == acquisition
+        now += 1 / 3
+        assert agent.step(far, now).action.kind == "right"
+        now += 1 / 3
+        assert agent.step(near, now).action.kind in {"right", "release"}
+        now += 1 / 3
+        assert agent.step(near, now).action.kind == "attack"
+        assert farm.check(now, readings(), True) is None
+        # Missing pixels never establish a kill; release before acquiring again.
+        for _ in range(5):
+            now += 1 / 3
+            decision = agent.step(Observation(player, []), now)
+            assert decision.action.kind == "release"
+        assert agent.state == "SEARCH"
+
+
+def test_live_pipeline_links_attack_ticket_to_acquisition(potion_app, monkeypatch):
+    import time
+    from dataclasses import replace
+
+    from test_autopotter import hud
+
+    from maplebot.decision import State
+    from maplebot.geometry import Rect
+    from maplebot.perception import Detection, Observation
+
+    app = potion_app
+    player = Detection("player", Rect(622, 498, 44, 64), 1)
+    enemy = Detection("monster", Rect(524, 505, 65, 73), .99)
+    monkeypatch.setattr(app.detector, "detect",
+                        lambda *args, **kwargs: Observation(player, [enemy]))
+    monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
+    app.agent.config = replace(app.agent.config, attack_range=90)
+    app.agent.state, app.agent.target, app.agent.facing = State.ATTACK, enemy, "left"
+    app.agent.acquisitions = 2
+    app.farming = Farming({"single_platform": True, "no_consumables": True})
+    app._start_sustain()
+    app.combat_evidence.start("combat")
+    app.mode = "live"
+    app.stop_requested.clear()
+    app.controller.enable()
+    app._process(hud(), time.perf_counter())
+    event = app.combat_evidence.snapshot()["events"][-1]
+    assert event["kind"] == "decision" and event["action"] in {"attack", "skill"}
+    assert event["acquisition"] == 2 and type(event["ticket"]) is int
+    app._stop("OPERATOR_STOP", "Offline test complete")
+    assert app.controller.stopped.is_set() and not app.rotating

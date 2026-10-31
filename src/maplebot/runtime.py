@@ -1266,7 +1266,8 @@ class Application:
                 if any(self.potter.settings[f"{r}_threshold"] < farming.settings[f"{r}_threshold"]
                        for r in ("hp", "mp")):
                     raise ValueError("Potion thresholds must cover farming recovery thresholds")
-            self._prepare_rotation(farming is not None or payload.get("rotate") is True)
+            self._prepare_rotation((not farming.single_platform) if farming else
+                                   payload.get("rotate") is True)
             with self.stop_lock:
                 if self.area_editing:
                     raise ValueError("Finish area editing before starting preview decisions")
@@ -1310,7 +1311,8 @@ class Application:
                 if any(self.potter.settings[f"{r}_threshold"] < farming.settings[f"{r}_threshold"]
                        for r in ("hp", "mp")):
                     raise ValueError("Potion thresholds must cover farming recovery thresholds")
-            self._prepare_rotation(farming is not None or payload.get("rotate") is True)
+            self._prepare_rotation((not farming.single_platform) if farming else
+                                   payload.get("rotate") is True)
             with self.stop_lock:
                 if self.alarm.snapshot()["active"]:
                     raise ValueError("Acknowledge the active alarm before arming combat")
@@ -2044,7 +2046,10 @@ class Application:
                     )
                     if decision.action.kind != "release":
                         self.combat_evidence.record("decision", self.last_action,
-                                                    action=decision.action.kind)
+                                                    action=decision.action.kind,
+                                                    ticket=submitted if isinstance(submitted, int)
+                                                    else None,
+                                                    acquisition=self.agent.acquisitions)
                     self.policy_outcome = (
                         {"status": "held", "action": decision.action.kind,
                          "result": f"{decision.action.kind} held"} if held else

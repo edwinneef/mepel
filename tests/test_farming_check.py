@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from tools.farming_check import run
+from tools.farming_check import combat_progress, run
 
 
 class Api:
@@ -27,7 +27,8 @@ def test_session_uses_no_pet_and_always_stops(tmp_path):
     assert api.calls[0][1]["farming"] == {
         "session_minutes": 15, "pet_recovery": False, "no_consumables": True}
     assert api.calls[-1][0] == "stop"
-    assert result["error"] is None
+    assert result["outcome"] == "failure"
+    assert result["error"] == "Current combat evidence unavailable"
     assert json.loads((tmp_path / "run/result.json").read_text())["after"]["mode"] == "capture"
 
 
@@ -44,3 +45,112 @@ def test_wrong_map_sends_no_commands(tmp_path):
     with pytest.raises(RuntimeError, match="Wrong map"):
         run(api, tmp_path / "run", area="wrong")
     assert api.calls == []
+
+
+def events(acquisition=1, ticket=1, result="attack completed"):
+    return [{"kind": "decision", "action": "attack", "ticket": ticket,
+             "acquisition": acquisition},
+            {"kind": "input_outcome", "action": "attack", "ticket": ticket, "result": result}]
+
+
+def test_progress_requires_completed_attacks_on_separate_acquisitions():
+    sample = {"combat_evidence": {"events": events() + events(ticket=2)}}
+    assert not combat_progress([sample, sample])["repeated_combat"]
+    sample["combat_evidence"]["events"] += events(2, 3, "attack canceled")
+    assert not combat_progress([sample])["repeated_combat"]
+    sample["combat_evidence"]["events"] += events(2, 4)
+    progress = combat_progress([sample, sample])
+    assert progress["repeated_combat"] and progress["completed_attacks"] == 3
+    assert progress["hits_confirmed"] is None and progress["kills_confirmed"] is None
+
+
+class SessionApi(Api):
+    def __init__(self, stop, *, combat=True, lost_focus=False, session="s"):
+        super().__init__()
+        self.now = 0
+        self.armed = False
+        self.polls = 0
+        self.stop_record = stop
+        self.combat = combat
+        self.lost_focus = lost_focus
+        self.session = session
+
+    def command(self, name, payload=None):
+        self.calls.append((name, payload))
+        if name == "arm":
+            self.armed = True
+        if name == "stop":
+            self.armed = False
+
+    def status(self):
+        sample = super().status()
+        sample["readiness"] = {"combat": {"ready": True}}
+        sample.pop("navigation")  # A continuous floor does not require navigation routes.
+        if self.armed:
+            self.polls += 1
+            self.now = self.polls * 31
+            sample.update(session_id=self.session, mode="live" if self.polls == 1 else "capture",
+                          focused=not self.lost_focus,
+                          combat_evidence={"run": 1, "session_id": "s", "activity": "combat",
+                                           "events": events() + events(2, 2)
+                                           if self.combat else []})
+            if self.polls > 1:
+                sample["stop"] = self.stop_record
+        return sample
+
+
+@pytest.mark.parametrize(("message", "combat", "expected"), [
+    ("Farming session limit reached; restart manually", True, "functional_success"),
+    ("Farming session limit reached; restart manually", False, "failure"),
+    ("HP low; no consumables available, stopped", True, "safe_stop"),
+    ("MP low; no consumables available, stopped", False, "safe_stop"),
+    ("Farming HP unreadable; stopped", True, "failure"),
+    ("Farming made no combat progress for 15 seconds; inspect saved clip", False, "failure"),
+    ("", True, "failure"),
+])
+def test_session_outcomes_are_distinct(tmp_path, message, combat, expected):
+    api = SessionApi({"code": "FARMING_STOP", "message": message}, combat=combat)
+    result = run(api, tmp_path / "run", area="island", single_platform=True,
+                 session_minutes=1, clock=lambda: api.now, sleep=lambda _: None)
+    assert result["outcome"] == expected
+    assert api.calls[0][1]["farming"]["single_platform"] is True
+    assert api.calls[-1][0] == "stop"
+    assert result["after"]["mode"] == "capture"
+
+
+@pytest.mark.parametrize("problem", ["focus", "session"])
+def test_session_failure_stops_immediately(tmp_path, problem):
+    api = SessionApi({}, lost_focus=problem == "focus",
+                     session="new" if problem == "session" else "s")
+    result = run(api, tmp_path / "run", area="island", single_platform=True,
+                 session_minutes=1, clock=lambda: api.now, sleep=lambda _: None)
+    assert result["outcome"] == "failure" and result["error"]
+    assert api.polls == 1 and api.calls[-1][0] == "stop"
+
+
+@pytest.mark.parametrize("problem", ["capture_only", "readiness", "navigation", "shutdown"])
+def test_single_platform_never_passes_unsafe_start_or_shutdown(tmp_path, problem):
+    class UnsafeApi(SessionApi):
+        def status(self):
+            sample = super().status()
+            if problem == "capture_only":
+                sample["capture_only"] = True
+            elif problem == "readiness":
+                sample["readiness"]["combat"]["ready"] = False
+            elif problem == "navigation" and self.armed:
+                sample["mode"] = "navigation"
+            elif problem == "shutdown" and self.calls and self.calls[-1][0] == "stop":
+                sample["mode"] = "live"
+            return sample
+
+    api = UnsafeApi({"code": "FARMING_STOP",
+                     "message": "Farming session limit reached; restart manually"})
+    if problem in {"capture_only", "readiness"}:
+        with pytest.raises(RuntimeError):
+            run(api, tmp_path / "run", area="island", single_platform=True)
+        assert api.calls == []
+    else:
+        result = run(api, tmp_path / "run", area="island", single_platform=True,
+                     session_minutes=1, clock=lambda: api.now, sleep=lambda _: None)
+        assert result["outcome"] == "failure"
+        assert api.calls[-1][0] == "stop"
