@@ -18,10 +18,11 @@ export const actions: Record<string, string> = {
 export class OverlayClient extends EngineClient {
   protected override pollInterval = 100;
   select: (action: OverlayAction) => void = () => {};
+  selectionMessage = 'Selected. Close settings, focus the game and press F6 to turn On.';
   override async command<T = unknown>(name: string, payload: Record<string, unknown> = {}): Promise<T> {
     if (actions[name]) {
       this.select({ name, payload, label: name === 'probe' ? `Test ${payload.action}` : actions[name] });
-      this.message('Selected. Close settings, focus the game and press F6 to turn On.');
+      this.message(this.selectionMessage);
       return undefined as T;
     }
     return super.command<T>(name, payload);

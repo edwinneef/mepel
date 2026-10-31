@@ -16,14 +16,16 @@ import { SavedTerrainOverlay } from './SavedTerrainOverlay';
 import { BowmanSetup } from './BowmanSetup';
 import { CombatResults } from './CombatResults';
 import { AttackRangeOverlay } from './AttackRangeOverlay';
+import type { DashboardSession } from './dashboard';
 import './overlay.css';
 
-export function OverlayApp({ client }: { client: OverlayClient }) {
+export function OverlayApp({ client, dashboard }: { client: OverlayClient; dashboard?: DashboardSession }) {
+  const host = dashboard ?? window.mapleOverlay;
   const state = useSyncExternalStore(client.subscribe, client.getState);
   const s = state.snapshot;
-  const [panel, setPanel] = useState(false);
+  const [panel, setPanel] = useState(Boolean(dashboard));
   const [gameBounds, setGameBounds] = useState<(Rect & { visible: boolean }) | null>(null);
-  const layout = useOverlayLayout(panel);
+  const layout = useOverlayLayout(panel && !dashboard);
   const [tab, setTab] = useState('Bot');
   const [layers, setLayers] = useState(true);
   const [terrain, setTerrain] = useState(true);
@@ -38,7 +40,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
   const wasRunning = useRef(false);
   const dataKey = useRef('');
   const currentToggle = useRef<() => void>(() => {});
-  const view = useViewport(client, s, state.connected && panel);
+  const view = useViewport(client, s, state.connected && (panel || Boolean(dashboard)));
   const running = isRunning(s);
   // Status can arrive between timer ticks; don't compare a new frame against
   // the previous tick and incorrectly classify it as coming from the future.
@@ -47,7 +49,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
   const drawing = fastDrawing === undefined ? (s?.live_detections === undefined ? s : s.live_detections) : fastDrawing;
   const drawingFresh = freshDetections(drawing, state.connected, Math.max(now, Date.now()))
     && (!fastDrawing || Date.now() - (fastDrawing.frame.captured_at ?? 0) * 1000 <= 500);
-  const disabled = !state.connected || state.busy || state.needsReload;
+  const disabled = !state.connected || state.busy || state.needsReload || Boolean(dashboard?.disconnected);
   const readinessKey = action.name === 'probe' ? `probe:${action.payload.action}`
     : action.name === 'arm' ? 'combat' : action.name === 'autopotter_live' ? 'potions' : 'preview';
   const selectedGate = s?.readiness[readinessKey];
@@ -63,10 +65,11 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
     setAreas(result.areas);
   };
   useEffect(() => client.start(), [client]);
+  useEffect(() => dashboard?.connect(client), [client, dashboard]);
   useEffect(() => { client.select = setAction; return () => { client.select = () => {}; }; }, [client]);
   useEffect(() => {
-    const timer = setInterval(() => { setNow(Date.now()); window.mapleOverlay?.heartbeat(); }, 200);
-    const unsub = window.mapleOverlay?.subscribe(event => {
+    const timer = setInterval(() => { setNow(Date.now()); host?.heartbeat(); }, 200);
+    const unsub = host?.subscribe(event => {
       if (event.type === 'panel') setPanel(Boolean(event.value));
       if (event.type === 'game-bounds') setGameBounds(event.value as (Rect & { visible: boolean }) | null);
       if (event.type === 'toggle') currentToggle.current();
@@ -75,7 +78,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
       if (event.type === 'error') client.fail(event.value);
     });
     return () => { clearInterval(timer); unsub?.(); };
-  }, [client]);
+  }, [client, host]);
   useEffect(() => {
     setAction({ name: 'dry_run', payload: {}, label: 'Decision preview' });
     setMap(null);
@@ -100,13 +103,13 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
       await act(() => client.command('stop'));
       client.message('F6 · bot switched Off'); return;
     }
-    if (!panel && !s?.focused) { client.message('F6 · focus the game to turn On; F8 always stops'); return; }
+    if (!dashboard && !panel && !s?.focused) { client.message('F6 · focus the game to turn On; F8 always stops'); return; }
     if (disabled || !fresh) { client.message('OFF · waiting for fresh recognition and an engine connection'); return; }
     if (selectedGate?.ready === false) { client.message(selectedGate.reason); return; }
     client.message(`F6 · starting ${action.label}${action.name === 'dry_run' ? ' (no gameplay keys)' : ''}`);
     startRef.current = true; setStarting(true);
     try {
-      if (panel) await window.mapleOverlay?.settings(false);
+      if (panel || dashboard) await host?.settings(false);
       if (!startRef.current) return;
       await client.execute(action);
       const result = await client.readStatus();
@@ -115,42 +118,73 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
     finally { startRef.current = false; setStarting(false); }
   };
   currentToggle.current = () => void toggle();
+  useEffect(() => {
+    if (!dashboard) return;
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'F8') { event.preventDefault(); startRef.current = false; setStarting(false); void act(() => client.command('stop')); return; }
+      if (event.repeat || event.target instanceof Element && event.target.closest('input, select, textarea, [contenteditable=true]')) return;
+      if (event.key === 'F6') { event.preventDefault(); currentToggle.current(); }
+      if (event.key === 'F7') { event.preventDefault(); void act(() => dashboard.settings(!panel)); }
+      if (event.key === 'F9') { event.preventDefault(); setLayers(value => !value); }
+    };
+    window.addEventListener('keydown', keydown);
+    return () => window.removeEventListener('keydown', keydown);
+  }, [dashboard, client, panel]);
   const choose = (name: string, label: string) => setAction({ name, label, payload: {} });
-  const position = drawing?.position;
   const active = state.connected && fresh && running;
-  const status = !state.connected ? 'DISCONNECTED' : s?.alarm.active ? 'BLOCKED' : starting ? 'STARTING'
+  const status = !state.connected || dashboard?.disconnected ? 'DISCONNECTED' : s?.alarm.active ? 'BLOCKED' : starting ? 'STARTING'
     : active ? (s?.mode.includes('wait') || s?.mode === 'pending_arm' ? 'STARTING' : 'ON') : 'OFF';
   const toolProps = s ? { snapshot: s, client, act, disabled, selected: view.selected, clear: view.clear, selectOnly: true,
+    startInstruction: dashboard ? 'Select an activity, click Turn On in the dashboard, then focus the game during the countdown.' : undefined,
     runMode: (action.name === 'arm' ? 'live' : 'preview') as 'live' | 'preview',
     setRunMode: (mode: 'live' | 'preview' | 'navigation') => choose(mode === 'live' ? 'arm' : 'dry_run', mode),
   } : null;
   const game = gameBounds ?? { x: 0, y: 0, width: innerWidth, height: innerHeight };
   const recordingFull = Boolean(s?.recorder?.full);
   const recordLeft = s?.recorder?.full_remaining as number | null | undefined;
-  return <div className={`native-overlay ${panel ? 'editing-layout' : ''}`}>
-    {layers && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
+  const previewDrawing = drawing && view.image && !view.frozen && drawingFresh
+    && drawing.frame.source_id === view.image.sourceId
+    && drawing.frame.width === view.image.width && drawing.frame.height === view.image.height
+    && Math.abs((drawing.frame.captured_at ?? 0) * 1000 - (view.image.capturedAt ?? 0) * 1000) <= 150
+    ? drawing : null;
+  const drawingLayers = (packet: NonNullable<typeof drawing>) => <>
+    {terrain && <SavedTerrainOverlay key={packet.frame.source_id} map={map} position={packet.position}
+      alignment={fastDrawing === undefined ? undefined : fastDrawing?.terrain ?? null} now={Math.max(now, Date.now())} />}
+    <LiveDetectionBoxes drawing={packet} />
+    {attackRange && <AttackRangeOverlay player={packet.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
+  </>;
+  return <div className={`${dashboard ? 'dashboard-overlay' : 'native-overlay'} ${panel ? 'editing-layout' : ''}`}>
+    {dashboard && <section className="dashboard-preview" aria-label="Dashboard game view">
+      <GameViewport image={view.image} frozen={Boolean(view.frozen)} stale={!fresh} selection={view.selection}
+        onSelection={view.setSelection} overlay={layers && previewDrawing ? drawingLayers(previewDrawing) : undefined}
+        onStop={() => void act(() => client.command('stop'))} />
+      <p>Live detections and saved terrain are drawn on the game picture. F8 always stops gameplay.</p>
+    </section>}
+    {!dashboard && layers && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
       viewBox={`0 0 ${drawing.frame.width} ${drawing.frame.height}`} preserveAspectRatio="none" aria-label="Live detections">
-      {terrain && <SavedTerrainOverlay key={drawing.frame.source_id} map={map} position={position}
-        alignment={fastDrawing === undefined ? undefined : fastDrawing?.terrain ?? null} now={Math.max(now, Date.now())} />}
-      <LiveDetectionBoxes drawing={drawing} />
-      {attackRange && <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
+      {drawingLayers(drawing)}
     </svg>}
     <div className={`overlay-hud ${active ? 'on' : 'off'}`} role="status"
-      style={layout.position('hud', { x: game.x + 14, y: game.y + 14 })}>
-      <strong className="panel-drag-handle" {...layout.handlers('hud')}><span className="status-dot" /> BOT {status}{panel && <small>Drag to move</small>}</strong><span>{action.label}</span>
-      <small>F6 On/Off · F7 Settings · F8 Stop · F9 Layers</small>
-      {!panel && <button className="hud-settings" onClick={() => void window.mapleOverlay?.settings(true)}>⚙ Settings</button>}
+      style={dashboard ? undefined : layout.position('hud', { x: game.x + 14, y: game.y + 14 })}>
+      <strong className="panel-drag-handle" {...layout.handlers('hud')}><span className="status-dot" /> BOT {status}{panel && !dashboard && <small>Drag to move</small>}</strong><span>{action.label}</span>
+      <small>{dashboard ? 'Dashboard keys: F6 On/Off · F7 Settings · F9 Layers. Global stop: F8.' : 'F6 On/Off · F7 Settings · F8 Stop · F9 Layers'}</small>
+      {!panel && <button className="hud-settings" onClick={() => void act(() => host!.settings(true))}>⚙ Settings</button>}
+      {dashboard && <div className="dashboard-controls">
+        <button disabled={disabled || (!running && !starting && (!fresh || selectedGate?.ready === false))}
+          onClick={() => void toggle()}>Turn {running || starting ? 'Off' : 'On'}</button>
+        <button onClick={() => { startRef.current = false; setStarting(false); void act(() => client.command('stop')); }}>Stop · F8</button>
+      </div>}
       {state.notice && <p className="overlay-notice">{state.notice}</p>}
       <p>{state.error || (!fresh ? 'Waiting for fresh recognition' : s?.active_probe?.instruction || s?.navigation?.active && s.navigation.reason || s?.reason)}</p>
       <span>{(['hp', 'mp'] as const).map(r => `${r.toUpperCase()} ${s?.autopotter.readings[r]?.percent ?? '—'}%`).join(' · ')}</span>
       {recordingFull && <span className="overlay-recording">REC{recordLeft == null ? '' : ` ${Math.ceil(recordLeft)} s`}</span>}
     </div>
     {panel && <section className="overlay-panel" aria-label="Overlay settings"
-      style={layout.position('settings', { x: game.x + game.width - 474, y: game.y + 14 })}>
-      <header className="panel-drag-handle" {...layout.handlers('settings')}><h1>Maple Overlay · drag to move</h1><button onClick={() => void window.mapleOverlay?.settings(false)}>Close · F7</button></header>
+      style={dashboard ? undefined : layout.position('settings', { x: game.x + game.width - 474, y: game.y + 14 })}>
+      <header className="panel-drag-handle" {...layout.handlers('settings')}><h1>{dashboard ? 'Maple Overlay' : 'Maple Overlay · drag to move'}</h1><button onClick={() => void act(() => host!.settings(false))}>Close · F7</button></header>
       <p>Bot is Off while settings are open. Closing settings never resumes it.</p>
-      <p>Drag panel headings anywhere on the desktop, including outside the game. <button onClick={layout.reset}>Reset positions</button></p>
+      {!dashboard && <p>Drag panel headings anywhere on the desktop, including outside the game. <button onClick={layout.reset}>Reset positions</button></p>}
       <nav>{['Bot', 'Connection', 'Recognition', 'Potions', 'Map', 'Diagnostics'].map(name =>
         <button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>{name}</button>)}</nav>
       {state.error && <p role="alert" className="warning-copy">{state.error}</p>}
@@ -170,7 +204,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
         {s && <GoBar snapshot={s} client={client} act={act} disabled={disabled} availableAreas={areas} selectOnly />}
         <button disabled={disabled} onClick={() => void act(async () => {
           await client.command('record', recordingFull ? {} : { seconds: 30 });
-          if (!recordingFull) await window.mapleOverlay?.settings(false);
+          if (!recordingFull) await host?.settings(false);
         })}>{recordingFull ? `Stop recording${recordLeft == null ? '' : ` · ${Math.ceil(recordLeft)} s left`}` : 'Record 30 s'}</button>
         <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /> Show detection layers</label>
         <label><input type="checkbox" checked={attackRange} onChange={e => setAttackRange(e.target.checked)} /> Show attack range</label>
@@ -179,7 +213,7 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
       </>}
       {['Connection', 'Recognition', 'Potions'].includes(tab) && <>
         <details><summary>Calibration picture and selection</summary>
-          <GameViewport image={view.image} frozen={Boolean(view.frozen)} selection={view.selection} onSelection={view.setSelection} />
+          {!dashboard && <GameViewport image={view.image} frozen={Boolean(view.frozen)} selection={view.selection} onSelection={view.setSelection} />}
           <button disabled={disabled} onClick={() => void act(view.frozen ? view.live : view.freeze)}>{view.frozen ? 'Return to live view' : 'Freeze for selection'}</button>
         </details>
         {toolProps && (tab === 'Connection' ? <SettingsTool {...toolProps} /> : tab === 'Recognition' ? <TrackingTool {...toolProps} /> : <PotionsTool {...toolProps} />)}
@@ -194,8 +228,8 @@ export function OverlayApp({ client }: { client: OverlayClient }) {
         <PositionPanel {...toolProps} areas={areas} refreshAreas={refreshAreas} />
       </>}
       {tab === 'Diagnostics' && toolProps && <DiagnosticsTool {...toolProps} />}
-      <footer><button onClick={() => void act(() => client.command('stop'))}>Stop · F8</button>
-        <button onClick={() => void window.mapleOverlay?.quit()}>Exit overlay</button></footer>
+      <footer>{!dashboard && <button onClick={() => void act(() => client.command('stop'))}>Stop · F8</button>}
+        <button onClick={() => void act(() => host!.quit())}>{dashboard ? 'Disconnect dashboard' : 'Exit overlay'}</button></footer>
     </section>}
   </div>;
 }

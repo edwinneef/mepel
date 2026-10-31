@@ -40,6 +40,38 @@ def request(server, method, path, token=None, payload=None):
         connection.close()
 
 
+def test_dashboard_lease_routes_require_token_and_stop_matching_owner():
+    app = RestartApp()
+    app.stop_requested = threading.Event()
+    app.closed = threading.Event()
+    app.safe_stop = lambda *args, **kwargs: app.events.append("released") or app.held.clear()
+    server = serve(app, 0)
+    app.overlay.worker = True  # Expiry is exercised separately with a deterministic clock.
+    try:
+        _, page = request(server, "GET", "/legacy")
+        token = re.search(r"const token='([^']+)'", page)[1]
+        heartbeat = {"owner": "a" * 32, "panel": True}
+        for route in ("/api/dashboard", "/api/dashboard_disconnect"):
+            assert request(server, "POST", route, "invalid", heartbeat)[0] == 403
+        assert app.events == []
+        code, body = request(server, "POST", "/api/dashboard", token, heartbeat)
+        assert code == 200 and json.loads(body)["panel"]
+        assert app.held == set() and app.events == ["released"]
+        assert app.overlay.block_reason() == "Close dashboard settings before starting"
+        heartbeat["panel"] = False
+        assert request(server, "POST", "/api/dashboard", token, heartbeat)[0] == 200
+        assert app.overlay.block_reason() is None and app.events == ["released"]
+        code, body = request(server, "POST", "/api/dashboard_disconnect", token,
+                             {"owner": "a" * 32})
+        assert code == 200 and json.loads(body) == {"disconnected": True}
+        assert app.events == ["released", "released"]
+        assert app.overlay.block_reason() == "Dashboard disconnected; reconnect before starting"
+    finally:
+        app.closed.set()
+        server.shutdown()
+        server.server_close()
+
+
 def test_read_only_preview_route_requires_the_matching_frame_id():
     app = RestartApp()
     app.preview_frame = lambda frame_id: b"PNG" if frame_id == "preview:1" else None

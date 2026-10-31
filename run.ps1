@@ -21,10 +21,7 @@ $debugArguments = @('-m', 'maplebot', 'debug')
 if (-not $EnableGameplayInput) {
     $debugArguments += '--capture-only'
 }
-if (Test-Path -LiteralPath 'ui/node_modules/electron/dist/electron.exe') {
-    $overlayScript = Join-Path $PSScriptRoot 'tools/start_overlay.ps1'
-    Start-Process pwsh -WindowStyle Hidden -ArgumentList @('-NoProfile', '-File', "`"$overlayScript`"", '-WaitForEngine') | Out-Null
-}
+# The browser dashboard owns the control lease. Native overlay remains an explicit opt-in.
 & .venv\Scripts\python.exe @debugArguments
 if ($InTask -and $LASTEXITCODE) {
     Read-Host "Engine exited with code $LASTEXITCODE. Press Enter to close"

@@ -123,6 +123,13 @@ def serve(
                     result = overlay.heartbeat(payload)
                     self.reply(200, json.dumps(result).encode(), "application/json")
                     return
+                if self.path in {"/api/dashboard", "/api/dashboard_disconnect"}:
+                    if not isinstance(payload, dict):
+                        raise ValueError("Dashboard payload must be an object")
+                    result = overlay.dashboard_heartbeat(payload) if self.path == "/api/dashboard" \
+                        else overlay.dashboard_disconnect(payload)
+                    self.reply(200, json.dumps(result).encode(), "application/json")
+                    return
                 command = self.path.removeprefix("/api/")
                 context = None
                 versioned = self.path == "/api/v1/command"

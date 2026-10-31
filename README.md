@@ -10,24 +10,24 @@ Dependencies are already installed in this workspace's `.venv`. From this direct
 .\run.ps1
 ```
 
-The native overlay opens over the game. **F6** toggles the selected activity On/Off,
-**F7** opens settings, **F8** stops, and **F9** toggles drawings. The overlay is
-click-through during play. Opening settings stops input; closing settings never
-resumes it. Select combat, potions, a navigation destination or a bounded probe
-in settings, then close settings and press F6 with the game focused. The indicator
-reports the engine state, including Off, Starting, On and Blocked.
+Open **http://127.0.0.1:8765/** for the browser dashboard. It retains the overlay's
+Bot, Connection, Recognition, Potions, Map and Diagnostics tabs and controls.
+Detection boxes, saved terrain and attack range appear over the game preview and
+scale with Fit/100%/200%/Expand. Saved terrain remains labelled separately from
+live detection; stale or mismatched drawing frames are hidden.
 
-With F7 settings open, drag the status or settings heading to move
-that panel anywhere on the desktop, including outside the game. Positions are
-remembered; **Reset positions** returns them beside the game. Detection boxes stay
-anchored to the game. F6 also works from settings and reports why a start stops or
-is blocked. The default decision preview sends no gameplay keys.
+Opening settings stops input; closing settings never resumes it. Select an activity
+and click **Turn On**, then focus the game during the existing three-second input
+countdown. **Stop** is always available. F6/F7/F9 work while the dashboard has
+keyboard focus; the engine's global **F8** emergency stop remains active in the
+game. The default decision preview sends no gameplay keys.
 
-Live boxes show existing player/enemy detection. Saved terrain, when shown, is drawn
-over the game from learned geometry; it is not live terrain detection.
-Stale detections disappear. The engine stops if the overlay stops responding.
-Windows capture exclusion keeps the overlay out of screenshots; ordinary game
-focus, occlusion, capture and keyboard checks remain active.
+Keep the dashboard open and responsive. Closing it, losing its connection or
+missing its two-second control lease stops input. Returning never resumes gameplay
+automatically. The dashboard and native overlay cannot control the same session
+simultaneously. The native overlay is still available explicitly through
+`tools/start_overlay.ps1 -WaitForEngine`; its saved panel positions are preserved.
+Game focus, occlusion, capture, watchdog and keyboard checks remain active.
 
 The launcher defaults to **capture-only**: keyboard output is locked for the entire session, control probes and combat are unavailable, and no OS keyboard backend is constructed. Screenshot capture, calibration, recognition, saving, recording and dry-run decisions remain available. Installation requires Node/npm for the React/Electron shell as well as Python. To install on another machine:
 
@@ -40,9 +40,8 @@ py -3.12 -m venv .venv
 
 The helpers only install this application in its local virtual environment. They do not install, change, or launch the game. Existing screenshots/templates are preserved. Replaced calibration files receive timestamped backups.
 
-The React workspace puts the game preview first and opens one focused tool at a
-time. Settings contains connection and control setup; Diagnostics contains the
-technical details. The previous debugger remains available at
+The earlier React workspace remains available at **http://127.0.0.1:8765/?workbench=1**.
+The previous debugger remains available at
 **http://127.0.0.1:8765/legacy**. See [the workspace review](docs/workbench-review.md)
 for the review steps and UI rebuild commands. Python serves the shipped UI;
 Node is not required when running it.
