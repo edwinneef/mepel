@@ -120,6 +120,11 @@ class Navigator:
         left, right = span(self.graph.nodes[surface])
         return right - x if direction == "right" else x - left
 
+    def _slide_blocked(self, launch: tuple, direction: str) -> bool:
+        """A zone or boundary within braking distance past the launch, like a near end."""
+        ahead = (launch[0] + (BRAKE_PX if direction == "right" else -BRAKE_PX), launch[1])
+        return self.graph.path_blocker((launch, ahead)) is not None
+
     def _walk(self, x: float, target: float, *, precision: float = 32) -> Motion:
         direction = "right" if target > x else "left"
         if abs(target - x) > precision:
@@ -198,7 +203,8 @@ class Navigator:
                 self.reason = "Approaching recorded launch position"
                 direction = "right" if edge.launch[0] > f.feet[0] else "left"
                 if (not rope and edge.kind != "walk" and gap <= BRAKE_PX
-                        and self._run_out(origin, edge.launch[0], direction) < BRAKE_PX):
+                        and (self._run_out(origin, edge.launch[0], direction) < BRAKE_PX
+                             or self._slide_blocked(edge.launch, direction))):
                     if not self._settled(f, origin):
                         self.reason = "Braking before an edge launch; waiting for settled origin"
                         return Motion(release=True)

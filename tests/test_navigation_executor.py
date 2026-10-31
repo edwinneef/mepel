@@ -291,6 +291,21 @@ def test_jump_takes_off_only_after_braking_at_the_launch():
     assert [hold.action for hold in motion.holds] == ["right", "jump"]
 
 
+def test_launch_with_a_zone_within_braking_distance_is_reached_from_rest():
+    # Live (Southperry): braking at a jump launch slid the player into a portal zone.
+    profile, evidence = fixture()
+    profile["zones"] = [{"id": "portal", "kind": "portal",
+                         "rect": {"x": 70, "y": 390, "width": 5, "height": 10}}]
+    evidence["map_hash"] = map_hash(profile)
+    graph = RouteMap(profile, evidence)
+    nav = Navigator(graph, graph.plan("floor", "ledge"), 0)
+    f = Feedback(0, graph.fingerprint, (190, 400), "floor", True)
+    for now in (0, .2, .4):
+        nav.step(replace(f, now=now))
+    step = nav.step(replace(f, now=.5))  # 100 px of floor remain, but the portal is closer
+    assert step.horizontal is None and "edge launch" in nav.reason
+
+
 def test_launch_near_a_platform_end_is_reached_from_rest_in_short_steps():
     # Live: a walk braked by the marker 24 px before an end and slid off the platform.
     nav, f = setup()  # The launch at 150 has 50 px of floor past it.
