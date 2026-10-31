@@ -24,20 +24,21 @@ def fixture():
     return lease, app, now, events
 
 
-def test_panel_and_expired_lease_refuse_every_gameplay_start():
+def test_open_panel_allows_starts_but_expired_lease_refuses_every_gameplay_start():
     lease, _, now, events = fixture()
     lease.heartbeat({"owner": "a" * 32, "panel": True})
+    assert len(events) == 1  # Opening settings still stops running work.
     for name in ("arm", "probe", "nav_go", "nav_start", "autopotter_live", "dry_run"):
-        with pytest.raises(ValueError, match="Close overlay"):
-            lease.guard(name)
-    lease.guard("stop")
-    lease.guard("confirm_probe")
+        lease.guard(name)
     lease.heartbeat({"owner": "a" * 32, "panel": False})
     lease.guard("arm")
     assert len(events) == 1  # Closing settings never starts or resumes work.
     now[0] = 3
-    with pytest.raises(ValueError, match="disconnected"):
-        lease.guard("arm")
+    for name in ("arm", "probe", "nav_go", "nav_start", "autopotter_live", "dry_run"):
+        with pytest.raises(ValueError, match="disconnected"):
+            lease.guard(name)
+    lease.guard("stop")
+    lease.guard("confirm_probe")
     lease.check()
     lease.check()
     assert len(events) == 2
@@ -75,7 +76,6 @@ def test_close_request_does_not_clear_gate_until_owner_acknowledges():
     lease, _, now, _ = fixture()
     lease.heartbeat({"owner": "a" * 32, "panel": True})
     assert lease.request_close() == {"requested": True}
-    assert lease.block_reason() == "Close overlay settings before starting"
     assert lease.heartbeat({"owner": "a" * 32, "panel": True})["close_requested"]
     assert not lease.heartbeat({"owner": "a" * 32, "panel": False})["close_requested"]
     assert lease.block_reason() is None
@@ -94,8 +94,7 @@ def test_dashboard_uses_shared_gates_without_native_window_verification():
     lease.dashboard_heartbeat({"owner": "a" * 32, "panel": True})
     assert app.stop_requested.is_set()
     for name in ("arm", "probe", "nav_go", "nav_start", "nav_edge", "autopotter_live", "dry_run"):
-        with pytest.raises(ValueError, match="Close dashboard settings"):
-            lease.guard(name)
+        lease.guard(name)
     lease.guard("stop")
     lease.dashboard_heartbeat({"owner": "a" * 32, "panel": False})
     lease.guard("arm")

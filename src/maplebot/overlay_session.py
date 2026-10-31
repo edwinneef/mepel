@@ -100,8 +100,8 @@ class OverlaySession:
         # Watchdog reads must never wait for a lease writer that is releasing keys.
         if self.owner and (self.expired or self.clock() >= self.deadline):
             return f"{self.surface.title()} disconnected; reconnect before starting"
-        if self.owner and self.panel:
-            return f"Close {self.surface} settings before starting"
+        # Open settings no longer refuse a start (operator decision, 2026-11-01);
+        # opening them still stops running work.
         return None
 
     def guard(self, name):
