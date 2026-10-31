@@ -50,8 +50,40 @@ def test_edge_deadline_includes_retry_and_arrival_does_not_depend_on_key_complet
     takeoff(nav, f)
     assert nav.step(replace(f, now=1.7)).release
     assert nav.retries == 1
-    assert nav.step(replace(f, now=8.1)).release
-    assert nav.stage == "stopped"
+    assert nav.step(replace(f, now=8.7)).release  # 8 s after the first takeoff at 0.6
+    assert nav.stage == "stopped" and "Edge deadline" in nav.reason
+
+
+def test_launch_approach_has_its_own_budget_and_arrives_within_one_marker_step():
+    # Live (Southperry ladder): a walk plus a stepped stop used up a shared 8 s edge clock,
+    # and 16 px marker steps skipped the 12 px launch window.
+    nav, f = setup()
+    for now in (0, .2, .4):
+        nav.step(replace(f, now=now, feet=(52, 400)))
+    for now, x in ((2.5, 70), (5, 90), (7.5, 110), (8.4, 134)):
+        nav.step(replace(f, now=now, feet=(x, 400)))
+        assert nav.stage == "approach"
+    holds = []
+    for now in (8.6, 8.8, 9.0, 9.2):
+        holds = [h.action for h in nav.step(replace(f, now=now, feet=(134, 400))).holds]
+        if holds:
+            break
+    assert holds == ["right", "jump"] and nav.stage == "flight"
+
+
+def test_launch_approach_stops_without_progress_or_past_its_budget():
+    nav, f = setup()
+    for now in (0, .2, .4):
+        nav.step(replace(f, now=now, feet=(52, 400)))
+    for now in (.5, 2, 3.6):
+        nav.step(replace(f, now=now, feet=(52, 400)))
+    assert nav.stage == "stopped" and "No progress toward the launch" in nav.reason
+    nav, f = setup()
+    for now in (0, .2, .4):
+        nav.step(replace(f, now=now, feet=(52, 400)))
+    for now, x in ((2.5, 61), (5, 70), (7.5, 79), (10, 88)):  # progress, but too slowly
+        nav.step(replace(f, now=now, feet=(x, 400)))
+    assert nav.stage == "stopped" and "Approach deadline exhausted" in nav.reason
 
 
 def test_potion_preempts_navigation_and_combat_cannot_share_the_lane():

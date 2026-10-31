@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass
 
 from .input_timing import MIN_CHORD_LEAD_SECONDS, KeyHold
-from .navigation import Route, RouteMap
+from .navigation import Edge, Route, RouteMap
 from .public_map import span
 
 
@@ -36,6 +36,14 @@ EDGE_SECONDS = 4
 # braked by the marker 24 px before an end and slid off: recorded walks run on 55-65 px
 # after the last hold, and the marker lags a frame and moves in 16 px steps.
 BRAKE_PX = 96
+# A move gets EDGE_MOVE_SECONDS from takeoff. Reaching its launch has a separate budget:
+# a live 500 px walk plus a stepped stop at a platform end exhausted one shared 8 s.
+EDGE_MOVE_SECONDS = 8
+APPROACH_SECONDS = 8
+APPROACH_PX_PER_S = 100  # live walks covered about 137 px/s
+APPROACH_STALL_SECONDS = 3
+# The marker moves in 16 px steps, so a 12 px launch window could be stepped over forever.
+LAUNCH_PX = 16
 
 
 def distance(point: tuple, trace: tuple) -> float:
@@ -67,6 +75,9 @@ class Navigator:
         self.last_feet: tuple | None = None
         self.settle_surface: str | None = None
         self.rope_start: float | None = None
+        self.approach_until = math.inf
+        self.approach_best = math.inf
+        self.approach_progress_at = now
 
     @property
     def active(self) -> bool:
@@ -115,6 +126,12 @@ class Navigator:
             self.settle_since = self.settle_surface = None  # settle again, not never
         return Motion(release=True)
 
+    def _begin_approach(self, f: Feedback, edge: Edge) -> None:
+        self.stage, self.reason = "approach", "Approaching recorded launch position"
+        gap = math.dist(f.feet, edge.launch)
+        self.approach_until = f.now + APPROACH_SECONDS + gap / APPROACH_PX_PER_S
+        self.approach_best, self.approach_progress_at = gap, f.now
+
     def _run_out(self, surface: str, x: float, direction: str) -> float:
         """How much platform lies past x in the walking direction."""
         left, right = span(self.graph.nodes[surface])
@@ -135,7 +152,13 @@ class Navigator:
         """Check budgets without advancing movement while a controller ticket runs."""
         if now - self.started >= 60 or self.completed >= 8:
             return "Route time or edge budget exhausted"
-        if self.index < len(self.route.edges) and now - self.edge_started >= 8:
+        if self.index >= len(self.route.edges):
+            return None
+        if self.stage == "approach" and now >= self.approach_until:
+            return "Approach deadline exhausted; no blind retry"
+        # A retry approaches again inside the deadline of its first takeoff.
+        if ((self.stage != "approach" or self.retries)
+                and now - self.edge_started >= EDGE_MOVE_SECONDS):
             return "Edge deadline exhausted; no blind retry"
         return None
 
@@ -169,7 +192,7 @@ class Navigator:
                 if edge is None:
                     self.stage, self.reason = "arrived", "Destination settled; keys released"
                 else:
-                    self.stage, self.reason = "approach", "Approaching recorded launch position"
+                    self._begin_approach(f, edge)
             return Motion(release=True)
         assert edge is not None
         if f.surface not in (None, edge.source, edge.target):
@@ -197,7 +220,11 @@ class Navigator:
                 if distance(f.feet, edge.trace) > 64:
                     return self.stop("Movement departed the recorded corridor")
             gap = abs(f.feet[0] - edge.launch[0])
-            if gap > 12:
+            if gap > LAUNCH_PX:
+                if gap <= self.approach_best - 8:
+                    self.approach_best, self.approach_progress_at = gap, f.now
+                elif f.now - self.approach_progress_at >= APPROACH_STALL_SECONDS:
+                    return self.stop("No progress toward the launch; no blind retry")
                 if self.graph.path_blocker((f.feet, edge.launch)):
                     return self.stop("Approach crosses a boundary or excluded zone")
                 self.reason = "Approaching recorded launch position"
@@ -229,6 +256,8 @@ class Navigator:
                     self.reason = "Braking at jump launch; waiting for settled origin"
                     return Motion(release=True)
             self.stage, self.takeoff_at = "flight", f.now
+            if not self.retries:
+                self.edge_started = f.now
             self.reason = "Following observed movement"
             self.departed, self.settle_since = False, None
             self.rope_start = None
@@ -289,8 +318,9 @@ class Navigator:
                 if self.index == len(self.route.edges):
                     self.stage, self.reason = "arrived", "Destination settled; keys released"
                 elif target_rope:
-                    self.stage, self.edge_started = "approach", f.now
                     next_edge = self.route.edges[self.index]
+                    self.edge_started = f.now
+                    self._begin_approach(f, next_edge)
                     if (next_edge.kind == "climb"
                             and (next_edge.landing[1] - next_edge.launch[1])
                             * (edge.landing[1] - edge.launch[1]) > 0):
