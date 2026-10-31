@@ -128,6 +128,97 @@ def test_retained_history_is_preferred_and_deduplicated_across_frames(tmp_path):
     assert result["unique_events"] == result["aligned_events"] == 2
 
 
+def history_row(sequences, limit=2, last=None):
+    last = max(sequences, default=0) if last is None else last
+    row = jump(100)[0]
+    row["capture_clock"] = 100 + last
+    row["input_timing"] = {
+        "history": [dispatch(100 + seq / 100) | {"sequence": seq} for seq in sequences],
+        "history_limit": limit, "history_last_sequence": last,
+        "history_dropped": last - len(sequences)}
+    return row
+
+
+def coverage(root):
+    return calibrate(root)["input_alignment"]["history_coverage"]
+
+
+def test_evicted_events_already_saved_are_not_reported_missing(tmp_path):
+    write(tmp_path, "a", [history_row([1, 2]), history_row([3, 4]), history_row([3, 4])])
+    result = coverage(tmp_path)
+    clip = result["clips"][0]
+    assert result["status"] == "complete"
+    assert clip["observed_events"] == 4 and clip["evictions_seen"] == 2
+    assert clip["missing_ranges"] == [] and clip["missing_events"] == 0
+
+
+def test_missing_prefix_and_between_snapshot_gap_are_reported_once(tmp_path):
+    write(tmp_path, "a", [history_row([5, 6]), history_row([9, 10]), history_row([9, 10])])
+    result = coverage(tmp_path)
+    clip = result["clips"][0]
+    assert result["status"] == "gaps"
+    assert clip["missing_ranges"] == [[1, 4], [7, 8]] and clip["missing_events"] == 6
+    assert clip["observed_events"] == 4
+
+
+def test_empty_new_history_is_complete_but_legacy_history_is_unknown(tmp_path):
+    write(tmp_path, "a", [history_row([])])
+    assert coverage(tmp_path)["status"] == "complete"
+    write(tmp_path, "b", jump(100))
+    result = coverage(tmp_path)
+    assert result["status"] == "unknown"
+    assert result["clips"][1]["legacy_snapshots"] == len(jump(100))
+
+
+@pytest.mark.parametrize("reset", [False, True])
+def test_reset_or_conflicting_sequence_identity_is_unknown(tmp_path, reset):
+    first, second = history_row([1, 2]), history_row([1] if reset else [1, 2])
+    for event in second["input_timing"]["history"]:
+        event["clock"] += 100
+        event["finished_clock"] += 100
+    second["capture_clock"] += 100
+    write(tmp_path, "a", [first, second])
+    clip = coverage(tmp_path)["clips"][0]
+    assert clip["status"] == "unknown" and clip["ambiguous_lifetime"]
+    assert clip["missing_ranges"] is clip["missing_events"] is None
+
+
+@pytest.mark.parametrize("update", [
+    {"history_limit": True}, {"history_dropped": -1}, {"history_last_sequence": 5},
+    {"history": None}, {"history": [None, None]},
+])
+def test_invalid_history_metadata_cannot_claim_complete_coverage(tmp_path, update):
+    row = history_row([1, 2])
+    row["input_timing"].update(update)
+    write(tmp_path, "a", [row])
+    clip = coverage(tmp_path)["clips"][0]
+    assert clip["status"] == "unknown" and clip["invalid_snapshots"] > 0
+
+
+def test_huge_counter_uses_compact_missing_ranges(tmp_path):
+    write(tmp_path, "a", [history_row([10 ** 12], limit=1)])
+    clip = coverage(tmp_path)["clips"][0]
+    assert clip["missing_ranges"] == [[1, 10 ** 12 - 1]]
+    assert clip["missing_events"] == 10 ** 12 - 1
+
+
+def test_backward_monotonic_clock_is_an_unknown_lifetime(tmp_path):
+    row = history_row([1, 2])
+    row["input_timing"]["history"][1].update(clock=90, finished_clock=90.002)
+    write(tmp_path, "a", [row])
+    clip = coverage(tmp_path)["clips"][0]
+    assert clip["status"] == "unknown" and clip["ambiguous_lifetime"]
+    assert clip["missing_ranges"] is None
+
+
+def test_overlapping_clips_are_not_assumed_to_share_a_controller_lifetime(tmp_path):
+    write(tmp_path, "a", [history_row([1, 2])])
+    write(tmp_path, "b", [history_row([3, 4])])
+    result = coverage(tmp_path)
+    assert [clip["status"] for clip in result["clips"]] == ["complete", "gaps"]
+    assert result["clips"][1]["missing_ranges"] == [[1, 2]]
+
+
 def test_conflicting_event_copies_are_rejected(tmp_path):
     rows = jump(100)
     rows[0]["input_timing"]["events"] = [dispatch(100.025)]

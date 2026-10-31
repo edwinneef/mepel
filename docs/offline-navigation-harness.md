@@ -116,3 +116,17 @@ Recording snapshots preserve the history, so several plans completed between
 frames remain available. Calibration prefers `history` when present and falls
 back to `events` for older recordings; absolute-clock deduplication removes
 repeated snapshots. No game input or settings are changed by retaining history.
+
+`input_alignment.history_coverage` reports `complete`, `gaps` or `unknown` per
+clip and overall. Missing sequence ranges cover sequence 1 through the highest
+observed counter. A missing prefix may predate recording; it does not prove a
+recorder failure. Evictions alone are not gaps if earlier snapshots already
+saved those events. Repeated snapshots do not increase missing counts.
+
+Malformed metadata, legacy snapshots and conflicting/reset sequence identities
+make coverage unknown. Ambiguous lifetimes have no numeric missing count.
+Clips are assessed separately because controller-lifetime IDs are unavailable;
+their histories are not assumed to fill each other's gaps. Complete means only
+that the observed counter range is covered, not that later input was recorded
+or that recorded keys caused game effects. Coverage is diagnostic and does not
+promote physics parameters or authorize input.
