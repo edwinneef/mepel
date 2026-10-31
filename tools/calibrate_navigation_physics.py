@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+from bisect import bisect_left, bisect_right
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +12,65 @@ import numpy as np
 from tools.navigation_harness import Experiment
 
 
-def observations(root):
+def event_clocks(row, basis, collected):
+    """Read successful dispatch observations; never reconstruct legacy clocks."""
+    for event in (row.get("input_timing") or {}).get("events", []):
+        if "clock" not in event:
+            collected["legacy_event_snapshots"] += 1
+            continue
+        start, end = event.get("clock"), event.get("finished_clock")
+        issued = event.get("issued_at")
+        if (not all(type(value) in (int, float) and math.isfinite(value)
+                    for value in (start, end)) or not 0 <= start <= end
+                or issued is not None and (type(issued) not in (int, float)
+                                           or not math.isfinite(issued))
+                or type(event.get("down")) is not bool or not isinstance(event.get("key"), str)
+                or not event["key"]):
+            collected["invalid_event_snapshots"] += 1
+            continue
+        value = {"basis": basis, "key": event["key"], "down": event["down"],
+                 "clock": start, "finished_clock": end, "issued_at": event.get("issued_at")}
+        key = (*basis, event["key"], start)
+        if key in collected["events"] and collected["events"][key] != value:
+            collected["conflicts"].add(key)
+        else:
+            collected["events"][key] = value
+
+
+def align_events(samples, collected, max_gap=.3):
+    """Associate event intervals with neighboring observations, not inferred effects."""
+    grouped = {}
+    for sample in samples:
+        grouped.setdefault(tuple(sample["basis"]), []).append(sample)
+    clocks = {basis: [s["t"] for s in group] for basis, group in grouped.items()}
+    aligned = []
+    for key, event in sorted(collected["events"].items(), key=lambda item: item[1]["clock"]):
+        if key in collected["conflicts"]:
+            continue
+        basis = tuple(event["basis"])
+        group, times = grouped.get(basis, []), clocks.get(basis, [])
+        left = bisect_right(times, event["clock"]) - 1
+        right = bisect_left(times, event["finished_clock"])
+        before = group[left] if left >= 0 else None
+        after = group[right] if right < len(group) else None
+        supported = (before is not None and after is not None and before["feet"] is not None
+                     and after["feet"] is not None and event["clock"] - before["t"] <= max_gap
+                     and after["t"] - event["finished_clock"] <= max_gap)
+        aligned.append({**event, "status": "aligned" if supported else "observation_gap",
+                        "before_clock": before["t"] if before else None,
+                        "after_clock": after["t"] if after else None,
+                        "observed_delta": [after["feet"][i] - before["feet"][i] for i in (0, 1)]
+                        if supported else None})
+    return {"events": aligned, "unique_events": len(aligned),
+            "aligned_events": sum(e["status"] == "aligned" for e in aligned),
+            "conflicting_events": len(collected["conflicts"]),
+            "legacy_event_snapshots": collected["legacy_event_snapshots"],
+            "invalid_event_snapshots": collected["invalid_event_snapshots"],
+            "clock_source": "perf_counter; same domain as capture_clock",
+            "scope": "Neighboring observations only; no causal motion or input-effect claim"}
+
+
+def observations(root, *, events=None):
     """Merge overlapping clips by capture clock, keeping inconsistent copies out."""
     found, sources, conflicts = {}, [], set()
     for path in sorted(root.glob("*/decisions.jsonl")):
@@ -21,7 +80,8 @@ def observations(root):
             row = json.loads(line)
             position, player = row.get("position") or {}, row.get("player") or {}
             clock, feet = row.get("capture_clock"), position.get("feet")
-            if not position.get("area_id") or not isinstance(clock, (int, float)):
+            if (not position.get("area_id") or type(clock) not in (int, float)
+                    or not math.isfinite(clock)):
                 continue
             key = (position["area_id"], clock)
             valid = (row.get("focused") and feet and len(feet) == 2
@@ -39,6 +99,8 @@ def observations(root):
                                   for e in (row.get("input_timing") or {})
                                   .get("schedule", {}).get("events", []))
                       if (row.get("input_timing") or {}).get("schedule") else False}
+            if events is not None:
+                event_clocks(row, sample["basis"], events)
             if key in found and (found[key]["feet"], found[key]["surface"]) != (
                     sample["feet"], sample["surface"]):
                 conflicts.add(key)
@@ -106,7 +168,10 @@ def fit(ground, air, landing):
 
 
 def calibrate(root):
-    samples, sources, conflicts = observations(root)
+    events = {"events": {}, "conflicts": set(), "legacy_event_snapshots": 0,
+              "invalid_event_snapshots": 0}
+    samples, sources, conflicts = observations(root, events=events)
+    alignment = align_events(samples, events)
     windows = list(flights(samples))
     candidates = [fit(*flight) for flight in windows]
     accepted = [c for c in candidates if c["accepted"]]
@@ -140,12 +205,13 @@ def calibrate(root):
             "unique_observations": len(samples), "conflicting_duplicates": conflicts,
             "candidates": candidates, "accepted_flights": len(accepted), "parameters": parameters,
             "constraints": constraints,
+            "input_alignment": alignment,
             "unidentified": [key for key in ("speed", "acceleration", "braking", "jump_speed",
                                              "gravity") if key not in parameters],
             "limitations": ["Positions are quantized minimap estimates, not contact proof",
                             "Saved jump schedules do not establish absolute input timing",
                             "Interleaved holdout is within each flight, not a new independent clip",
-                            "No absolute key start times; horizontal dynamics not identified",
+                            "Event alignment alone does not identify horizontal dynamics",
                             "Unidentified fields retain defaults; global settings unchanged"]}
 
 

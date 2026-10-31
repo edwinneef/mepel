@@ -85,6 +85,82 @@ def test_insufficient_evidence_is_deterministic_and_has_no_parameters(tmp_path):
     assert result["parameters"] == {} and len(result["unidentified"]) == 5
 
 
+def dispatch(clock, down=True, key="space"):
+    return {"clock": clock, "finished_clock": clock + .002, "issued_at": 1800000000,
+            "key": key, "down": down, "at_seconds": .025}
+
+
+def test_absolute_events_are_deduplicated_and_aligned_to_capture_clock(tmp_path):
+    rows = jump(100)
+    event = dispatch(100.025)
+    for row in rows:
+        row["input_timing"]["events"] = [event]
+    path = write(tmp_path, "a", rows)
+    write(tmp_path, "b", rows)
+    original = path.read_bytes()
+    result = calibrate(tmp_path)["input_alignment"]
+    assert result["unique_events"] == result["aligned_events"] == 1
+    aligned = result["events"][0]
+    assert aligned["before_clock"] == 100 and aligned["after_clock"] == 100.05
+    assert aligned["observed_delta"] == pytest.approx([0, -19.5])
+    assert path.read_bytes() == original
+
+
+def test_equal_relative_offsets_are_distinct_and_wall_clock_is_not_used(tmp_path):
+    rows = jump(100)
+    events = [dispatch(100.025), dispatch(100.125, False)]
+    events[1]["issued_at"] = 1  # A wall-clock correction cannot reorder monotonic events.
+    rows[-1]["input_timing"]["events"] = events
+    write(tmp_path, "a", rows)
+    result = calibrate(tmp_path)["input_alignment"]
+    assert result["unique_events"] == result["aligned_events"] == 2
+    assert [e["clock"] for e in result["events"]] == [100.025, 100.125]
+
+
+def test_conflicting_event_copies_are_rejected(tmp_path):
+    rows = jump(100)
+    rows[0]["input_timing"]["events"] = [dispatch(100.025)]
+    rows[1]["input_timing"]["events"] = [dispatch(100.025, False)]
+    write(tmp_path, "a", rows)
+    result = calibrate(tmp_path)["input_alignment"]
+    assert result["conflicting_events"] == 1 and result["unique_events"] == 0
+
+
+@pytest.mark.parametrize("update", [
+    {"clock": float("nan")}, {"finished_clock": 0}, {"clock": -1},
+    {"clock": True}, {"down": 1}, {"key": ""}, {"issued_at": float("inf")},
+])
+def test_malformed_absolute_events_cannot_align(tmp_path, update):
+    rows = jump(100)
+    rows[0]["input_timing"]["events"] = [dispatch(100.025) | update]
+    write(tmp_path, "a", rows)
+    result = calibrate(tmp_path)["input_alignment"]
+    assert result["invalid_event_snapshots"] == 1 and result["unique_events"] == 0
+
+
+def test_legacy_offsets_are_counted_but_never_upgraded_to_absolute_time(tmp_path):
+    rows = jump(100)
+    rows[0]["input_timing"]["events"] = [{"key": "space", "down": True, "at_seconds": .025}]
+    write(tmp_path, "a", rows)
+    result = calibrate(tmp_path)["input_alignment"]
+    assert result["legacy_event_snapshots"] == 1 and result["events"] == []
+
+
+@pytest.mark.parametrize("fault", ["gap", "invalid_observation", "different_player"])
+def test_alignment_never_fills_missing_or_incompatible_motion(tmp_path, fault):
+    rows = jump(100)
+    clock = 101 if fault == "gap" else 100.025
+    rows[-1]["input_timing"]["events"] = [dispatch(clock)]
+    if fault == "invalid_observation":
+        rows[1]["player"]["tracked"] = True
+    elif fault == "different_player":
+        rows[-1]["player"]["template"] = "nametag:other"
+    write(tmp_path, "a", rows)
+    result = calibrate(tmp_path)["input_alignment"]
+    assert result["unique_events"] == 1 and result["aligned_events"] == 0
+    assert result["events"][0]["observed_delta"] is None
+
+
 @pytest.mark.parametrize("contradict", [False, True])
 def test_harness_checks_height_constraint_and_reports_unidentified_fields(
         monkeypatch, tmp_path, contradict):

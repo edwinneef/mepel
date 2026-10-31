@@ -89,3 +89,17 @@ Historical recordings remain unchanged and may omit the new fields. The saved
 corpus still lacks these timestamps; full physics calibration remains incomplete.
 Timestamps are recorded on future sessions after loading this code. No restart
 or gameplay is required to run the offline tests.
+
+Calibration now consumes those fields in `input_alignment`. It deduplicates
+repeated events by player/calibration basis, key and absolute clock; conflicting
+copies and malformed clocks are rejected. Legacy event snapshots are counted
+separately and never assigned invented absolute times. Wall time and relative
+offsets do not determine alignment.
+
+Each valid event is matched to the nearest observations before dispatch starts
+and after it finishes, within 300 ms on each side and on the same coordinate and
+player basis. Missing, unrecognized or incompatible observations produce an
+explicit gap. The reported displacement only describes neighboring observations;
+it does not establish that a key caused movement. No horizontal parameter is
+promoted from timestamp alignment alone. The historical corpus still has no
+absolute event clocks, so its calibration remains height-only.
