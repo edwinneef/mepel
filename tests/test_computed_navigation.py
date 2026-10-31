@@ -58,6 +58,11 @@ def test_runtime_proves_settled_moves_and_switches_off_failed_ones(app):
     nav.agent.completed, nav.agent.index = 1, 1  # the navigator settled on the ledge
     nav._learn()
     fingerprint = nav.graph.fingerprint
+    assert nav.pending_proofs == [("a" * 32, fingerprint, "m_floor_ledge")]
+    assert nav.proofs.load("a" * 32, fingerprint) == set()
+    app.controller.stop("Offline route complete", notify=False)
+    nav.cancel("Offline route complete")
+    assert not nav.pending_proofs
     assert nav.proofs.load("a" * 32, fingerprint) == {"m_floor_ledge"}
     assert "m_floor_ledge" in nav.graph.proven
     back = nav.graph.plan("ledge", "floor")

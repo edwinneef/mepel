@@ -1,5 +1,6 @@
 import sys
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,6 +23,8 @@ def test_dashboard_restart_closes_old_session_before_relaunching_same_mode(
         def __init__(self, config, *, capture_only):
             assert capture_only is ("--capture-only" in arguments)
             self.closed = threading.Event()
+            self.controller = SimpleNamespace(
+                stop=lambda *args, **kwargs: events.append("keys released"))
 
         def start(self):
             events.append("started")
@@ -57,7 +60,8 @@ def test_dashboard_restart_closes_old_session_before_relaunching_same_mode(
 
     assert events == [
         "started",
-        "keys and workers closed",
+        "keys released",
         "server stopped",
         "socket closed",
+        "keys and workers closed",
     ] + ([] if shutdown else ["relaunch", "exit 0"])

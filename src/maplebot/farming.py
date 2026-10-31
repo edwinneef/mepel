@@ -55,8 +55,11 @@ class Farming:
         for resource in ("hp", "mp"):
             reading = readings.get(resource, {})
             value = reading.get("percent")
-            if (value is None or not math.isfinite(value)
-                    or reading.get("confidence", 0) < .9):
+            confidence = reading.get("confidence", 0)
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(value) or not 0 <= value <= 100
+                    or isinstance(confidence, bool) or not isinstance(confidence, (int, float))
+                    or not math.isfinite(confidence) or not .9 <= confidence <= 1):
                 return f"Farming {resource.upper()} unreadable; stopped"
             if resource == "hp" and value == 0:
                 return "HP empty: possible death; restart manually"

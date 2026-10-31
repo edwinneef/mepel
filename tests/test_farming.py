@@ -41,6 +41,21 @@ def test_stop_conditions():
     assert "unreadable" in farm.check(11, {}, True)
 
 
+@pytest.mark.parametrize("resource", ["hp", "mp"])
+@pytest.mark.parametrize("field,value", [
+    ("confidence", float("nan")), ("confidence", float("inf")),
+    ("confidence", True), ("confidence", None), ("confidence", "1"),
+    ("percent", -1), ("percent", 101), ("percent", True),
+    ("percent", "80"), ("percent", float("inf")), ("percent", float("nan")),
+])
+def test_invalid_hud_evidence_stops_farming(resource, field, value):
+    farm = Farming({"no_consumables": True})
+    farm.start(0)
+    evidence = readings()
+    evidence[resource][field] = value
+    assert farm.check(1, evidence, True) == f"Farming {resource.upper()} unreadable; stopped"
+
+
 def test_farming_disables_bot_potions_and_stop_clears_session(app):
     app.farming = Farming({"feed_seconds": 60})
     app.sustain = ("hp", "mp")

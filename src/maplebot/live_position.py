@@ -167,7 +167,8 @@ class LivePosition:
                 self.supplement_reason = "Disabled: observation mode or pinned map basis changed"
             else:
                 extra = self.supplement_tracker.update(fix, player, shift, now)
-                if location.reason == "No unique taught platform" and extra.kind == "platform":
+                if (location.reason == "No unique taught platform or rope"
+                        and extra.kind == "platform"):
                     location, provisional = extra, True
         canvas = fix.canvas
         # Project saved area coordinates into this same observation's crop pixels.
