@@ -77,6 +77,14 @@ def _clipped_offset(captured: np.ndarray, image: np.ndarray) -> tuple[float, flo
     if not matches:
         raise ValueError("Clipped minimap has no unique public terrain landmarks")
     offset = tuple(float(np.median([row[a] for row in matches])) for a in (0, 1))
+    # A landmark that would lie outside the clipped canvas at this offset is not visible
+    # there, so its match is a look-alike. Visible landmarks must still all agree.
+    height, width = captured.shape[:2]
+    matches = [row for row in matches
+               if 0 <= row[2] + offset[0] <= width - size
+               and 0 <= row[3] + offset[1] <= height - size]
+    if not matches:
+        raise ValueError("Clipped minimap has no visible public terrain landmarks")
     if any(max(abs(row[a] - offset[a]) for a in (0, 1)) > 2 for row in matches):
         raise ValueError("Clipped minimap terrain landmarks disagree")
     separate = []

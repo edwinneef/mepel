@@ -81,6 +81,12 @@ def test_conflicting_clipped_landmark_offsets_are_rejected():
         picture_offset(captured, image)
 
 
+def test_clipped_look_alike_outside_the_visible_canvas_is_ignored():
+    image, captured = clipped_picture()
+    image[:14, 280:294] = image[30:44, 150:164]  # hidden copy of a visible landmark
+    assert picture_offset(captured, image) == (-110, -20)
+
+
 def test_world_transform_follows_minimap_math():
     walk = {"scale_x": 16, "offset_x": 10, "scale_y": 15, "offset_y": -5}
     minimap = {"centerX": 32, "centerY": 160, "magnification": 4}
