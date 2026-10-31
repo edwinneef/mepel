@@ -353,7 +353,8 @@ def test_launch_near_a_platform_end_is_reached_from_rest_in_short_steps():
     for now in (1.0, 1.2):  # settle after each step
         assert nav.step(replace(f, now=now, feet=(124, 400))).release
     step = nav.step(replace(f, now=1.35, feet=(124, 400)))
-    assert [h.action for h in step.holds] == ["right"] and step.holds[0].seconds <= .06
+    # Live: 0.06 s taps moved below the 16 px marker resolution and never arrived.
+    assert [h.action for h in step.holds] == ["right"] and step.holds[0].seconds == nav.pulse
     for now in (1.4, 1.6):
         nav.step(replace(f, now=now, feet=(145, 400)))
     motion = nav.step(replace(f, now=1.75, feet=(145, 400)))

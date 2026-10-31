@@ -235,12 +235,12 @@ class Navigator:
                     if not self._settled(f, origin):
                         self.reason = "Braking before an edge launch; waiting for settled origin"
                         return Motion(release=True)
-                    # One step from rest, then settle again; recorded taps from rest
-                    # moved about 5 px, so a far stop takes a longer one.
+                    # One step from rest, then settle again. A full pulse moved one
+                    # 16 px marker step live (866->882->898->913); 0.06 s taps moved about
+                    # 5 px, below the marker's resolution, and never reached the launch.
                     self.settle_since = self.settle_surface = None
                     self.reason = "Stepping from rest toward the edge launch"
-                    return Motion((KeyHold(direction, self.pulse if gap > 32
-                                           else min(.06, self.pulse)),))
+                    return Motion((KeyHold(direction, self.pulse),))
                 self.last_feet = f.feet
                 self.settle_since = self.settle_surface = None
                 return self._walk(f.feet[0], edge.launch[0],
