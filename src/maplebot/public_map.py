@@ -393,19 +393,34 @@ def identify(captured: np.ndarray, sources: dict[int, dict]) -> int:
     return scores[0][1]
 
 
-def build_area(profile: dict, reference: np.ndarray, source: dict, digest: str) -> dict:
+def build_area(profile: dict, reference: np.ndarray, source: dict, digest: str, *,
+               automatic: bool = False) -> dict:
     """A saved area with its geometry replaced by the public map. Links come from moves."""
     calibration = profile.get("minimap_calibration")
-    if not calibration:
-        raise ValueError("Walk-calibrate the area before importing its map")
-    view = next(v for v in profile["views"] if v["id"] == calibration["view_id"])
+    automatic = automatic or not calibration
+    basis = profile.get("automatic_alignment") or calibration
+    view_id = basis["view_id"] if basis else profile["views"][0]["id"]
+    view = next(v for v in profile["views"] if v["id"] == view_id)
     if not view.get("minimap"):
         raise ValueError("The calibrated view has no minimap; capture the area again")
-    walk = calibration["transform"]
-    fit = locate(reference, view["minimap"]["canvas"], walk, source["miniMap"])
-    geometry = layout(source, fit, (walk["scale_x"], walk["scale_y"]))
+    alignment = None
+    if automatic:
+        from .map_alignment import align
+
+        alignment = {**align(reference, view["minimap"]["canvas"], source["miniMap"]),
+                     "view_id": view["id"], "view_image": view["image"], "map_hash": digest}
+        fit = {"x": (1, 0), "y": (1, 0)}
+        geometry = layout(source, fit, (0, 0))
+    else:
+        walk = calibration["transform"]
+        fit = locate(reference, view["minimap"]["canvas"], walk, source["miniMap"])
+        geometry = layout(source, fit, (walk["scale_x"], walk["scale_y"]))
     keep = ("schema_version", "id", "revision", "name", "views", "minimap_calibration")
-    return {**{key: profile[key] for key in keep if key in profile}, **geometry, "links": [],
+    result = {**{key: profile[key] for key in keep if key in profile}, **geometry, "links": [],
             "public_map": {"id": source["id"], "sha256": digest,
                            "provider": source.get("provider", "dreamms"),
                            "world": {axis: list(fit[axis]) for axis in ("x", "y")}}}
+    if alignment:
+        result.pop("minimap_calibration", None)
+        result["automatic_alignment"] = alignment
+    return result

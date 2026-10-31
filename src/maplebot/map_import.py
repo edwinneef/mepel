@@ -37,14 +37,13 @@ def candidates(catalog: Path, title: str) -> list[int]:
 
 def import_map(store: AreaStore, area: str, catalog: Path, *, map_id: int | None = None,
                dry_run: bool = False, fetch: Callable[[str], bytes] | None = None,
-               meowdb_source: Path | None = None) -> dict:
+               meowdb_source: Path | None = None, automatic: bool = True) -> dict:
     match = next((item for item in store.list()["areas"] if area in (item["id"], item["name"])),
                  None)
     profile = store.load(match["id"] if match else area)["profile"]
-    calibration = profile.get("minimap_calibration")
-    if not calibration:
-        raise ValueError("Walk-calibrate the area before importing its map")
-    view = next(v for v in profile["views"] if v["id"] == calibration["view_id"])
+    basis = profile.get("automatic_alignment") or profile.get("minimap_calibration")
+    view_id = basis["view_id"] if basis else profile["views"][0]["id"]
+    view = next(v for v in profile["views"] if v["id"] == view_id)
     reference = cv2.imdecode(np.frombuffer(store.frame(view["image"]) or b"", np.uint8),
                              cv2.IMREAD_COLOR)
     if reference is None or not view.get("minimap"):
@@ -63,7 +62,7 @@ def import_map(store: AreaStore, area: str, catalog: Path, *, map_id: int | None
     chosen = ids[0] if len(ids) == 1 else identify(
         crop(reference, view["minimap"]["canvas"]), {k: v[0] for k, v in sources.items()})
     source, digest = sources[chosen]
-    candidate = build_area(profile, reference, source, digest)
+    candidate = build_area(profile, reference, source, digest, automatic=automatic)
     validate_profile(candidate)
     result = {"area_id": profile["id"], "area": profile["name"], "map_id": chosen,
               "provider": source.get("provider", "dreamms"), "sha256": digest,

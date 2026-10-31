@@ -124,6 +124,29 @@ def public_map_record(value: object) -> dict:
     return record
 
 
+def alignment_record(value: dict, public: dict, views: list) -> dict:
+    if (value.get("version") != 1 or value.get("map_hash") != public["sha256"]
+            or public["world"] != {"x": [1, 0], "y": [1, 0]}):
+        raise ValueError("Automatic alignment does not match the public world map")
+    view_id, image = value["view_id"], value["view_image"]
+    if not any(v["id"] == view_id and v["image"] == image for v in views):
+        raise ValueError("Automatic alignment reference changed; import again")
+    zoom = value["magnification"]
+    if type(zoom) is not int or not 0 <= zoom <= 6:
+        raise ValueError("Invalid automatic minimap magnification")
+    transform = {k: number(value["transform"][k])
+                 for k in ("scale_x", "offset_x", "scale_y", "offset_y")}
+    MinimapTransform(**transform)
+    uncertainty = number(value["uncertainty_px"])
+    if (transform["scale_x"] != 2 ** zoom or transform["scale_y"] != 2 ** zoom
+            or uncertainty < 2 ** zoom / 2 + 8):
+        raise ValueError("Automatic alignment underestimates marker uncertainty")
+    return {"version": 1, "view_id": view_id, "view_image": image,
+            "map_hash": public["sha256"], "magnification": zoom,
+            "transform": transform, "uncertainty_px": uncertainty,
+            "picture_offset": [number(v) for v in value["picture_offset"]]}
+
+
 def validate_profile(value: object) -> tuple[dict, list[str]]:
     """Validate schema 1 or 2; the result is always schema 2.
 
@@ -230,6 +253,9 @@ def validate_profile(value: object) -> tuple[dict, list[str]]:
             profile["minimap_calibration"] = calibration
         if value.get("public_map") is not None:
             profile["public_map"] = public_map_record(value["public_map"])
+        if value.get("automatic_alignment") is not None:
+            profile["automatic_alignment"] = alignment_record(
+                value["automatic_alignment"], profile["public_map"], views)
         reached = set(nodes[:1])
         while True:
             extended = reached | {b for a, b in edges if a in reached}
