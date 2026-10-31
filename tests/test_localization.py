@@ -212,15 +212,32 @@ def test_probe_replays_saved_frames_without_changing_source(scene, tmp_path, mon
         runpy.run_path(str(script), run_name="__main__")
 
 
-def test_minimap_transform_fits_each_axis_and_reuses_x_scale_on_flat_walks():
+def test_minimap_transform_locks_both_axes_to_the_minimap_zoom():
     dots = [(x, 40 + x % 3) for x in range(20, 60, 2)]
-    feet = [(16 * x - 500, 15 * y - 100) for x, y in dots]
+    feet = [(16 * x - 500, 16 * y - 100) for x, y in dots]
     transform = MinimapTransform.fit(dots, feet)
-    assert transform.to_area(30, 41) == pytest.approx((-20, 515))
+    assert (transform.scale_x, transform.scale_y) == (16, 16)
+    assert transform.to_area(30, 41) == pytest.approx((-20, 556))
     flat = MinimapTransform.fit([(x, 45) for x, _ in dots], [(16 * x - 500, 593) for x, _ in dots])
-    assert flat.scale_y == pytest.approx(16) and flat.to_area(30, 45)[1] == pytest.approx(593)
+    assert flat.scale_y == 16 and flat.to_area(30, 45)[1] == pytest.approx(593)
     with pytest.raises(ValueError, match="Walk further"):
         MinimapTransform.fit([(20, 45)] * 12, [(0, 593)] * 12)
+
+
+def test_short_quantized_walk_stays_accurate_far_beyond_it():
+    # Live (Southperry): 16 px marker steps over a short walk fitted 15.82, and the
+    # placement drifted with distance from the walked part of the floor.
+    rng = np.random.default_rng(7)
+    xs = np.arange(400, 560, 9.0)
+    dots = [(float(np.floor((x + 12) / 16)), 105.0) for x in xs]
+    feet = [(float(x + rng.normal(0, 4)), 549.0) for x in xs]
+    transform = MinimapTransform.fit(dots, feet)
+    assert transform.scale_x == transform.scale_y == 16
+    for true_x in (950, 2000, 3000):
+        marker = float(np.floor((true_x + 12) / 16))
+        assert abs(transform.to_area(marker, 105.0)[0] - true_x) <= 16  # one marker step
+    free, _ = np.polyfit([d[0] for d in dots], [f[0] for f in feet], 1)
+    assert abs((free - 16) * (3000 - 480) / 16) > 30  # the old free fit drifted this far
 
 
 def fix(x=40.0, y=45.0):

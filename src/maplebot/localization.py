@@ -270,19 +270,25 @@ class MinimapTransform:
     @classmethod
     def fit(cls, dots: list[tuple[float, float]],
             feet: list[tuple[float, float]]) -> "MinimapTransform":
-        """Least squares per axis. With too little height change, y reuses the x scale."""
+        """Both axes use the minimap zoom; only the offsets are fitted.
+
+        At 1x native pixels an area pixel is a world pixel, and the minimap shrinks the
+        world by 2**magnification on both axes. Free least-squares scales from 16 px
+        marker steps ranged 15.4-17.9 across saved maps, all for zoom 16, and drifted
+        about 13 px across one floor. The fitted scale only selects the power of two.
+        """
         if len(dots) != len(feet) or len(dots) < 10:
             raise ValueError("Calibration needs at least ten marker and feet pairs")
         marker, area = np.array(dots, float), np.array(feet, float)
         if np.ptp(marker[:, 0]) < 10:
             raise ValueError("Walk further: the marker must move at least ten minimap pixels")
-        scale_x, offset_x = np.polyfit(marker[:, 0], area[:, 0], 1)
-        if np.ptp(marker[:, 1]) >= 3:
-            scale_y, offset_y = np.polyfit(marker[:, 1], area[:, 1], 1)
-        else:
-            scale_y = scale_x
-            offset_y = float(np.median(area[:, 1] - scale_y * marker[:, 1]))
-        return cls(float(scale_x), float(offset_x), float(scale_y), float(offset_y))
+        fitted, _ = np.polyfit(marker[:, 0], area[:, 0], 1)
+        if fitted <= 0:
+            raise ValueError("Walk calibration moved the marker against the player")
+        zoom = 2.0 ** round(math.log2(fitted))
+        offset_x = float(np.median(area[:, 0] - zoom * marker[:, 0]))
+        offset_y = float(np.median(area[:, 1] - zoom * marker[:, 1]))
+        return cls(zoom, offset_x, zoom, offset_y)
 
     def to_area(self, x: float, y: float) -> tuple[float, float]:
         return self.scale_x * x + self.offset_x, self.scale_y * y + self.offset_y
