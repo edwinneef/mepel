@@ -278,19 +278,30 @@ def test_falling_back_onto_the_launch_platform_releases_keys_then_retries_once()
     # Live: knocked back off the landing onto the launch platform, the steer toward the
     # landing walked off its end.
     nav, f = setup()
-    for attempt in (0, 2):
+    for attempt in (0, 3):
         for now in (0, .2, .4):
             nav.step(replace(f, now=attempt + now))
         assert nav.step(replace(f, now=attempt + .6)).holds
         nav.step(replace(f, now=attempt + .8, feet=(220, 260), surface=None))
         assert nav.departed
-        for now in (1.0, 1.2):
+        for now in (1.7, 1.9):
             motion = nav.step(replace(f, now=attempt + now, feet=(120, 390), surface=None))
             assert motion.release and not motion.horizontal and not motion.holds
             assert "Back on the launch platform" in nav.reason
-        nav.step(replace(f, now=attempt + 1.4, feet=(120, 390), surface=None))
+        nav.step(replace(f, now=attempt + 2.1, feet=(120, 390), surface=None))
         f = replace(f, feet=(150, 400))
     assert nav.stage == "stopped" and "retry budget exhausted" in nav.reason
+
+
+def test_a_down_jump_hop_near_the_launch_platform_is_not_a_fall_back():
+    # Live (SHG III fh130->fh53): the hop peaked within the launch platform's 16 px
+    # tolerance and was judged "back on the launch platform" 0.6 s into the drop.
+    nav, f = setup()
+    takeoff(nav, f)
+    nav.step(replace(f, now=.8, feet=(150, 386), surface=None))
+    assert nav.departed
+    nav.step(replace(f, now=1.0, feet=(150, 392), surface=None))
+    assert "launch platform" not in nav.reason and nav.retries == 0
 
 
 def test_knocked_off_the_origin_settles_then_replans_from_the_new_surface():

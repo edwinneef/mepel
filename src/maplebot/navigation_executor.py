@@ -44,6 +44,8 @@ APPROACH_PX_PER_S = 100  # live walks covered about 137 px/s
 APPROACH_STALL_SECONDS = 3
 # The marker moves in 16 px steps, so a 12 px launch window could be stepped over forever.
 LAUNCH_PX = 16
+# A down-jump hops within 16 px of its launch platform first; judge a fall-back after this.
+FALL_BACK_SECONDS = 1.0
 
 
 def distance(point: tuple, trace: tuple) -> float:
@@ -330,6 +332,7 @@ class Navigator:
                 vertical="up" if edge.landing[1] < edge.launch[1] else "down")
         ropes = {p["id"] for p in self.graph.profile["ropes"]}
         if (self.departed and edge.kind in {"jump", "drop"} and edge.source not in ropes
+                and f.now - self.takeoff_at >= FALL_BACK_SECONDS
                 and self.graph.on_surface(edge.source, f.feet, tolerance=16)):
             # Back on the launch platform after leaving it: a live knockback off the landing
             # put the player there, and steering on toward the landing walked off its end.

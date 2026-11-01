@@ -155,6 +155,20 @@ def test_up_is_not_released_when_the_jump_ticket_completes(route, monkeypatch):
     assert app.controller.backend.events.count(("up", True)) == 1
 
 
+def test_drop_rides_the_marker_through_a_name_tag_dropout(route):
+    # Live (SHG III fh130->fh53): the tag blurred mid-fall, recovery paused the drop and
+    # then stopped on a 0.51 s frame gap.
+    app, nav, now, observe = route
+    nav.agent = Navigator(nav.graph, nav.graph.plan("ledge", "floor"), now[0])
+    nav.agent.stage, nav.agent.edge_started = "flight", now[0]
+    observe(tracked=True, confidence=.82522)
+    assert nav.recovery is None and not app.controller.suspended
+    assert nav.trusted() and app.mode == "navigation"
+    nav.agent.edge_started = now[0] - 8  # Past the drop's marker-only budget.
+    observe(tracked=True, confidence=.82522)
+    assert nav.recovery and app.controller.suspended
+
+
 def test_missing_vertical_lease_is_a_stop_not_a_recognition_recovery(route):
     app, nav, _, observe = route
     nav.lease = app.controller.start_vertical_lease("up")

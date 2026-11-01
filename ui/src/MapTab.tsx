@@ -31,12 +31,13 @@ const middle = (item: Segment) => {
 function placeLabels(platforms: Segment[], size: number) {
   const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
   return platforms.map(platform => {
-    const at = middle(platform), width = (platform.name ?? platform.id).length * size * 0.56;
+    const text = platform.name ? `${platform.name} · ${platform.id}` : platform.id;
+    const at = middle(platform), width = text.length * size * 0.56;
     const tries = [at.y - size * 0.45, at.y - size * 1.5, at.y + size * 1.2, at.y - size * 2.55, at.y + size * 2.25];
     const y = tries.find(candidate => !placed.some(b => at.x - width / 2 < b.x1 && at.x + width / 2 > b.x0
       && candidate - size < b.y1 && candidate > b.y0)) ?? tries[0];
     placed.push({ x0: at.x - width / 2, x1: at.x + width / 2, y0: y - size, y1: y });
-    return { id: platform.id, x: at.x, y, text: platform.name ?? platform.id };
+    return { id: platform.id, x: at.x, y, text };
   });
 }
 

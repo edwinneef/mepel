@@ -41,7 +41,7 @@ export function SavedTerrainOverlay({ map, position, alignment, now }: {
         <line x1={start.x} y1={start.y} x2={end.x} y2={end.y}
           strokeDasharray={matched ? '8 3' : '4 5'} vectorEffect="non-scaling-stroke" />
         <text x={start.x} y={start.y - 7} fill={color} stroke="#091019" strokeWidth="3"
-          paintOrder="stroke" fontSize="12">Saved · {segment.name || segment.id}{matched ? ' · spatial match' : ''}</text>
+          paintOrder="stroke" fontSize="12">Saved · {segment.name ? `${segment.name} · ${segment.id}` : segment.id}{matched ? ' · spatial match' : ''}</text>
       </g>;
     })}
     {extra && !independent && !held && extra.id === position.surface_id && <g stroke="#ffd07a" aria-label="Provisional middle ledge">

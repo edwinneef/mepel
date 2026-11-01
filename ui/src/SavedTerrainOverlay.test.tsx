@@ -6,7 +6,7 @@ import type { AreaProfile, LivePosition } from './contracts';
 afterEach(cleanup);
 const map: AreaProfile = { schema_version: 2, id: 'map', revision: 3, name: 'Map',
   boundary: { x: 0, y: 0, width: 1000, height: 1000 }, views: [], zones: [], links: [],
-  platforms: [{ id: 'floor', start: { x: 100, y: 200 }, end: { x: 300, y: 210 } }],
+  platforms: [{ id: 'floor', name: 'Floor', start: { x: 100, y: 200 }, end: { x: 300, y: 210 } }],
   ropes: [{ id: 'rope', start: { x: 200, y: 50 }, end: { x: 200, y: 200 } }],
 };
 const position: LivePosition = { area_id: 'map', kind: 'platform', surface_id: 'floor',
@@ -20,7 +20,8 @@ it('projects slopes and ropes with scale and camera translation, separately labe
   expect(lines[0].getAttribute('x1')).toBe('170');
   expect(lines[0].getAttribute('y2')).toBe('470');
   expect(lines[1].getAttribute('x1')).toBe('370');
-  expect(screen.getByText('Saved · floor · spatial match')).toBeTruthy();
+  expect(screen.getByText('Saved · Floor · floor · spatial match')).toBeTruthy();
+  expect(screen.getByText('Saved · rope')).toBeTruthy();
   expect(screen.getByText(/not live detection/)).toBeTruthy();
 });
 

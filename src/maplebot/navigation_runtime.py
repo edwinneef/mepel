@@ -306,7 +306,9 @@ class NavigationRuntime:
         identity = player.template.removesuffix(":tag-only") if identified else None
         navigating = (self.app.mode == "navigation" and isinstance(self.agent, Navigator)
                       and self.agent.active)
-        if navigating and not identified and self.recovery is None:
+        # A drop or climb rides the marker in its corridor; the name tag blurs at fall speed.
+        if (navigating and not identified and self.recovery is None
+                and not self._marker_flight(feedback)):
             self._begin_recovery(feedback)
         self.feedback = feedback
         if self.recovery:
@@ -445,6 +447,18 @@ class NavigationRuntime:
         return ("Navigation fused position is stale or uncertain: "
                 + json.dumps(value, sort_keys=True))
 
+    def _marker_flight(self, f) -> bool:
+        """A drop or climb in flight, marker inside its corridor within the edge budget."""
+        agent = self.agent
+        if (not f or f.feet is None or not isinstance(agent, Navigator)
+                or agent.stage != "flight" or agent.index >= len(agent.route.edges)):
+            return False
+        edge = agent.route.edges[agent.index]
+        return (edge.kind in {"drop", "climb"}
+                and 0 <= f.now - agent.edge_started < 8
+                and distance(f.feet, edge.trace) <= 64
+                and not agent.graph.path_blocker((f.feet, f.feet)))
+
     def _trusted_feedback(self, f, now: float) -> bool:
         if getattr(getattr(self.app, "position", None), "automatic", None):
             return False
@@ -456,14 +470,8 @@ class NavigationRuntime:
         if isinstance(agent, EdgeStep):
             # Marker-only by design; EdgeStep bounds its own time, direction and progress.
             return f.feet is not None and agent.active
-        if (f.feet is not None and agent is not None and agent.stage == "flight"
-                and agent.index < len(agent.route.edges)):
-            edge = agent.route.edges[agent.index]
-            if (edge.kind in {"drop", "climb"}
-                    and 0 <= f.now - agent.edge_started < 8
-                    and distance(f.feet, edge.trace) <= 64
-                    and not agent.graph.path_blocker((f.feet, f.feet))):
-                return True
+        if self._marker_flight(f):
+            return True
         return f.motion_ok or (
             f.feet is not None and self.agent is not None
             and self.agent.stage in {"settle_origin", "approach", "flight"}
