@@ -718,3 +718,15 @@ def test_duplicate_full_names_do_not_use_continuity_exception(tmp_path):
     player, _, _ = detector._fuse_nametag(matches + [duplicate], None, failures, gray, 1.2)
     assert player is None and detector.confirmed_sprites.last is None
     assert any('Ambiguous name' in failure for failure in failures)
+
+def test_unknown_stranger_displacement_is_a_conflict_not_tracking_fallback(tmp_path):
+    teach_tag(tmp_path, name_tag())
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    own = Rect(664, 419, 44, 64)
+    detector.confirmed_sprites.observe('nametag:name', None, own, 1)
+    stranger = Detection('player', Rect(655, 476, 34, 65), .951, 'unknown')
+    failures = []
+    player, _, conflict = detector._fuse_nametag(
+        [], stranger, failures, np.zeros((768, 1366), np.uint8), 1.25)
+    assert player is None and conflict
+    assert detector.confirmed_sprites.last[1] == own

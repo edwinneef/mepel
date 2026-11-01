@@ -1394,6 +1394,11 @@ class TemplateDetector:
                 )
             )
         self.fresh.append(variants)
+        # These appearances were captured directly above a clean full name, unlike
+        # unrelated taught poses encountered later during name occlusion.
+        identity = f"nametag:{player.template.split(':')[1]}"
+        for variant in variants:
+            self.confirmed_sprites.names[variant.name] = identity
         self.refreshed = now
 
     def _follow(
@@ -1515,6 +1520,12 @@ class TemplateDetector:
                     if identity:
                         sprite = replace(sprite, identity=identity)
                         failures.append("Fresh sprite corroborated by recent full-name agreement")
+                    elif (sprite.template not in self.confirmed_sprites.names
+                          and self.confirmed_sprites.last is not None):
+                        # Do not let _follow or positional tracking carry this unverified
+                        # body into the named chain after identity resolution refused it.
+                        failures.append("Unverified displaced sprite; name required for identity")
+                        return None, 0.0, True
             return sprite, 0.0, False
         match, tag = distinct[0]
         if len(distinct) > 1 and match.confidence - distinct[1][0].confidence < (

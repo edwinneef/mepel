@@ -56,6 +56,10 @@ class ConfirmedSprites:
         if self.last is None:
             return None
         identity, named_box, named_at = self.last
+        # An unseen pose has no appearance-to-name evidence. Permit a pose change
+        # in place, but do not use the movement allowance to identify another body.
+        if sprite not in self.names:
+            max_distance = min(max_distance, CHAIN_RADIUS)
         # A pose never seen beside the tag (a climb or attack frame) continues the track; a
         # sprite also seen with another name cannot tell the two players apart.
         if (self.names.get(sprite, identity) != identity or not math.isfinite(now)

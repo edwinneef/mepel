@@ -222,3 +222,19 @@ def test_a_sprite_the_named_track_did_not_carry_pauses_instead_of_hijacking():
     assert r.step("look-alike-sprite", .6).state == "wait"
     assert r.step(ME, .9).state == "wait"
     assert r.step(ME, 1.1).state == "resume"
+
+def test_unknown_displaced_pose_cannot_inherit_name_or_move_chain():
+    identities = ConfirmedSprites()
+    own = Rect(664, 419, 44, 64)
+    stranger = Rect(655, 476, 34, 65)
+    identities.observe(ME, None, own, 1)
+    assert identities.resolve('unknown', stranger, 1.25, 80) is None
+    assert identities.last == (ME, own, 1)
+    assert identities.resolve('new-climb', own.translated(0, 10), 1.3, 80) == ME
+
+
+def test_known_pose_keeps_bounded_movement_recovery():
+    identities = ConfirmedSprites()
+    own = Rect(664, 419, 44, 64)
+    identities.observe(ME, 'known', own, 1)
+    assert identities.resolve('known', own.translated(0, 50), 1.25, 80) == ME
