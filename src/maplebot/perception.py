@@ -1530,8 +1530,23 @@ class TemplateDetector:
                 and abs(sprite.box.feet - body.feet) <= 40
             )
             if not near:
-                failures.append("Name tag and player sprite disagree")
-                return None, match.confidence, True
+                previous = self.confirmed_sprites.last
+                # A fresh full name at the established position is independent identity
+                # evidence. A spatially separate sprite must not replace that player or
+                # become its learned appearance. Cold, moved and partial names still veto.
+                continuous_name = (
+                    not partial and now is not None and previous is not None
+                    and previous[0] == f"nametag:{tag.name}"
+                    and 0 <= now - previous[2] <= 1
+                    and math.dist(body.translated(*self.origin).center,
+                                  previous[1].center) <= 24
+                )
+                if not continuous_name:
+                    failures.append("Name tag and player sprite disagree")
+                    return None, match.confidence, True
+                self.lookalike_at = now
+                sprite = None
+                failures.append("Separate sprite ignored; full name confirms established player")
         confidence = (min(partial_score, sprite.confidence) if partial else
                       max(match.confidence, sprite.confidence if sprite else 0))
         if partial:

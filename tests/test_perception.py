@@ -677,3 +677,44 @@ def test_prediction_follows_camera_and_world_motion_and_never_marks_a_frame_fres
     assert state.world_step == (12.0, 0.0) and state.track[2] == 2.0
     TemplateDetector._predict(state, (30.0, 0.0), 0.2)  # uncertain camera: no shift
     assert state.track[0] == Rect(100, 100, 44, 64) and state.world_step == (0.0, 0.0)
+
+@pytest.mark.parametrize('age,offset,partial,accepted', [
+    (.2, 0, False, True), (1.1, 0, False, False),
+    (.2, 80, False, False), (.2, 0, True, False),
+])
+def test_separate_sprite_requires_recent_stationary_full_name(
+        tmp_path, age, offset, partial, accepted):
+    teach_tag(tmp_path, name_tag())
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    gray = cv2.cvtColor(tag_scene(name_tag()), cv2.COLOR_BGR2GRAY)
+    matches = detector._nametag_candidates(gray)
+    body = detector.body_from_nametag(matches[0][1], matches[0][0].box)
+    detector.confirmed_sprites.observe('nametag:name', None, body.translated(offset, 0), 1)
+    stranger = Detection('player', body.translated(100, -70), .99, 'stranger')
+    if partial:
+        matches = [(replace(matches[0][0], confidence=.5), matches[0][1])]
+        detector._occluded_tag_score = lambda *args: 1.0
+    player, _, conflict = detector._fuse_nametag(matches, stranger, [], gray, 1 + age)
+    assert (player is not None) == accepted
+    assert conflict != accepted
+    assert 'stranger' not in detector.confirmed_sprites.names
+    if accepted:
+        assert player.box == body and player.template == 'nametag:name:tag-only'
+        assert detector.lookalike_at == 1 + age
+        unnamed = detector._fuse_nametag([], stranger, [], gray, 1 + age + .1)[0]
+        assert unnamed.identity is None
+
+
+def test_duplicate_full_names_do_not_use_continuity_exception(tmp_path):
+    teach_tag(tmp_path, name_tag())
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    gray = cv2.cvtColor(tag_scene(name_tag()), cv2.COLOR_BGR2GRAY)
+    matches = detector._nametag_candidates(gray)
+    body = detector.body_from_nametag(matches[0][1], matches[0][0].box)
+    detector.confirmed_sprites.observe('nametag:name', None, body, 1)
+    duplicate = (replace(matches[0][0], box=matches[0][0].box.translated(100, 0)),
+                 matches[0][1])
+    failures = []
+    player, _, _ = detector._fuse_nametag(matches + [duplicate], None, failures, gray, 1.2)
+    assert player is None and detector.confirmed_sprites.last is None
+    assert any('Ambiguous name' in failure for failure in failures)
