@@ -3,12 +3,12 @@
 Frames arrive as PNG bytes the capture loop has already encoded for the debugger,
 so recording adds no encoding cost. Disk writes run on a separate thread; when it
 falls behind, frames are dropped instead of stalling capture.
+Existing recordings are never deleted automatically, regardless of age or size.
 """
 
 import json
 import math
 import queue
-import shutil
 import threading
 import time
 from collections import deque
@@ -62,7 +62,6 @@ class SessionRecorder:
                 lines = [line for _, _, line in self.buffer]
             else:
                 path, lines = self.path, []
-        self.jobs.put(("prune", path, None))
         # Pre-roll: buffered frames may be flushed later, so log their decisions too.
         for line in lines:
             self.jobs.put(("line", path / "decisions.jsonl", line))
@@ -161,9 +160,7 @@ class SessionRecorder:
         if record["status"] == "queued":
             with self.lock:
                 self.potion_paths.add(path)
-                protected = self.potion_paths | {self.path}
             self.jobs.put(("mkdir", path, None))
-            self.jobs.put(("prune", path, protected))
         for frame in frames:
             self._frame(path, frame.stem, frame.raw, deduplicate=False)
             line = json.dumps({"frame": f"{frame.stem}.png", **frame.status}) + "\n"
@@ -203,8 +200,6 @@ class SessionRecorder:
                 elif kind == "line":
                     with path.open("a", encoding="utf-8") as handle:
                         handle.write(data)
-                else:
-                    self._prune(keep=path, protected=data)
             except OSError:
                 if kind == "frame":
                     with self.lock:
@@ -213,24 +208,3 @@ class SessionRecorder:
                 if kind == "frame":
                     with self.lock:
                         self.pending -= 1
-
-    def _prune(self, keep: Path, protected: set | None = None) -> None:
-        with self.lock:
-            protected = (protected or set()) | self.potion_paths | {keep, self.path}
-        sessions = sorted(
-            (item for item in self.root.glob("session-*")
-             if item.is_dir() and item not in protected),
-            key=lambda item: item.stat().st_mtime,
-        )
-        cutoff = time.time() - self.config.max_age_days * 86400
-        budget = self.config.max_total_mb * 1024 * 1024
-        sizes = {
-            item: sum(file.stat().st_size for file in item.iterdir() if file.is_file())
-            for item in sessions
-        }
-        total = sum(sizes.values())
-        for item in sessions:
-            if item.stat().st_mtime >= cutoff and total <= budget:
-                continue
-            shutil.rmtree(item, ignore_errors=True)
-            total -= sizes[item]

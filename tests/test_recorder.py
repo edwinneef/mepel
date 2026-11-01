@@ -135,7 +135,8 @@ def test_slow_writer_drops_frames_instead_of_blocking(recorder):
     recorder.pending = 0
 
 
-def test_new_session_prunes_old_and_oversized_sessions(tmp_path):
+@pytest.mark.parametrize("recording_kind", ["session", "clip", "full", "potion"])
+def test_recording_preserves_old_and_oversized_sessions(tmp_path, recording_kind):
     old = tmp_path / "session-1-combat"
     big = tmp_path / "session-2-combat"
     recent = tmp_path / "session-3-combat"
@@ -145,14 +146,27 @@ def test_new_session_prunes_old_and_oversized_sessions(tmp_path):
         (directory / "frame.png").write_bytes(b"x" * size)
     os.utime(old, (0, 0))
     os.utime(big, (time.time() - 60, time.time() - 60))
+    existing = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     recorder = SessionRecorder(tmp_path, RecordingConfig(max_total_mb=1, max_age_days=1), fps=4)
     try:
-        current = recorder.start("dry-run")
-        flush(recorder)
-        assert not old.exists() and not big.exists()
-        assert recent.exists() and other.exists() and current.exists()
+        if recording_kind == "session":
+            current = recorder.start("dry-run")
+            feed(recorder, 0, 1)
+        elif recording_kind == "clip":
+            feed(recorder, 0, 1)
+            current = recorder.trigger("Operator saved clip", now=0)
+        elif recording_kind == "full":
+            current = recorder.start_full()
+            feed(recorder, 0, 1)
+        else:
+            current = tmp_path / "session-potion"
+            recorder.save_potion({"recording": current.name, "status": "queued"}, [])
+            recorder.save_potion({"recording": current.name, "status": "finished"}, [])
     finally:
         recorder.close()
+    assert not recorder.writer.is_alive()
+    assert current.is_dir() and list(current.iterdir())
+    assert {path: path.read_bytes() for path in existing} == existing
 
 
 def test_close_waits_for_the_stopping_frame_and_logs_pre_roll(recorder):
