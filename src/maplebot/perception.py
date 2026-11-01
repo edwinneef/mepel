@@ -382,6 +382,12 @@ class TemplateDetector:
         self.fresh.clear()
         self.track, self.misses, self.search_window = None, 0, None
         self.lookalike_at = float("-inf")
+        # Whole-frame player searches since the track was lost, and the last name/sprite
+        # conflict; together they decide when poses may search only under the name tag.
+        self.full_scans, self.conflict_at = 0, float("-inf")
+        # A player found from the name tag alone gets one whole-frame check next frame,
+        # so a look-alike or a sprite away from the tag still vetoes it one frame later.
+        self.verify_scan = self.verifying = False
         self.world_step, self.predicted, self.track_tag = (0.0, 0.0), None, None
         self.previous_monsters = ()
         self.camera = CameraTracker()
@@ -1287,6 +1293,12 @@ class TemplateDetector:
         self, image: Image, now: float, templates: list[Template], floor: float,
         *, player_only: bool = False,
     ) -> tuple[Detection | None, list[Detection], list[str], float]:
+        if self.verify_scan and self.track is not None:
+            self.verify_scan, self.verifying = False, True
+            try:
+                return self._observe_full(image, now, templates, floor)
+            finally:
+                self.verifying = False
         window = self._window(image, player_only=player_only)
         if not player_only and self.enemy_scan_stage == "wide" and self.track is not None:
             # Keep the small player search area and all boxes in frame coordinates.
@@ -1298,7 +1310,7 @@ class TemplateDetector:
         assert saved is not None
         found = self._observe_in(image, window, now, templates, floor)
         if found[0] is not None:
-            self.misses = 0
+            self.misses = self.full_scans = 0
             return found
         self.track = saved
         if not player_only and now - saved[1] <= self.config.track_max_seconds:
@@ -1393,6 +1405,9 @@ class TemplateDetector:
         self.zone_sums = cv2.integral(self.zones)
         # Name tags match in the pool while the sprite templates are searched.
         searches = self._nametag_search(gray)
+        tag_area = self._tag_first_area(gray, searches, now)
+        if tag_area is not None:
+            self.player_area = tag_area
         candidates = self._candidates(image, gray, templates, floor)
         kept = self._suppress(candidates)
         players = [item for item in kept if item.kind == "player"]
@@ -1406,7 +1421,11 @@ class TemplateDetector:
             players = [item for item in kept if item.kind == "player"]
             failures = []
             player, tag_confidence, conflict = self._resolve(players, tags, failures, gray, now)
+        if tag_area is not None:
+            self.player_area = None
+            self.verify_scan = player is not None and not conflict
         if conflict:
+            self.conflict_at = now if now is not None else self.conflict_at
             self.confirmed_sprites = ConfirmedSprites()
             self.fresh.clear()
             self.track, self.track_tag = None, None
@@ -1546,6 +1565,29 @@ class TemplateDetector:
         box = Rect(left + dx - (width - 1), top + dy, width, height)
         return float(best), self.body_from_nametag(tag, box)
 
+    def _tag_first_area(self, gray: Image, searches: list[Future[list[Detection]]],
+                        now: float | None) -> tuple[int, int, int, int] | None:
+        """On a whole-frame search, the movement window under one confident name tag.
+
+        Player poses then search only there, which is several times faster. A look-alike
+        or a sprite away from the tag is seen only by a whole-frame search, so every
+        FULL_SCAN_EVERY-th one stays whole, as do all of them for RECOVERY_SECONDS after a
+        look-alike or a name/sprite conflict, and whenever no single tag is confident.
+        """
+        if self.player_area is not None or self.verifying or now is None or not self.nametags:
+            return None
+        self.full_scans += 1
+        if (self.full_scans % FULL_SCAN_EVERY == 0
+                or now - self.lookalike_at < RECOVERY_SECONDS
+                or now - self.conflict_at < RECOVERY_SECONDS):
+            return None
+        confident = [(match, tag) for match, tag in self._nametag_candidates(gray, searches)
+                     if match.confidence >= self.config.nametag_confidence]
+        if len(confident) != 1:
+            return None
+        match, tag = confident[0]
+        return self._player_area(self.body_from_nametag(tag, match.box), gray)
+
     def _nametag_search(self, gray: Image) -> list[Future[list[Detection]]]:
         """Start matching every name tag in the pool, in self.nametags order."""
         floor = max(0.5, self.config.nametag_confidence - 0.15)
@@ -1628,8 +1670,11 @@ class TemplateDetector:
                 # A fresh full name at the established position is independent identity
                 # evidence. A spatially separate sprite must not replace that player or
                 # become its learned appearance. Cold, moved and partial names still veto.
+                # A name confirmed by a tag-first frame saw only its window, so it is
+                # still cold during the whole-frame check that follows.
                 continuous_name = (
-                    not partial and now is not None and previous is not None
+                    not partial and not self.verifying and now is not None
+                    and previous is not None
                     and previous[0] == f"nametag:{tag.name}"
                     and 0 <= now - previous[2] <= 1
                     and math.dist(body.translated(*self.origin).center,

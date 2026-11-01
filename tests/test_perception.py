@@ -320,6 +320,52 @@ def test_name_tag_and_distant_sprite_disagreement_is_not_trusted(tmp_path):
     assert any("disagree" in failure for failure in result.failures)
 
 
+def wide_tag_scene(tmp_path):
+    """A frame much wider than the 350 x 240 pose window: tag on the left, sprite far right."""
+    player, _ = templates(tmp_path)
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    frame = cv2.resize(scenery(), (900, 600))
+    frame[450:463, 60:120] = tag
+    frame[60:88, 800:824] = player
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    areas = []
+    original = detector._candidates
+
+    def candidates(image, gray, items, floor):
+        areas.append(detector.player_area)
+        return original(image, gray, items, floor)
+
+    detector._candidates = candidates
+    return detector, frame, areas
+
+
+def test_lost_player_poses_search_only_under_a_single_confident_name_tag(tmp_path):
+    detector, frame, areas = wide_tag_scene(tmp_path)
+    result = detector.detect(frame, 1.0)
+    assert areas[0] is not None and areas[0][0] < 350  # poses searched under the tag only
+    assert result.player is not None and not any("disagree" in f for f in result.failures)
+    assert detector.player_area is None and detector.verify_scan
+    # Next frame: one whole-frame check sees the distant sprite and vetoes the name.
+    result = detector.detect(frame, 1.1)
+    assert areas[-1] is None and result.player is None
+    assert any("disagree" in f for f in result.failures) and detector.conflict_at == 1.1
+
+
+def test_every_fourth_lost_scan_and_any_conflict_keep_whole_frame_pose_search(tmp_path):
+    detector, frame, areas = wide_tag_scene(tmp_path)
+    detector.full_scans = 3  # The next whole-frame search is a FULL_SCAN_EVERY-th one.
+    result = detector.detect(frame, 1.0)
+    assert areas[-1] is None and result.player is None
+    assert any("disagree" in f for f in result.failures) and detector.conflict_at == 1.0
+    detector.track = None
+    result = detector.detect(frame, 1.5)  # Within RECOVERY_SECONDS of the conflict.
+    assert areas[-1] is None and result.player is None
+    detector.track, detector.lookalike_at, detector.conflict_at = None, 9.0, float("-inf")
+    detector.detect(frame, 10.0)  # A recent look-alike also keeps the whole frame.
+    assert areas[-1] is None
+
+
 def test_two_identical_name_tags_fall_back_to_the_sprite(tmp_path):
     tag = name_tag()
     teach_tag(tmp_path, tag)
