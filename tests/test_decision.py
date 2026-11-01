@@ -4,6 +4,7 @@ import pytest
 
 from maplebot.config import AgentConfig
 from maplebot.decision import Agent, PolicyInput, State
+from maplebot.enemy_tracking import EnemyTrack
 from maplebot.geometry import Rect
 from maplebot.perception import Detection, Observation
 
@@ -321,3 +322,65 @@ def test_mp_reading_survives_policy_input_round_trip():
     assert PolicyInput.from_dict(value).mp_percent == 55.5
     del value["mp_percent"]
     assert PolicyInput.from_dict(value).mp_percent is None
+
+
+def hidden_track(x, feet=128, track_id="enemy:7", observed=False):
+    return EnemyTrack(track_id, "catalog:Snail", "lost", (x, feet), (x, feet), None,
+                      .82, (12, 8), 0.0, observed)
+
+
+def tracked_entity(x=140, track_id="enemy:7"):
+    return replace(entity(x=x), track_id=track_id)
+
+
+def test_briefly_hidden_target_in_reach_is_attacked_in_place_from_its_track():
+    agent = Agent(AgentConfig(range_profile="custom", attack_min_range=0, attack_range=65))
+    agent.start()
+    close = scene([tracked_entity()])
+    agent.step(close, 0)
+    assert agent.step(close, .1).state == State.ATTACK  # face right
+    assert agent.step(close, .2).action.kind == "attack"
+    # Under the player's own swing: no detection, but the tracker still holds it in reach.
+    hidden = Observation(entity("player", 100), [], enemy_tracks=[hidden_track(152)])
+    waiting = agent.step(hidden, .5)  # still inside the verify window
+    assert waiting.action.kind == "release"
+    again = agent.step(hidden, .8)
+    assert again.action.kind == "attack" and "hidden target" in again.reason
+    assert agent.step(hidden, 1.4).action.kind == "release"
+    # More than a second since the last real match: wait for a fresh target instead.
+    assert agent.step(hidden, 2.0).action.kind == "release"
+    assert agent.step(hidden, 2.2).state in {State.VERIFY, State.SEARCH}
+    assert all(d.action.kind != "right" or d.action.seconds <= .035 for d in [again])
+
+
+@pytest.mark.parametrize("track", [hidden_track(260), hidden_track(152, feet=200),
+                                   hidden_track(152, track_id="enemy:9"),
+                                   hidden_track(152, observed=True)])
+def test_hidden_attack_needs_the_same_track_in_reach_on_the_same_platform(track):
+    agent = Agent(AgentConfig(range_profile="custom", attack_min_range=0, attack_range=65))
+    agent.start()
+    close = scene([tracked_entity()])
+    agent.step(close, 0)
+    agent.step(close, .1)
+    hidden = Observation(entity("player", 100), [], enemy_tracks=[track])
+    assert agent.step(hidden, .2).action.kind != "attack"
+
+
+def test_hidden_target_on_the_other_side_turns_but_never_steps_toward_it():
+    agent = Agent(AgentConfig(range_profile="custom", attack_min_range=0, attack_range=65))
+    agent.start()
+    close = scene([tracked_entity()])
+    agent.step(close, 0)
+    agent.step(close, .1)  # facing right
+    hidden = Observation(entity("player", 100), [], enemy_tracks=[hidden_track(70)])
+    turn = agent.step(hidden, .2)
+    assert turn.action.kind == "left" and turn.action.seconds <= .035
+    assert agent.step(hidden, .3).action.kind == "attack"
+
+
+def test_policy_input_round_trip_keeps_enemy_tracks_and_track_ids():
+    observation = Observation(entity("player", 100), [tracked_entity()],
+                              enemy_tracks=[hidden_track(152)])
+    restored = PolicyInput.from_dict(PolicyInput(observation, 1.0, {"status": "none"}).to_dict())
+    assert restored.observation.monsters[0].track_id == "enemy:7"
+    assert restored.observation.enemy_tracks == [hidden_track(152)]

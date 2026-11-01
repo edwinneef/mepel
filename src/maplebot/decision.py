@@ -6,8 +6,13 @@ from enum import StrEnum
 from typing import Any
 
 from .config import AgentConfig
+from .enemy_tracking import EnemyTrack
 from .geometry import Rect
 from .perception import Detection, Observation
+
+# A target hidden under the player, another player or an effect may still be attacked in
+# place, from its tracker position, for this long after the policy last matched it.
+OCCLUDED_ATTACK_SECONDS = 1.0
 
 
 class State(StrEnum):
@@ -57,6 +62,16 @@ class PolicyInput:
                 raw_player.get("tracked", False),
                 raw_player.get("identity"),
             ) if raw_player else None
+            tracks = [
+                EnemyTrack(
+                    item["track_id"], item["enemy_type"], item["state"],
+                    tuple(item["predicted_position"]), tuple(item["ground_position"]),
+                    Rect(**item["visible_bounds"]) if item.get("visible_bounds") else None,
+                    item["confidence"], tuple(item["uncertainty"]), item["last_seen"],
+                    item["observed"],
+                )
+                for item in raw_observation.get("enemy_tracks", [])
+            ]
             monsters = [
                 Detection(
                     item["kind"],
@@ -65,6 +80,7 @@ class PolicyInput:
                     item.get("template", ""),
                     item.get("tracked", False),
                     item.get("identity"),
+                    item.get("track_id"),
                 )
                 for item in raw_observation["monsters"]
             ]
@@ -78,6 +94,7 @@ class PolicyInput:
                     list(raw_observation.get("failures", [])),
                     tuple(raw_observation.get("camera_shift", (0, 0))),
                     float(raw_observation.get("camera_confidence", 0.0)),
+                    tracks,
                 ),
                 now,
                 dict(value["last_outcome"]),
@@ -100,12 +117,13 @@ class Agent:
         self.last_distance: float | None = None
         self.stalled_steps = 0
         self.skill_ready = False
+        self.target_seen_at: float | None = None
 
     def stop(self, reason: str) -> Decision:
         self.state, self.target, self.facing = State.IDLE, None, None
         self.attempts, self.missing_frames = 0, 0
         self.last_distance, self.stalled_steps = None, 0
-        self.skill_ready = False
+        self.skill_ready, self.target_seen_at = False, None
         return Decision(self.state, Action(), reason)
 
     def start(self) -> None:
@@ -143,6 +161,7 @@ class Agent:
             "last_distance": self.last_distance,
             "stalled_steps": self.stalled_steps,
             "skill_ready": self.skill_ready,
+            "target_seen_at": self.target_seen_at,
         }
 
     def restore(self, snapshot: dict[str, Any]) -> None:
@@ -159,10 +178,12 @@ class Agent:
                     target.get("template", ""),
                     target.get("tracked", False),
                     target.get("identity"),
+                    target.get("track_id"),
                 )
                 if target
                 else None
             )
+            self.target_seen_at = snapshot.get("target_seen_at")
             self.facing = snapshot["facing"]
             self.verify_until = float(snapshot["verify_until"])
             self.attempts = int(snapshot["attempts"])
@@ -197,6 +218,7 @@ class Agent:
                 candidates, key=lambda item: abs(item.box.center[0] - player.box.center[0])
             )
             self.state, self.attempts, self.missing_frames = State.APPROACH, 0, 0
+            self.target_seen_at = now
             self.acquisitions += 1
             self.last_distance, self.stalled_steps = None, 0
             return self._result("Acquired nearest same-platform target")
@@ -221,13 +243,16 @@ class Agent:
             if abs(second - distance) < 8:
                 return self._search("Ambiguous target association; waiting for a fresh target")
         if match is None or distance > 80:
+            hidden = self._hidden_target(observation, player, now)
+            if hidden is not None and not (self.state == State.VERIFY and now < self.verify_until):
+                return self._attack_hidden(hidden, policy_input)
             if self.state == State.VERIFY:
                 self.missing_frames += 1
                 if now < self.verify_until or self.missing_frames < 3:
                     return self._result("Target absent; awaiting further visual evidence")
                 return self._search("Target absent for 3 frames after attack; kill unconfirmed")
             return self._search("Target missing or below confidence; waiting for a fresh target")
-        self.target, self.missing_frames = match, 0
+        self.target, self.missing_frames, self.target_seen_at = match, 0, now
         dx = match.box.center[0] - player.box.center[0]
         direction = "right" if dx >= 0 else "left"
         if self.state == State.VERIFY:
@@ -277,6 +302,44 @@ class Agent:
         kind = self._attack_kind(policy_input.mp_percent)
         return self._result(
             f"{kind.capitalize()} attack requested; inspect subsequent screenshots",
+            Action(kind, self.config.attack_seconds),
+        )
+
+    def _hidden_target(self, observation: Observation, player: Detection,
+                       now: float) -> float | None:
+        """Horizontal offset of the current target's hidden tracker position within reach."""
+        if (self.target is None or self.target.track_id is None or self.target_seen_at is None
+                or not 0 <= now - self.target_seen_at <= OCCLUDED_ATTACK_SECONDS):
+            return None
+        track = next((t for t in observation.enemy_tracks
+                      if t.track_id == self.target.track_id and not t.observed), None)
+        if track is None:
+            return None
+        x, feet = track.ground_position
+        dx = x - player.box.center[0]
+        if (abs(feet - player.box.feet) > self.config.platform_tolerance
+                or not self.config.attack_min_range <= abs(dx) <= self.config.attack_range):
+            return None
+        return dx
+
+    def _attack_hidden(self, dx: float, policy_input: PolicyInput) -> Decision:
+        """Face and attack a briefly hidden target in place; never step toward it."""
+        direction = "right" if dx >= 0 else "left"
+        if self.facing != direction:
+            self.state, self.facing = State.ATTACK, direction
+            return self._result(
+                "Hidden target in reach; face before attack",
+                Action(direction, min(0.035, self.config.movement_seconds)),
+            )
+        if self.attempts >= self.config.max_attack_attempts:
+            return self._search("Hidden target attack limit reached; waiting for a fresh target")
+        self.state = State.VERIFY
+        self.attempts += 1
+        self.verify_until = (policy_input.now + self.config.attack_seconds
+                             + self.config.verify_seconds)
+        kind = self._attack_kind(policy_input.mp_percent)
+        return self._result(
+            f"{kind.capitalize()} attack on hidden target track; no outcome assumed",
             Action(kind, self.config.attack_seconds),
         )
 

@@ -30,15 +30,18 @@ roi_height = 420
 
 [agent]
 platform_tolerance = 18
-range_profile = "classic_bow"
+# The character is currently a Beginner with a club: a custom 0-65 px band attacks
+# before contact (about 35-40 px), inside the shortest 1H blunt swing (69 px;
+# docs/warrior-ranges.md). Apply "custom" under Bot > Weapon range to use it.
+range_profile = "custom"
 # Named presets set both limits. Use "custom" to use the numeric values below.
 # Bot > Weapon range also saves an explicit choice without restarting.
-attack_range = 250
-# Classic Bowman operating band, shared by basic AND Arrow Blow (no Eye bonus).
+attack_range = 65
+# The classic_bow preset uses 120-250 px, shared by basic AND Arrow Blow (no Eye bonus).
 # Native capture-pixel centre distances; margins, not exact game hitbox limits.
 # Sources and v83/Classic mismatch reporting: docs/bowman-range-research.md.
 # Inside the minimum the bot stops; it never retreats blindly toward a ledge.
-attack_min_range = 120
+attack_min_range = 0
 movement_seconds = 0.12
 attack_seconds = 0.06
 verify_seconds = 0.45
