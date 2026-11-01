@@ -13,6 +13,42 @@ from maplebot.perception import FULL_SCAN_EVERY, CameraTracker, Detection, Templ
 from maplebot.reacquisition import ConfirmedSprites
 
 
+def test_masked_cache_reuses_only_identical_crops(tmp_path, monkeypatch):
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    rng = np.random.default_rng(721)
+    raw = rng.integers(20, 240, (20, 20, 4), dtype=np.uint8)
+    raw[:, :, 3] = 255
+    template = detector._variants("player", "fixture", raw, Path("fixture.png"))[0]
+    image = rng.integers(0, 255, (60, 60, 3), dtype=np.uint8)
+    image[20:40, 20:40] = raw[:, :, :3]
+    original = cv2.matchTemplate
+    calls = []
+
+    def counted(*args, **kwargs):
+        if "mask" in kwargs:
+            calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(cv2, "matchTemplate", counted)
+
+    def search(frame):
+        return detector._anchor_candidates(
+            frame, cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), template, .7)
+
+    first = search(image)
+    assert first and calls
+    calls.clear()
+    assert search(image) == first
+    assert not calls
+    for changed in (np.zeros_like(image), image.copy()):
+        changed[20:25, 20:25] = 0
+        cached = search(changed)
+        detector.masked_cache.clear()
+        assert search(changed) == cached
+    detector.pool.shutdown()
+    detector.map_filter.close()
+
+
 def test_annotation_does_not_cover_game_pixels_with_a_status_strip(tmp_path):
     from maplebot.perception import annotate
 

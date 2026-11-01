@@ -308,12 +308,14 @@ class TemplateDetector:
         self.taught_map = False
         # Active templates for the last (templates, allowed species, monsters) selection.
         self.active: tuple[list[Template], tuple, list[Template]] | None = None
+        self.masked_cache: dict = {}
         self.pool = ThreadPoolExecutor(
             max_workers=min(8, os.cpu_count() or 1), thread_name_prefix="match"
         )
         self.reload()
 
     def reload(self) -> None:
+        self.masked_cache.clear()
         self.enemy_tracker = EnemyTracker(self.config)
         self.enemy_context = None
         self.enemy_geometry_ready = False
@@ -751,6 +753,21 @@ class TemplateDetector:
         anchor = template.anchor
         assert anchor is not None and template.mask is not None
         reference, reference_gray, reference_coarse = template.anchored
+        # Reuse only byte-identical native crops from this template's previous search.
+        # Each template owns its entries while searches run in parallel.
+        previous = self.masked_cache.get(id(template), ({}, template))[0]
+        current = {}
+        self.masked_cache[id(template)] = (current, template)
+
+        def match(crop, reference, method, bounds):
+            key = (method, bounds)
+            saved = previous.get(key)
+            if saved is not None and np.array_equal(crop, saved[0]):
+                result = saved[1]
+            else:
+                result = cv2.matchTemplate(crop, reference, method, mask=template.mask)
+            current[key] = (crop.copy(), result.copy())
+            return result.copy()
         # Half-resolution grayscale proposals, then masked verification in native crops.
         coarse = cv2.pyrDown(gray) if coarse is None else coarse
         if (reference_coarse.shape[0] > coarse.shape[0]
@@ -777,20 +794,20 @@ class TemplateDetector:
                     - anchor.y)
             structure = None
             if fits:
-                structure = cv2.matchTemplate(
+                structure = match(
                     gray[top:bottom, left:right],
                     reference_gray,
                     cv2.TM_CCOEFF_NORMED,
-                    mask=template.mask,
+                    (left, top, right, bottom),
                 )
                 # NaN (a flat crop) would score 0; -1 keeps it below every floor.
                 cv2.patchNaNs(structure, -1)
             # Color agreement is at most 1, so weak structure alone rules the crop out.
             if (structure is not None
                     and COLOR_WEIGHT_CAP + 0.4 * cv2.minMaxLoc(structure)[1] >= floor):
-                color = 1 - cv2.matchTemplate(
+                color = 1 - match(
                     image[top:bottom, left:right], reference, cv2.TM_SQDIFF_NORMED,
-                    mask=template.mask,
+                    (left, top, right, bottom),
                 )
                 score = 0.6 * color + 0.4 * structure
                 if not cv2.checkRange(score)[0]:
@@ -819,6 +836,9 @@ class TemplateDetector:
             template for template in templates
             if template.gray.shape[0] <= image.shape[0] and template.gray.shape[1] <= image.shape[1]
         ]
+        active_ids = {id(template) for template in usable}
+        self.masked_cache = {key: value for key, value in self.masked_cache.items()
+                             if key in active_ids}
         color_index = (
             self._color_index(image)
             if any(template.signature is not None for template in usable) else None
