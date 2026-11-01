@@ -4,7 +4,7 @@ import threading
 import time
 
 START_COMMANDS = frozenset({"arm", "dry_run", "probe", "autopotter_live",
-                            "nav_start", "nav_go", "nav_edge"})
+                            "nav_start", "nav_go", "nav_edge", "nav_walk"})
 
 
 class OverlaySession:

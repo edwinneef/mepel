@@ -11,6 +11,7 @@ from .move_proofs import MoveProofs
 from .navigation import RouteMap, map_hash, pose_gaps, required_poses
 from .navigation_executor import EdgeStep, Feedback, Navigator, distance
 from .scheduler import SUSTAIN
+from .short_walk import ShortWalk
 
 # While airborne the camera moves faster than its shift estimate and the minimap marker
 # moves in ~15 px steps, so marker and name tag can briefly disagree mid-jump.
@@ -204,7 +205,21 @@ class NavigationRuntime:
             raise ValueError(blocker)
         return self.start(context, opt_in, edge=True)
 
-    def start(self, context, opt_in: bool, *, edge: bool = False) -> dict:
+    def walk(self, context, delta, opt_in: bool) -> dict:
+        """Use the existing saved calibration for one nearby same-platform target."""
+        position = self.app.position
+        if not position or not getattr(position, "calibration", None):
+            raise ValueError("Short walk requires the existing saved position calibration")
+        self.refresh()
+        f = self.feedback
+        if not f or not f.surface or f.feet is None:
+            raise ValueError("Short walk needs a fresh known starting platform")
+        self.route = self.graph.plan(f.surface, f.surface, origin_feet=f.feet)
+        walk = ShortWalk(self.graph, self.route, time.perf_counter(), f.feet, delta,
+                         pulse=min(.08, self.app.config.input.max_action_seconds))
+        return self.start(context, opt_in, walk=walk)
+
+    def start(self, context, opt_in: bool, *, edge: bool = False, walk=None) -> dict:
         app = self.app
         blocker = None if edge else self.blocker()
         if blocker:
@@ -219,7 +234,7 @@ class NavigationRuntime:
             app.stop_requested.clear()
             app.mode, app.pending_at = "navigation_wait", time.perf_counter() + 3
         pulse = min(.12, app.config.input.max_action_seconds)
-        self.agent = (EdgeStep(self.graph, time.perf_counter(), pulse=pulse) if edge else
+        self.agent = walk or (EdgeStep(self.graph, time.perf_counter(), pulse=pulse) if edge else
                       Navigator(self.graph, self.route, time.perf_counter(), pulse=pulse))
         self.reason = "Focus the game; navigation countdown is bounded and cancelable"
         return self.snapshot()
@@ -305,6 +320,9 @@ class NavigationRuntime:
 
     def _begin_recovery(self, feedback: Feedback) -> None:
         app = self.app
+        if isinstance(self.agent, ShortWalk):
+            app._stop("PLAYER_UNCERTAIN", "Short walk player recognition lost; no retry")
+            return
         if not self.identity:
             app._stop("PLAYER_UNCERTAIN", "No confirmed player identity for recovery")
             return
@@ -433,6 +451,8 @@ class NavigationRuntime:
         if not f or now - f.now > .5:
             return False
         agent = self.agent
+        if isinstance(agent, ShortWalk):
+            return f.motion_ok and f.feet is not None and f.surface == agent.route.origin
         if isinstance(agent, EdgeStep):
             # Marker-only by design; EdgeStep bounds its own time, direction and progress.
             return f.feet is not None and agent.active
@@ -455,6 +475,10 @@ class NavigationRuntime:
             return
         if app.mode == "navigation_wait" and now < app.pending_at:
             return
+        if isinstance(self.agent, ShortWalk) and app.mode == "navigation":
+            if reason := self.agent.budget_blocker(now):
+                app._stop("NAVIGATION_FAILURE", reason)
+                return
         if not self.agent or not self.feedback:
             app._stop("PLAYER_UNCERTAIN", "Navigation feedback unavailable")
             return
@@ -479,9 +503,13 @@ class NavigationRuntime:
             app.mode = "navigation"
             app._start_sustain()
             pulse = min(.12, app.config.input.max_action_seconds)
-            self.agent = (EdgeStep(self.graph, now, pulse=pulse)
-                          if isinstance(self.agent, EdgeStep)
-                          else Navigator(self.graph, self.route, now, pulse=pulse))
+            if isinstance(self.agent, ShortWalk):
+                self.agent = ShortWalk(self.graph, self.route, now, self.agent.origin,
+                                       self.agent.delta, pulse=min(.08, pulse))
+            else:
+                self.agent = (EdgeStep(self.graph, now, pulse=pulse)
+                              if isinstance(self.agent, EdgeStep)
+                              else Navigator(self.graph, self.route, now, pulse=pulse))
             self.counted = 0
         if self.ticket is not None and self.ticket not in app.arbiter.in_flight:
             self.ticket = None

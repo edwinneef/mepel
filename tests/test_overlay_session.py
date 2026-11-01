@@ -28,13 +28,13 @@ def test_open_panel_allows_starts_but_expired_lease_refuses_every_gameplay_start
     lease, _, now, events = fixture()
     lease.heartbeat({"owner": "a" * 32, "panel": True})
     assert len(events) == 1  # Opening settings still stops running work.
-    for name in ("arm", "probe", "nav_go", "nav_start", "autopotter_live", "dry_run"):
+    for name in ("arm", "probe", "nav_go", "nav_start", "nav_walk", "autopotter_live", "dry_run"):
         lease.guard(name)
     lease.heartbeat({"owner": "a" * 32, "panel": False})
     lease.guard("arm")
     assert len(events) == 1  # Closing settings never starts or resumes work.
     now[0] = 3
-    for name in ("arm", "probe", "nav_go", "nav_start", "autopotter_live", "dry_run"):
+    for name in ("arm", "probe", "nav_go", "nav_start", "nav_walk", "autopotter_live", "dry_run"):
         with pytest.raises(ValueError, match="disconnected"):
             lease.guard(name)
     lease.guard("stop")
