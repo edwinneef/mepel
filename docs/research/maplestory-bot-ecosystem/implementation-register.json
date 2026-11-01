@@ -1,0 +1,1598 @@
+{
+  "version": 1,
+  "created": "2026-11-01",
+  "baseline": "630d7ad0c3ab30f0fb7042710f8817792c45ec46",
+  "policy": "No source report edits. Stable IDs never renumbered; append additional findings. Deferrals require reason and revisit condition. No live authorization.",
+  "sources": {
+    "architecture.md": {
+      "sha256": "1215a3398856b562f446b1630aa3e83975617f269ce66750834902c8c458929f",
+      "sections": [
+        {
+          "title": "Architecture assessment",
+          "anchor": "architecture-assessment"
+        },
+        {
+          "title": "Actual stack and boundaries",
+          "anchor": "actual-stack-and-boundaries"
+        },
+        {
+          "title": "Implemented subsystem inventory",
+          "anchor": "implemented-subsystem-inventory"
+        },
+        {
+          "title": "Strengths and limits of the evidence",
+          "anchor": "strengths-and-limits-of-the-evidence"
+        },
+        {
+          "title": "Comparison and integration conclusions",
+          "anchor": "comparison-and-integration-conclusions"
+        },
+        {
+          "title": "Concrete weaknesses and their confidence",
+          "anchor": "concrete-weaknesses-and-their-confidence"
+        },
+        {
+          "title": "Cost and maintainability",
+          "anchor": "cost-and-maintainability"
+        },
+        {
+          "title": "Recommended architecture decision",
+          "anchor": "recommended-architecture-decision"
+        }
+      ],
+      "coveredBy": [
+        "B01",
+        "B04",
+        "B06",
+        "B09",
+        "B12",
+        "B16",
+        "B20",
+        "X01",
+        "X02"
+      ]
+    },
+    "combat.md": {
+      "sha256": "643be29e33d89cbba0d1305b6ab5e18b6623412a57e1fe73d0bf71f216505688",
+      "sections": [
+        {
+          "title": "Combat geometry, targeting and outcome evidence",
+          "anchor": "combat-geometry-targeting-and-outcome-evidence"
+        },
+        {
+          "title": "Current behavior and demonstrated limits",
+          "anchor": "current-behavior-and-demonstrated-limits"
+        },
+        {
+          "title": "What external implementations actually do",
+          "anchor": "what-external-implementations-actually-do"
+        },
+        {
+          "title": "Attack geometry: what can be predicted",
+          "anchor": "attack-geometry-what-can-be-predicted"
+        },
+        {
+          "title": "Target persistence, occlusion and death",
+          "anchor": "target-persistence-occlusion-and-death"
+        },
+        {
+          "title": "Timing, skills and multi-target attacks",
+          "anchor": "timing-skills-and-multi-target-attacks"
+        },
+        {
+          "title": "Ranked local opportunities",
+          "anchor": "ranked-local-opportunities"
+        },
+        {
+          "title": "Verification criteria",
+          "anchor": "verification-criteria"
+        }
+      ],
+      "coveredBy": [
+        "B13",
+        "X02",
+        "X03",
+        "L01"
+      ]
+    },
+    "computer-vision.md": {
+      "sha256": "ca8918388c7ff35fefede0bd02606acd0151103e7f81958f6cca6bb05877ea96",
+      "sections": [
+        {
+          "title": "Computer vision: implementation comparison",
+          "anchor": "computer-vision-implementation-comparison"
+        },
+        {
+          "title": "Existing pipeline to preserve",
+          "anchor": "existing-pipeline-to-preserve"
+        },
+        {
+          "title": "Recognition choices",
+          "anchor": "recognition-choices"
+        },
+        {
+          "title": "Temporal trackers are complementary to detectors",
+          "anchor": "temporal-trackers-are-complementary-to-detectors"
+        },
+        {
+          "title": "Camera and coordinate frames",
+          "anchor": "camera-and-coordinate-frames"
+        },
+        {
+          "title": "Confidence calibration and uncertainty",
+          "anchor": "confidence-calibration-and-uncertainty"
+        },
+        {
+          "title": "Practical sequence",
+          "anchor": "practical-sequence"
+        }
+      ],
+      "coveredBy": [
+        "B04",
+        "B07",
+        "B08",
+        "B09",
+        "B10",
+        "B19",
+        "X04",
+        "X10"
+      ]
+    },
+    "debugging.md": {
+      "sha256": "bd6b91d2b2489298cf44428a62ff30e463e1da316e51d482585b3157c349511d",
+      "sections": [
+        {
+          "title": "Debugging, replay and development tools",
+          "anchor": "debugging-replay-and-development-tools"
+        },
+        {
+          "title": "What already works at the source level",
+          "anchor": "what-already-works-at-the-source-level"
+        },
+        {
+          "title": "Most important evidence weakness",
+          "anchor": "most-important-evidence-weakness"
+        },
+        {
+          "title": "External reporting pattern",
+          "anchor": "external-reporting-pattern"
+        },
+        {
+          "title": "Held-out dataset contract",
+          "anchor": "held-out-dataset-contract"
+        },
+        {
+          "title": "Metrics for the next evaluation milestone",
+          "anchor": "metrics-for-the-next-evaluation-milestone"
+        },
+        {
+          "title": "Diagnostics improvements supported by current code",
+          "anchor": "diagnostics-improvements-supported-by-current-code"
+        },
+        {
+          "title": "Validation in this research task",
+          "anchor": "validation-in-this-research-task"
+        }
+      ],
+      "coveredBy": [
+        "B01",
+        "B06",
+        "X07",
+        "X08"
+      ]
+    },
+    "evidence-general-systems.md": {
+      "sha256": "5d9acb31a7c6425307d89b735c56f479484bfe0c98fb61b4985efac2cf76e222",
+      "sections": [
+        {
+          "title": "General vision, capture and automation: source audit",
+          "anchor": "general-vision-capture-and-automation-source-audit"
+        },
+        {
+          "title": "Discovery and evidence standard",
+          "anchor": "discovery-and-evidence-standard"
+        },
+        {
+          "title": "Snapshot table",
+          "anchor": "snapshot-table"
+        },
+        {
+          "title": "Norfair",
+          "anchor": "norfair"
+        },
+        {
+          "title": "SORT",
+          "anchor": "sort"
+        },
+        {
+          "title": "ByteTrack",
+          "anchor": "bytetrack"
+        },
+        {
+          "title": "Deep SORT",
+          "anchor": "deep-sort"
+        },
+        {
+          "title": "python-mss",
+          "anchor": "python-mss"
+        },
+        {
+          "title": "DXcam",
+          "anchor": "dxcam"
+        },
+        {
+          "title": "py_trees",
+          "anchor": "py_trees"
+        },
+        {
+          "title": "Airtest",
+          "anchor": "airtest"
+        }
+      ],
+      "coveredBy": [
+        "B07",
+        "B08",
+        "B18",
+        "B20",
+        "X11"
+      ]
+    },
+    "evidence-maple-navigation.md": {
+      "sha256": "21751d4e0113fd27bdc50a18ab62417d3b031fe63fc384be467b1f54ebcdf137",
+      "sections": [
+        {
+          "title": "Source audit: navigation and combat repositories",
+          "anchor": "source-audit-navigation-and-combat-repositories"
+        },
+        {
+          "title": "Snapshot register",
+          "anchor": "snapshot-register"
+        },
+        {
+          "title": "easymaple",
+          "anchor": "easymaple"
+        },
+        {
+          "title": "D4MXD",
+          "anchor": "d4mxd"
+        },
+        {
+          "title": "MapleController",
+          "anchor": "maplecontroller"
+        },
+        {
+          "title": "rune-breaker",
+          "anchor": "rune-breaker"
+        },
+        {
+          "title": "LinPolly/MapleStoryAutoLevelUp",
+          "anchor": "linpollymaplestoryautolevelup"
+        },
+        {
+          "title": "sychen6192/maplebot",
+          "anchor": "sychen6192maplebot"
+        },
+        {
+          "title": "TinForge/MS-ML-Bot",
+          "anchor": "tinforgems-ml-bot"
+        },
+        {
+          "title": "Discovery boundaries",
+          "anchor": "discovery-boundaries"
+        }
+      ],
+      "coveredBy": [
+        "B15",
+        "X03",
+        "X05",
+        "X06",
+        "X11"
+      ]
+    },
+    "evidence-maple-perception.md": {
+      "sha256": "a6c59238f60148c53fd888a68d84a11de647f1f2c5ebbc5887e844ba50319929",
+      "sections": [
+        {
+          "title": "Maple perception source audit",
+          "anchor": "maple-perception-source-audit"
+        },
+        {
+          "title": "Acquisition and evidence rules",
+          "anchor": "acquisition-and-evidence-rules"
+        },
+        {
+          "title": "Verified snapshots and catalog entries",
+          "anchor": "verified-snapshots-and-catalog-entries"
+        },
+        {
+          "title": "tanjeffreyz/auto-maple",
+          "anchor": "tanjeffreyzauto-maple"
+        },
+        {
+          "title": "Jeremyzzzzz/MapleStoryAuto",
+          "anchor": "jeremyzzzzzmaplestoryauto"
+        },
+        {
+          "title": "Dashadower/MS-Visionify",
+          "anchor": "dashadowerms-visionify"
+        },
+        {
+          "title": "MapleStory-Archive/Auto-Maple",
+          "anchor": "maplestory-archiveauto-maple"
+        },
+        {
+          "title": "angusshire/msbot",
+          "anchor": "angusshiremsbot"
+        },
+        {
+          "title": "Relationship to earlier research",
+          "anchor": "relationship-to-earlier-research"
+        }
+      ],
+      "coveredBy": [
+        "B02",
+        "B03",
+        "B09",
+        "X04",
+        "X11",
+        "X12"
+      ]
+    },
+    "improvement-backlog.md": {
+      "sha256": "902705032bfab880f5802d867a823cb3a00c3d2d47217f8925a76aba469c7f17",
+      "sections": [
+        {
+          "title": "Ranked improvement backlog",
+          "anchor": "ranked-improvement-backlog"
+        },
+        {
+          "title": "Ranked overview",
+          "anchor": "ranked-overview"
+        },
+        {
+          "title": "Detailed proposals",
+          "anchor": "detailed-proposals"
+        },
+        {
+          "title": "1. Independent occlusion/reacquisition benchmark",
+          "anchor": "1-independent-occlusionreacquisition-benchmark"
+        },
+        {
+          "title": "2. Minimap-guided player search ROI",
+          "anchor": "2-minimap-guided-player-search-roi"
+        },
+        {
+          "title": "3. Marker/other-player consistency veto",
+          "anchor": "3-markerother-player-consistency-veto"
+        },
+        {
+          "title": "4. Calibrated confidence and ambiguity reporting",
+          "anchor": "4-calibrated-confidence-and-ambiguity-reporting"
+        },
+        {
+          "title": "5. Whole-pipeline tail-latency profiling",
+          "anchor": "5-whole-pipeline-tail-latency-profiling"
+        },
+        {
+          "title": "6. Recording completeness and write-error reporting",
+          "anchor": "6-recording-completeness-and-write-error-reporting"
+        },
+        {
+          "title": "7. Two-stage monster association experiment",
+          "anchor": "7-two-stage-monster-association-experiment"
+        },
+        {
+          "title": "8. Global assignment for crowded monster tracks",
+          "anchor": "8-global-assignment-for-crowded-monster-tracks"
+        },
+        {
+          "title": "9. Timestamp-aware bounded motion model",
+          "anchor": "9-timestamp-aware-bounded-motion-model"
+        },
+        {
+          "title": "10. Partial nametag morphology ablation",
+          "anchor": "10-partial-nametag-morphology-ablation"
+        },
+        {
+          "title": "11. Prediction-first local template verification",
+          "anchor": "11-prediction-first-local-template-verification"
+        },
+        {
+          "title": "12. Explicit observation-age contracts across consumers",
+          "anchor": "12-explicit-observation-age-contracts-across-consumers"
+        },
+        {
+          "title": "13. Combat feedback evidence ladder",
+          "anchor": "13-combat-feedback-evidence-ladder"
+        },
+        {
+          "title": "14. Matched-map projection/quantization corpus",
+          "anchor": "14-matched-map-projectionquantization-corpus"
+        },
+        {
+          "title": "15. Navigation failure taxonomy and replay coverage",
+          "anchor": "15-navigation-failure-taxonomy-and-replay-coverage"
+        },
+        {
+          "title": "16. Movement-proof provenance audit/extension",
+          "anchor": "16-movement-proof-provenance-auditextension"
+        },
+        {
+          "title": "17. Multi-rate perception scheduling experiment",
+          "anchor": "17-multi-rate-perception-scheduling-experiment"
+        },
+        {
+          "title": "18. Alternate capture backend A/B evaluation",
+          "anchor": "18-alternate-capture-backend-ab-evaluation"
+        },
+        {
+          "title": "19. Lightweight learned monster detector experiment",
+          "anchor": "19-lightweight-learned-monster-detector-experiment"
+        },
+        {
+          "title": "20. Extract small interruptible action primitives",
+          "anchor": "20-extract-small-interruptible-action-primitives"
+        },
+        {
+          "title": "One next implementation milestone",
+          "anchor": "one-next-implementation-milestone"
+        }
+      ],
+      "coveredBy": [
+        "B01",
+        "B02",
+        "B03",
+        "B04",
+        "B05",
+        "B06",
+        "B07",
+        "B08",
+        "B09",
+        "B10",
+        "B11",
+        "B12",
+        "B13",
+        "B14",
+        "B15",
+        "B16",
+        "B17",
+        "B18",
+        "B19",
+        "B20"
+      ]
+    },
+    "input-and-automation.md": {
+      "sha256": "d88968871f578d912178ca3f1a96065e95034ab23d2b7c6dac3f2429de70dd06",
+      "sections": [
+        {
+          "title": "Input and automation reliability",
+          "anchor": "input-and-automation-reliability"
+        },
+        {
+          "title": "Current implementation already provides the critical boundary",
+          "anchor": "current-implementation-already-provides-the-critical-boundary"
+        },
+        {
+          "title": "External patterns worth understanding",
+          "anchor": "external-patterns-worth-understanding"
+        },
+        {
+          "title": "State machines versus behavior trees",
+          "anchor": "state-machines-versus-behavior-trees"
+        },
+        {
+          "title": "Timing and observed effects",
+          "anchor": "timing-and-observed-effects"
+        },
+        {
+          "title": "Recovery under uncertainty",
+          "anchor": "recovery-under-uncertainty"
+        },
+        {
+          "title": "Practical improvements and verification",
+          "anchor": "practical-improvements-and-verification"
+        }
+      ],
+      "coveredBy": [
+        "B12",
+        "B20",
+        "X08"
+      ]
+    },
+    "monster-detection.md": {
+      "sha256": "2430cf261ad853652859faf8bd89646c1fcafe1917529292fb71f1fa2231fb64",
+      "sections": [
+        {
+          "title": "Monster recognition, tracking, and target evidence",
+          "anchor": "monster-recognition-tracking-and-target-evidence"
+        },
+        {
+          "title": "Current implementation",
+          "anchor": "current-implementation"
+        },
+        {
+          "title": "External evidence",
+          "anchor": "external-evidence"
+        },
+        {
+          "title": "Actual monster detector: MapleStoryAuto",
+          "anchor": "actual-monster-detector-maplestoryauto"
+        },
+        {
+          "title": "Bots that do not provide monster recognition evidence",
+          "anchor": "bots-that-do-not-provide-monster-recognition-evidence"
+        },
+        {
+          "title": "Comparison and limitations",
+          "anchor": "comparison-and-limitations"
+        },
+        {
+          "title": "Bounding boxes, classification, overlaps, and death",
+          "anchor": "bounding-boxes-classification-overlaps-and-death"
+        },
+        {
+          "title": "Verification priorities",
+          "anchor": "verification-priorities"
+        }
+      ],
+      "coveredBy": [
+        "B07",
+        "B08",
+        "B19",
+        "X01",
+        "X02",
+        "X03"
+      ]
+    },
+    "navigation.md": {
+      "sha256": "d026149832254622eb6b1e3c8e3102a30045cb46356d19b46a0a93d9f70be48e",
+      "sections": [
+        {
+          "title": "Navigation, movement and world localization",
+          "anchor": "navigation-movement-and-world-localization"
+        },
+        {
+          "title": "Current implementation: preserve its contracts",
+          "anchor": "current-implementation-preserve-its-contracts"
+        },
+        {
+          "title": "Competing approaches",
+          "anchor": "competing-approaches"
+        },
+        {
+          "title": "Source details that matter",
+          "anchor": "source-details-that-matter"
+        },
+        {
+          "title": "Minimap versus full-screen localization",
+          "anchor": "minimap-versus-full-screen-localization"
+        },
+        {
+          "title": "Recommended hybrid, as an incremental refinement",
+          "anchor": "recommended-hybrid-as-an-incremental-refinement"
+        },
+        {
+          "title": "Physics, boundaries and geometry",
+          "anchor": "physics-boundaries-and-geometry"
+        },
+        {
+          "title": "Verification and unresolved questions",
+          "anchor": "verification-and-unresolved-questions"
+        }
+      ],
+      "coveredBy": [
+        "B14",
+        "B15",
+        "B16",
+        "X05",
+        "X06"
+      ]
+    },
+    "open-questions.md": {
+      "sha256": "99336cbb758e93e208b95a73c63debcd4810a0ecb40b60ab7781bfe989765207",
+      "sections": [
+        {
+          "title": "Open questions and research limits",
+          "anchor": "open-questions-and-research-limits"
+        },
+        {
+          "title": "Evidence we do not have",
+          "anchor": "evidence-we-do-not-have"
+        },
+        {
+          "title": "Unverified external claims",
+          "anchor": "unverified-external-claims"
+        },
+        {
+          "title": "Preserved research requiring caution",
+          "anchor": "preserved-research-requiring-caution"
+        },
+        {
+          "title": "Search limitations and exclusions",
+          "anchor": "search-limitations-and-exclusions"
+        },
+        {
+          "title": "Bounded experiments after the selected milestone",
+          "anchor": "bounded-experiments-after-the-selected-milestone"
+        }
+      ],
+      "coveredBy": [
+        "B01",
+        "B13",
+        "B14",
+        "B16",
+        "X12"
+      ]
+    },
+    "performance.md": {
+      "sha256": "9c5bc8e8dc35386bdfda46a78878e09dfd4453b7a72d3c0520b05bb9afa8de17",
+      "sections": [
+        {
+          "title": "Performance and optimization",
+          "anchor": "performance-and-optimization"
+        },
+        {
+          "title": "Existing performance work",
+          "anchor": "existing-performance-work"
+        },
+        {
+          "title": "Capture backends: relevant implementation differences",
+          "anchor": "capture-backends-relevant-implementation-differences"
+        },
+        {
+          "title": "Optimization comparison",
+          "anchor": "optimization-comparison"
+        },
+        {
+          "title": "Measurement design",
+          "anchor": "measurement-design"
+        },
+        {
+          "title": "Concrete risks found in source",
+          "anchor": "concrete-risks-found-in-source"
+        }
+      ],
+      "coveredBy": [
+        "B05",
+        "B06",
+        "B11",
+        "B12",
+        "B17",
+        "B18",
+        "B19",
+        "X09"
+      ]
+    },
+    "player-tracking.md": {
+      "sha256": "be9ca9dabe9f91fb726d3c6d4827078f9bd6482854f98f4ce170d6c71682dfcc",
+      "sections": [
+        {
+          "title": "Player detection, identity, and localization",
+          "anchor": "player-detection-identity-and-localization"
+        },
+        {
+          "title": "Current implementation assessed first",
+          "anchor": "current-implementation-assessed-first"
+        },
+        {
+          "title": "What external bots actually implement",
+          "anchor": "what-external-bots-actually-implement"
+        },
+        {
+          "title": "Occlusion policy by evidence state",
+          "anchor": "occlusion-policy-by-evidence-state"
+        },
+        {
+          "title": "Motion models and uncertainty",
+          "anchor": "motion-models-and-uncertainty"
+        },
+        {
+          "title": "Recommended incremental work",
+          "anchor": "recommended-incremental-work"
+        }
+      ],
+      "coveredBy": [
+        "B01",
+        "B02",
+        "B03",
+        "B04",
+        "B09",
+        "B10",
+        "B11",
+        "X04"
+      ]
+    },
+    "README.md": {
+      "sha256": "b9ff5b94352862e747af6c9ff87bff04c72f45a2fb4fbe718a64d72e98aff1f4",
+      "sections": [
+        {
+          "title": "MapleStory bot ecosystem research",
+          "anchor": "maplestory-bot-ecosystem-research"
+        },
+        {
+          "title": "Executive findings",
+          "anchor": "executive-findings"
+        },
+        {
+          "title": "Top five recommendations",
+          "anchor": "top-five-recommendations"
+        },
+        {
+          "title": "Exactly one next implementation milestone",
+          "anchor": "exactly-one-next-implementation-milestone"
+        },
+        {
+          "title": "Read by task",
+          "anchor": "read-by-task"
+        },
+        {
+          "title": "Methodology and evidence levels",
+          "anchor": "methodology-and-evidence-levels"
+        },
+        {
+          "title": "Existing research and compatibility",
+          "anchor": "existing-research-and-compatibility"
+        },
+        {
+          "title": "Validation record",
+          "anchor": "validation-record"
+        }
+      ],
+      "coveredBy": [
+        "B01",
+        "B02",
+        "B03",
+        "B04",
+        "B05"
+      ]
+    },
+    "repositories.md": {
+      "sha256": "da05a77f69bda008d5a60a7eec27ae8bffe22ef31807281a0f466392f64076e5",
+      "sections": [
+        {
+          "title": "Repository catalog",
+          "anchor": "repository-catalog"
+        },
+        {
+          "title": "MapleStory repositories",
+          "anchor": "maplestory-repositories"
+        },
+        {
+          "title": "Source evidence, strengths, weaknesses and relevance",
+          "anchor": "source-evidence-strengths-weaknesses-and-relevance"
+        },
+        {
+          "title": "Related tracking, capture and automation repositories",
+          "anchor": "related-tracking-capture-and-automation-repositories"
+        },
+        {
+          "title": "Discovery beyond the catalog",
+          "anchor": "discovery-beyond-the-catalog"
+        },
+        {
+          "title": "Licensing and maturity interpretation",
+          "anchor": "licensing-and-maturity-interpretation"
+        }
+      ],
+      "coveredBy": [
+        "X11",
+        "X12"
+      ]
+    }
+  },
+  "protected": {
+    "AGENTS.md": "330f7f6ad1a4517b4f69b1a557352aaf4213166d04a66b461044525a273ed185",
+    "CLAUDE.md": "81f27e72b1120da00a1e3a05e661799d5e3a5e04b34cdb9d55d6b8034c8aff5f"
+  },
+  "phases": [
+    {
+      "id": "p1",
+      "task": "Preserve research; create R/implementation-register.md",
+      "dependsOn": [],
+      "acceptance": [
+        "Inventory/hash 16 reports; preserve existing research/dirty instructions. Create implementation-register.md with B01-B20,X01-X12,L01; append extra IDs, never renumber.",
+        "Rows: source section/permalink, code seam, phase/dependencies, disposition, acceptance, evidence, risks, deferral reason/revisit trigger. Map every actionable passage; alias duplicates; retain rejected/already-covered findings. Validate zero orphan IDs/links. Preserve combat decisions/evidence as L01."
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "p2",
+      "task": "B01/X07 independent occlusion baseline",
+      "dependsOn": [
+        "p1"
+      ],
+      "acceptance": [
+        "Sources debugging.md; X07=paired reports/uncertainty overlays.",
+        "Extend replay/benchmark: freeze hashes/session splits, independent identity/visibility labels, hidden=unknown/interval, separate real/synthetic, explicit gaps. Deterministic unchanged baseline; false identity/resume, recall, recovery, abstention, timing; no capture/input/tuning."
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "p3",
+      "task": "B05/B06/B12/X08 evidence and timing",
+      "dependsOn": [
+        "p2"
+      ],
+      "acceptance": [
+        "X08=input-and-automation.md: cancellation/tickets/recovery reasons; performance.md for profiling.",
+        "Recorder fault injection exposes errors/backlog. Reject stale/out-of-order generations; Stop/release retained. Stage tails/frame age measured with offline/native timing distinguished."
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "p4",
+      "task": "B14/B16/X05 localization/proofs",
+      "dependsOn": [
+        "p2",
+        "p3"
+      ],
+      "acceptance": [
+        "X05=navigation.md: marker shapes, terrain-motion challenger, resets/stitching.",
+        "Independent matched-build anchors/quantization; no circular labels. Audit code/control/physics proof provenance; migrate only if needed, preserve records. Incompatible maps/unknowns explicit; open-questions.md."
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "p5",
+      "task": "B02-B04/B09-B11/X04 player recovery",
+      "dependsOn": [
+        "p3",
+        "p4"
+      ],
+      "acceptance": [
+        "X04=player-tracking.md: fragments/masked body points; re-ID alternatives in computer-vision.md.",
+        "Paired ROI/veto/confidence/elapsed-time/morphology/local-check ablations. Ambiguous/stale cues retain fallback; no false fresh identity/resume. Promote measured gains only; otherwise reason+revisit trigger."
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "p6",
+      "task": "B07/B08/B13/X01-X03 monster/combat evidence",
+      "dependsOn": [
+        "p3",
+        "p5"
+      ],
+      "acceptance": [
+        "X01=monster-detection.md: suppression. X02=same plus combat.md: hidden uncertainty/identity consistency.",
+        "X03=combat.md HPbar/facing/range/animation/projectile/AOE cues. Fixed-detection crossings/range negatives; no weak new target/hidden pursuit. Dispatch/disappearance != hit/kill. Retain unknown; log changes to L01 choices for p9."
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "p7",
+      "task": "B15/X06 navigation replay",
+      "dependsOn": [
+        "p4",
+        "p5"
+      ],
+      "acceptance": [
+        "X06=navigation.md: route compression/teaching,physics/landing,boundaries.",
+        "Action-aligned held-out replay distinguishes localization/grip/trajectory/input failures; no false arrival/extra retries. Proposed/simulated/proven separate; unidentified physics explicit."
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "p8",
+      "task": "B17-B20/X09-X12 conditional experiments",
+      "dependsOn": [
+        "p3",
+        "p5",
+        "p6",
+        "p7"
+      ],
+      "acceptance": [
+        "X09=performance.md caches/buffers/workers; X10=computer-vision.md scale/features/differencing/OCR; X11=repositories.md+3 evidence audits licenses/deps/assets; X12=open-questions.md stale claims.",
+        "Scheduling/capture/ML only for measured residual gap; action primitives only for demonstrated complexity. Check code/model/data rights/dependencies before reuse; no untrusted execution. Each ID gets adopt/defer/reject evidence+trigger; adopted changes pass paired quality/tail-latency checks."
+      ],
+      "status": "pending"
+    },
+    {
+      "id": "p9",
+      "task": "L01 preserved combat/native acceptance",
+      "dependsOn": [
+        "p1"
+      ],
+      "acceptance": [
+        "L01: go_minute.py rope5 descent +60s potion rotation; inspect current script/setup/prior failure; affected offline checks and safe install first.",
+        "Record HPmin,waits/attacks,stops,result/clip paths for preserved less-damage outcome. Old engine/map state unverified. Research changes need separate native acceptance when applicable."
+      ],
+      "status": "pending",
+      "userInput": "Fresh explicit authorization for each bounded batch, operator present; plan/next is not approval."
+    },
+    {
+      "id": "p10",
+      "task": "Coverage/handoff audit",
+      "dependsOn": [
+        "p8"
+      ],
+      "acceptance": [
+        "Reconcile all16 reports: every B/X/L has source/disposition/dependencies/evidence/remaining acceptance. Update index/continuity; implemented/offline/live/deferred distinct. p9 pending keeps goal active."
+      ],
+      "status": "pending"
+    }
+  ],
+  "entries": [
+    {
+      "id": "B01",
+      "title": "Independent occlusion/reacquisition benchmark",
+      "source": [
+        "improvement-backlog.md#1-independent-occlusionreacquisition-benchmark"
+      ],
+      "code": [
+        "tools/tracking_benchmark.py"
+      ],
+      "phase": "p2",
+      "dependsOn": [
+        "p1"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** `tracking_benchmark.load/interpolate` labels from detector anchors and linear interpolation. Extend existing offline tooling with independently annotated identity/visibility intervals and uncertainty-aware scoring; keep synthetic cases separate. Evidence: [local debugging assessment](debugging.md), [Norfair](https://github.com/tryolabs/norfair) and [ByteTrack](https://github.com/FoundationVision/ByteTrack) for explicit track lifecycle/evaluation concepts, not transferable accuracy.\r\n- **Benefit, cost and integration:** high decision value, no gameplay runtime cost, S–M effort; low integration using current recorder/replay. Dependencies: existing recordings, frozen detector/config hashes and annotation conventions. Risk: insufficient independent labels or leaking held-out clips into tuning.\r\n- **Verification:** report evaluable/unknown frames separately, false identity acceptances, missed visible detections, time to fresh same-identity recovery, and abstention. Compare unchanged baseline reproducibly. Confidence high. This is the single selected milestone below.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B02",
+      "title": "Minimap-guided player search ROI",
+      "source": [
+        "improvement-backlog.md#2-minimap-guided-player-search-roi"
+      ],
+      "code": [
+        "src/maplebot/perception.py"
+      ],
+      "phase": "p5",
+      "dependsOn": [
+        "p3",
+        "p4"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** the search window can remain near a stale screen prediction during occlusion. Use a fresh unique minimap marker plus valid independent camera/view registration to constrain search, inspired by [MapleStoryAuto's minimap zones](player-tracking.md). Preserve full-frame fallback and existing freshness rules.\r\n- **Benefit, cost and integration:** expected recovery/CPU benefit, M effort; small arithmetic plus existing matching, actual cost unknown. Medium integration across `LivePosition` and `TemplateDetector`; depends on #1 and a clearly non-circular transform.\r\n- **Risks/verification:** camera clamp, quantization, marker ambiguity and registration age. Compare ROI recall, recovery delay and p95 processing on the same clips; reject a prior that excludes the true player. A projected box never grants input. Confidence medium-high.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B03",
+      "title": "Marker/other-player consistency veto",
+      "source": [
+        "improvement-backlog.md#3-markerother-player-consistency-veto"
+      ],
+      "code": [
+        "src/maplebot/localization.py"
+      ],
+      "phase": "p5",
+      "dependsOn": [
+        "p3",
+        "p4"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** similar players and nametags can be ambiguous. Use minimap agreement and other-player dot zones only to reject inconsistent identity candidates; [MapleStoryAuto](player-tracking.md) supplies a concrete allowed-zone implementation.\r\n- **Benefit, cost and integration:** fewer identity swaps; M effort, low expected arithmetic cost but uncertain additional dot-recognition cost. Medium integration; depends on #1/#2 and identity-aware labels.\r\n- **Risks/verification:** merging dots, party/marker colors, stale maps, overlapping X on different floors. Negative priors must fail open to existing conservative identity rules when unavailable, never manufacture confidence. Measure false vetoes and wrong-player resumes in crowded clips. Confidence medium.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B04",
+      "title": "Calibrated confidence and ambiguity reporting",
+      "source": [
+        "improvement-backlog.md#4-calibrated-confidence-and-ambiguity-reporting"
+      ],
+      "code": [
+        "src/maplebot/perception.py"
+      ],
+      "phase": "p5",
+      "dependsOn": [
+        "p3",
+        "p4"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** template correlation, partial evidence, camera agreement and model confidence are different scores, not probabilities. Preserve their provenance and fit per-evidence threshold curves on development data; compare on held-out data. Sources: [Norfair distance gates, ByteTrack score tiers](computer-vision.md), [current player fusion](player-tracking.md).\r\n- **Benefit, cost and integration:** justified abstention and fewer arbitrary threshold changes; M effort, little expected online overhead. Medium integration; depends on #1 and stable feature logging.\r\n- **Risks/verification:** overfitting, tiny positive-only sets, collapsing different evidence types. Publish precision/recall and abstention by visibility class; prediction remains distinct from observation. Confidence high in evaluation need, unknown improvement magnitude.\r\n\r\nInclude the concrete `Agent._hidden_target` boundary case: the existing bounded attack uses a point estimate without directly checking the track uncertainty interval/confidence. Compare a conservative interval-aware eligibility rule on offline range-boundary cases before changing policy; no observed failure or benefit is claimed yet.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B05",
+      "title": "Whole-pipeline tail-latency profiling",
+      "source": [
+        "improvement-backlog.md#5-whole-pipeline-tail-latency-profiling"
+      ],
+      "code": [
+        "src/maplebot/runtime.py"
+      ],
+      "phase": "p3",
+      "dependsOn": [
+        "p2"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** configured FPS and old timing anecdotes do not identify today's bottleneck. Aggregate existing stage timings and source age by scene density, including encoding/publication and dropped work. Compare capture-only and replay components separately. Sources: [MSS/DXcam](performance.md) and `Application._run/_process`.\r\n- **Benefit, cost and integration:** avoid expensive backend/model changes with no end-to-end gain; S effort, low integration, optional diagnostic overhead. Depends on reproducible inputs/hardware metadata, not new gameplay.\r\n- **Risks/verification:** warmed caches, background apps and async work excluded from timers. Report p50/p95/max, frame age, skipped jobs and wall-clock runtime; avoid converting a faster isolated stage into a claimed overall speedup. Confidence high.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B06",
+      "title": "Recording completeness and write-error reporting",
+      "source": [
+        "improvement-backlog.md#6-recording-completeness-and-write-error-reporting"
+      ],
+      "code": [
+        "src/maplebot/recorder.py"
+      ],
+      "phase": "p3",
+      "dependsOn": [
+        "p2"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** `SessionRecorder._write` counts frame-write failures but silently consumes non-frame `OSError`; frame limits do not bound all queue jobs. Add explicit completeness/error counters and a durable manifest concept. [Airtest's recording/reporting path](debugging.md) is an observability reference, not a safety blueprint.\r\n- **Benefit, cost and integration:** reliable diagnostics; S effort, low runtime cost, low–medium integration in recorder/debugger. Depends on preserving file format compatibility and all saved data.\r\n- **Risks/verification:** blocking the capture loop or losing the original error. Fault-inject missing directory, full disk, line-write failure and slow writer; incomplete evidence must be visibly incomplete while Stop/release still works. Confidence high.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B07",
+      "title": "Two-stage monster association experiment",
+      "source": [
+        "improvement-backlog.md#7-two-stage-monster-association-experiment"
+      ],
+      "code": [
+        "src/maplebot/enemy_tracking.py"
+      ],
+      "phase": "p6",
+      "dependsOn": [
+        "p3",
+        "p5"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** low-score partial detections may continue an established track but should not create new targets. [ByteTrack's high/low association passes](computer-vision.md) offer a pattern; local `partial_enemies` already covers part of it, so first measure the residual gap.\r\n- **Benefit, cost and integration:** fewer identity breaks; M effort, modest extra association work; medium integration in `EnemyTracker.update`. Depends on #1/#4 and monster-labelled sequences.\r\n- **Risks/verification:** noise refreshing a false track indefinitely. Retain expiry, camera confidence and per-species/platform checks. Measure wrong associations, survival under true occlusion and false-track lifetime; no weak observation becomes new attack authority. Confidence medium.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B08",
+      "title": "Global assignment for crowded monster tracks",
+      "source": [
+        "improvement-backlog.md#8-global-assignment-for-crowded-monster-tracks"
+      ],
+      "code": [
+        "src/maplebot/enemy_tracking.py"
+      ],
+      "phase": "p6",
+      "dependsOn": [
+        "p3",
+        "p5"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** greedy per-detection association may choose locally convenient matches that conflict globally. Compare current behavior against gated bipartite assignment with species, ground position, elapsed time and optional appearance cost. Sources: [SORT, Deep SORT, ByteTrack](computer-vision.md).\r\n- **Benefit, cost and integration:** fewer ID switches in crossings; M effort, cost grows with track count; medium integration and possibly a new dependency (justify separately, none installed now). Depends on #7's fixed detection corpus.\r\n- **Risks/verification:** globally optimal costs can still be semantically wrong for identical overlapping sprites. Require clear gains at actual scene counts; retain unknown/ambiguous outcomes and no-pursuit hidden-target policy. Confidence medium.\r\n\r\nFirst audit detector-side loss: `_suppress` can suppress overlapping different-species boxes before association. Compare species/evidence-aware suppression on the same corpus; assignment cannot recover a candidate that never reaches it. Keep duplicate-template negatives so a more permissive suppression rule does not inflate counts.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B09",
+      "title": "Timestamp-aware bounded motion model",
+      "source": [
+        "improvement-backlog.md#9-timestamp-aware-bounded-motion-model"
+      ],
+      "code": [
+        "src/maplebot/perception.py"
+      ],
+      "phase": "p5",
+      "dependsOn": [
+        "p3",
+        "p4"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** frame-based prediction may behave differently under dropped/slow frames. Compare current bounded world-step logic against alpha-beta or Kalman state with actual elapsed time, camera compensation and stop-aware velocity decay. Sources: [SORT/Norfair filters](computer-vision.md), [MapleStoryAuto decay](player-tracking.md).\r\n- **Benefit, cost and integration:** better search placement, not full-occlusion truth; M effort, low expected arithmetic cost, medium integration. Depends on #1/#5 and motion-labelled clips.\r\n- **Risks/verification:** knockback, acceleration, floor/rope transitions and uncertain camera. Sweep irregular timestamps and long gaps; prediction error must improve without more false fresh identities. Fit decay from evidence, not another bot's per-frame constant. Confidence medium.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B10",
+      "title": "Partial nametag morphology ablation",
+      "source": [
+        "improvement-backlog.md#10-partial-nametag-morphology-ablation"
+      ],
+      "code": [
+        "src/maplebot/perception.py"
+      ],
+      "phase": "p5",
+      "dependsOn": [
+        "p3",
+        "p4"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** small interruptions can break visual anchors. [MapleStoryAuto's HSV strip morphology](player-tracking.md) supports testing a small closing operation; it does not prove closing white nametag glyphs is beneficial.\r\n- **Benefit, cost and integration:** possible fragment recovery; S–M effort, small ROI cost to measure, low code integration after #1. No new dependency needed.\r\n- **Risks/verification:** merging adjacent names, creating false strokes or matching only a shared prefix. Require held-out lookalike negatives, preserve distributed glyph support and fresh sprite corroboration. Reject the change if false acceptance rises. Confidence medium-low because transfer to our glyph representation is speculative.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B11",
+      "title": "Prediction-first local template verification",
+      "source": [
+        "improvement-backlog.md#11-prediction-first-local-template-verification"
+      ],
+      "code": [
+        "src/maplebot/perception.py"
+      ],
+      "phase": "p5",
+      "dependsOn": [
+        "p3",
+        "p4"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** a stable frame may not require the full ROI template sweep. Test last-confirmed template at a small predicted neighbourhood, followed by the unchanged search on failure. [msbot early-exit matching](computer-vision.md) is an efficiency idea; current color/signature batching already optimizes matching.\r\n- **Benefit, cost and integration:** potential CPU reduction; S–M effort, low–medium integration. Depends on #5 demonstrating matching cost and #1 detecting identity regressions.\r\n- **Risks/verification:** first acceptable match hiding a stronger competing identity, stale template or animation change. Preserve ambiguity comparisons where needed; measure end-to-end tail latency and detection equivalence, not just fast-path time. Confidence medium.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B12",
+      "title": "Explicit observation-age contracts across consumers",
+      "source": [
+        "improvement-backlog.md#12-explicit-observation-age-contracts-across-consumers"
+      ],
+      "code": [
+        "src/maplebot/contracts.py"
+      ],
+      "phase": "p3",
+      "dependsOn": [
+        "p2"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** asynchronous OCR, preview, camera registration and future detector workers have distinct generations/ages. Preserve current IDs and add narrow typed evidence envelopes only where fields are missing: capture time, source/view generation, observation/prediction kind, uncertainty and expiry. Sources: [DXcam latest-frame buffering, Airtest polling](performance.md).\r\n- **Benefit, cost and integration:** easier stale-result rejection; M effort, low metadata cost, medium integration. Depends on an audit of current contracts so existing safeguards are not duplicated.\r\n- **Risks/verification:** mixing wall clock and monotonic time, breaking replay compatibility, broad refactor. Reject delayed/out-of-order old-generation results in focused offline tests; leave one runtime input owner. Confidence high for explicit evidence, not for a wholesale architecture change.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B13",
+      "title": "Combat feedback evidence ladder",
+      "source": [
+        "improvement-backlog.md#13-combat-feedback-evidence-ladder"
+      ],
+      "code": [
+        "src/maplebot/combat_evidence.py"
+      ],
+      "phase": "p6",
+      "dependsOn": [
+        "p3",
+        "p5"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** range eligibility and input tickets cannot establish hits. Keep separate states for requested, dispatched, animation/projectile observed, damage candidate and causally attributable outcome. External [MapleController/Classic bot attack paths](combat.md) mostly demonstrate dispatch, underscoring the missing evidence rather than supplying a ready solution.\r\n- **Benefit, cost and integration:** more useful combat diagnostics and less false success; M–L effort, potentially significant ROI/OCR work; medium–high integration, observation-only first. Depends on target tracks, timestamps and isolated annotated combat clips.\r\n- **Risks/verification:** other players' damage, multi-target effects, despawn and projectile delay. Include explicit unknown outcomes and negative controls; never equate disappearing detections with kills. Confidence medium; final causal attribution may remain unavailable screenshot-only.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B14",
+      "title": "Matched-map projection/quantization corpus",
+      "source": [
+        "improvement-backlog.md#14-matched-map-projectionquantization-corpus"
+      ],
+      "code": [
+        "src/maplebot/map_alignment.py"
+      ],
+      "phase": "p4",
+      "dependsOn": [
+        "p2",
+        "p3"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** minimap scale/origin and native/source alignment have systematic uncertainty. Preserve [existing position research](../../position-evidence-research.md); compare quantized intervals against independent geometry labels and matching source builds. [Auto Maple/MS-Visionify minimap methods](navigation.md) illustrate why marker precision alone is insufficient.\r\n- **Benefit, cost and integration:** fewer false surface assignments; M effort, offline cost only initially, medium integration. Depends on compatible public assets and non-circular landmarks; do not consume held-out maps during tuning.\r\n- **Risks/verification:** mismatched clients, image-corner versus map-origin coordinates, nonunique portals. Validate at least three independent non-collinear anchors where available and report uncertainty coverage; incompatible maps remain excluded. Confidence high.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B15",
+      "title": "Navigation failure taxonomy and replay coverage",
+      "source": [
+        "improvement-backlog.md#15-navigation-failure-taxonomy-and-replay-coverage"
+      ],
+      "code": [
+        "src/maplebot/navigation_executor.py"
+      ],
+      "phase": "p7",
+      "dependsOn": [
+        "p4",
+        "p5"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** “timeout” can combine wrong localization, missed grip, infeasible trajectory or delayed input. Retain bounded phases and attach structured phase/progress evidence to failures. Sources: [Auto Maple class commands and MapleStoryAutoLevelUp route logic](navigation.md), compared with current `Navigator` and harness.\r\n- **Benefit, cost and integration:** smaller repair/retest scope; M effort, low logging overhead, medium integration. Depends on existing clips and physics evidence.\r\n- **Risks/verification:** inferred contact mislabelled as verified grip, synthetic success presented as native proof. Replay separate camera-loss, rope-miss, stale-feedback and edge-deadline scenarios; no increased retries or changed gate thresholds. Confidence high.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B16",
+      "title": "Movement-proof provenance audit/extension",
+      "source": [
+        "improvement-backlog.md#16-movement-proof-provenance-auditextension"
+      ],
+      "code": [
+        "src/maplebot/move_proofs.py"
+      ],
+      "phase": "p4",
+      "dependsOn": [
+        "p2",
+        "p3"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** `MoveProofs` persists map hash/move ID/time; verify whether movement-code or control/physics changes can leave old proof applicable. Add an explicit provenance version only if that gap is confirmed end-to-end. Sources: local [architecture](architecture.md) and map/class-specific external movement assumptions in [navigation](navigation.md).\r\n- **Benefit, cost and integration:** honest reuse of evidence; M effort, trivial expected hash/storage cost but medium–high compatibility work. Depends on a precise invalidation policy and safe migration preserving old records.\r\n- **Risks/verification:** gratuitously invalidating working evidence or letting old proof grant new capabilities. Test unchanged reuse, map change, movement-model change and legacy records; archive rather than delete historical proof. Confidence medium-high.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B17",
+      "title": "Multi-rate perception scheduling experiment",
+      "source": [
+        "improvement-backlog.md#17-multi-rate-perception-scheduling-experiment"
+      ],
+      "code": [
+        "src/maplebot/runtime.py"
+      ],
+      "phase": "p8",
+      "dependsOn": [
+        "p3",
+        "p5",
+        "p6",
+        "p7"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** crowded-scene matching may delay player freshness. Runtime already skips monster work during navigation; extend only if #5 identifies a gap. Sources: [MapleStoryAuto async detection](monster-detection.md), [DXcam buffering](performance.md).\r\n- **Benefit, cost and integration:** potentially steadier localization; M–L effort, uncertain CPU benefit and extra synchronization cost; medium–high integration. Depends on #12, age limits, profiling and deterministic replay.\r\n- **Risks/verification:** stale combat targets, queue growth and nondeterministic state. Use bounded latest-work semantics and compare frame age/target freshness under overload. Never reuse stale targets merely to maintain display FPS. Confidence medium.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B18",
+      "title": "Alternate capture backend A/B evaluation",
+      "source": [
+        "improvement-backlog.md#18-alternate-capture-backend-ab-evaluation"
+      ],
+      "code": [
+        "src/maplebot/capture.py"
+      ],
+      "phase": "p8",
+      "dependsOn": [
+        "p3",
+        "p5",
+        "p6",
+        "p7"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** if MSS capture dominates measured latency, compare [DXcam](https://github.com/ra1nty/DXcam) or Windows Graphics Capture patterns in [performance](performance.md) behind the existing capture interface.\r\n- **Benefit, cost and integration:** conditional capture reduction; M effort, backend/device-dependent CPU/GPU/memory cost, medium Windows-specific integration. Depends on #5; no dependency installation in this audit.\r\n- **Risks/verification:** window bounds, DPI, moved windows, stale frame duplication and color order. Preserve `Capture.window` pre/post validations and ownership; compare frame correctness and end-to-end age on identical conditions. Confidence low until bottleneck evidence exists.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B19",
+      "title": "Lightweight learned monster detector experiment",
+      "source": [
+        "improvement-backlog.md#19-lightweight-learned-monster-detector-experiment"
+      ],
+      "code": [
+        "src/maplebot/perception.py"
+      ],
+      "phase": "p8",
+      "dependsOn": [
+        "p3",
+        "p5",
+        "p6",
+        "p7"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** evaluate a small detector only if animation/partial-occlusion failures remain after simpler methods. Sources: [MapleStoryAuto and TinForge](monster-detection.md); use existing [Detector protocol](../../../src/maplebot/perception.py).\r\n- **Benefit, cost and integration:** possible appearance generalization; L effort, potentially high CPU/inference cost and optional GPU operational burden, high data/model maintenance. Depends on labelled positive/negative maps, license review of weights/assets and an inference budget.\r\n- **Risks/verification:** Artale-to-Classic domain mismatch, sprite/NPC confusion, dataset leakage and distribution obligations. Compare precision/recall by species and occlusion, tail latency and memory against templates on held-out scenes. CPU feasibility must be measured. Confidence low pending evidence.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "B20",
+      "title": "Extract small interruptible action primitives",
+      "source": [
+        "improvement-backlog.md#20-extract-small-interruptible-action-primitives"
+      ],
+      "code": [
+        "src/maplebot/scheduler.py"
+      ],
+      "phase": "p8",
+      "dependsOn": [
+        "p3",
+        "p5",
+        "p6",
+        "p7"
+      ],
+      "disposition": "planned",
+      "acceptance": "- **Problem and technique:** if runtime orchestration becomes harder to reason about, extract a few cancel-aware action objects; [py_trees stop/terminate lifecycle](input-and-automation.md) is a reference. Do not install a behavior-tree framework merely to replace the current bounded state machine.\r\n- **Benefit, cost and integration:** conditional maintainability; M effort, minimal expected computational change, medium–high lifecycle risk. Depends on a concrete complexity problem and existing scheduler outcomes.\r\n- **Risks/verification:** a second input owner, canceled actions dispatching late, failures swallowed by generic statuses. Preserve release/stop/expiry tests and demonstrate clearer ownership before adopting. Confidence low absent growth pressure.",
+      "evidence": [],
+      "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
+      "deferral": null
+    },
+    {
+      "id": "X01",
+      "title": "Species/evidence-aware overlap suppression",
+      "source": [
+        "monster-detection.md#bounding-boxes-classification-overlaps-and-death"
+      ],
+      "code": [
+        "src/maplebot/perception.py"
+      ],
+      "phase": "p6",
+      "dependsOn": [
+        "p3",
+        "p5"
+      ],
+      "disposition": "planned",
+      "acceptance": "Compare mixed/same-species overlaps and duplicate-template negatives; do not inflate target count.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "X02",
+      "title": "Hidden-target uncertainty and combat/track identity",
+      "source": [
+        "monster-detection.md#bounding-boxes-classification-overlaps-and-death"
+      ],
+      "code": [
+        "src/maplebot/decision.py"
+      ],
+      "phase": "p6",
+      "dependsOn": [
+        "p3",
+        "p5"
+      ],
+      "disposition": "planned",
+      "acceptance": "Range-boundary intervals, crossing identities and age expiry; preserve bounded hidden attacks without pursuit.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "X03",
+      "title": "HP bars, facing, animation/range, projectiles and AOE",
+      "source": [
+        "combat.md#ranked-local-opportunities"
+      ],
+      "code": [
+        "src/maplebot/hit_check.py"
+      ],
+      "phase": "p6",
+      "dependsOn": [
+        "p3",
+        "p5"
+      ],
+      "disposition": "planned",
+      "acceptance": "Evaluate individual cues only with independent labels; no disappearance/dispatch equals hit. Unknown outcome remains valid.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "X04",
+      "title": "Body fragments, masked points and appearance reidentification",
+      "source": [
+        "player-tracking.md#recommended-incremental-work"
+      ],
+      "code": [
+        "src/maplebot/perception.py"
+      ],
+      "phase": "p5",
+      "dependsOn": [
+        "p3",
+        "p4"
+      ],
+      "disposition": "planned",
+      "acceptance": "Distributed visible evidence, named identity, lookalike negatives and expiry; compare before adding searches/models.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "X05",
+      "title": "Marker shapes, minimap motion, reset and stitching",
+      "source": [
+        "navigation.md#minimap-versus-full-screen-localization"
+      ],
+      "code": [
+        "src/maplebot/minimap.py"
+      ],
+      "phase": "p4",
+      "dependsOn": [
+        "p2",
+        "p3"
+      ],
+      "disposition": "planned",
+      "acceptance": "Independent labelled scroll/marker cases; resets invalidate old basis; stitching stays diagnostic until validated.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "X06",
+      "title": "Route teaching/compression, physics, landing and boundaries",
+      "source": [
+        "navigation.md#physics-boundaries-and-geometry"
+      ],
+      "code": [
+        "src/maplebot/motion_learning.py"
+      ],
+      "phase": "p7",
+      "dependsOn": [
+        "p4",
+        "p5"
+      ],
+      "disposition": "planned",
+      "acceptance": "Action-aligned held-out landings; no unobserved grip/contact or geometry-as-proof; record unsupported move classes.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "X07",
+      "title": "Paired visual evidence reports and uncertainty overlays",
+      "source": [
+        "debugging.md#external-reporting-pattern"
+      ],
+      "code": [
+        "src/maplebot/replay.py"
+      ],
+      "phase": "p2",
+      "dependsOn": [
+        "p1"
+      ],
+      "disposition": "planned",
+      "acceptance": "Same raw frame IDs, label provenance, measured/predicted distinction, missing-frame indicators and reproducible report.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "X08",
+      "title": "Cancellation contracts, ticket timeline and recovery reasons",
+      "source": [
+        "input-and-automation.md#practical-improvements-and-verification"
+      ],
+      "code": [
+        "src/maplebot/keyboard.py"
+      ],
+      "phase": "p3",
+      "dependsOn": [
+        "p2"
+      ],
+      "disposition": "planned",
+      "acceptance": "Stop cancels queued/active keys; stale callbacks cannot affect new owner; keep input submission separate from visual effect.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "X09",
+      "title": "Template caches, buffer ownership, worker counts and cadence",
+      "source": [
+        "performance.md#optimization-comparison"
+      ],
+      "code": [
+        "src/maplebot/perception.py"
+      ],
+      "phase": "p8",
+      "dependsOn": [
+        "p3",
+        "p5",
+        "p6",
+        "p7"
+      ],
+      "disposition": "planned",
+      "acceptance": "Profile before changes; paired output/age/tail measurements; no aliasing or unbounded asynchronous work.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "X10",
+      "title": "Scale/features/differencing/background/OCR alternatives",
+      "source": [
+        "computer-vision.md#recognition-choices"
+      ],
+      "code": [
+        "src/maplebot/perception.py"
+      ],
+      "phase": "p8",
+      "dependsOn": [
+        "p3",
+        "p5",
+        "p6",
+        "p7"
+      ],
+      "disposition": "planned",
+      "acceptance": "Named residual failure and comparable corpus required; calibration/layout gates retained; otherwise defer with revisit trigger.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "X11",
+      "title": "Code, model, data and dependency provenance",
+      "source": [
+        "repositories.md#licensing-and-maturity-interpretation"
+      ],
+      "code": [
+        "pyproject.toml"
+      ],
+      "phase": "p8",
+      "dependsOn": [
+        "p3",
+        "p5",
+        "p6",
+        "p7"
+      ],
+      "disposition": "planned",
+      "acceptance": "Check actual license/manifests plus three evidence audits before reuse; do not import conflicting dependencies or unlicensed code.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "X12",
+      "title": "Reconcile stale claims and research unknowns",
+      "source": [
+        "open-questions.md#preserved-research-requiring-caution"
+      ],
+      "code": [
+        "docs/oss-bot-research.md"
+      ],
+      "phase": "p8",
+      "dependsOn": [
+        "p3",
+        "p5",
+        "p6",
+        "p7"
+      ],
+      "disposition": "planned",
+      "acceptance": "Older numeric speed/YOLO claims remain unmeasured; findings use current source and separate native/offline evidence.",
+      "evidence": [],
+      "risk": "See source; adoption conditional on evidence.",
+      "deferral": null
+    },
+    {
+      "id": "L01",
+      "title": "Preserved club combat native acceptance",
+      "source": [
+        "combat.md#current-behavior-and-demonstrated-limits"
+      ],
+      "code": [
+        "src/maplebot/decision.py"
+      ],
+      "phase": "p9",
+      "dependsOn": [
+        "p1"
+      ],
+      "disposition": "blocked",
+      "acceptance": "L01: go_minute.py rope5 descent +60s potion rotation; inspect current script/setup/prior failure; affected offline checks and safe install first. Record HPmin,waits/attacks,stops,result/clip paths for preserved less-damage outcome. Old engine/map state unverified. Research changes need separate native acceptance when applicable.",
+      "evidence": [
+        {
+          "id": "less-damage",
+          "description": "Supervised 60 s rotation with less damage: earlier attacks, wait for approaching snails, nearest target, potions",
+          "required": true,
+          "status": "pending",
+          "evidence": "go-here-115128 partial: HP min 90% over 38 s before navigation stop."
+        }
+      ],
+      "decisions": "PLAN ONLY. R=docs/research/maplestory-bot-ecosystem/; links relative to R. B01-B20=numbered improvement-backlog.md headings. Preserve dirty research/instructions, data/proofs; exclude pre-existing edits from commits. Retain gates/input owner. Per live batch: explicit go+operator; first failure release/clip/alarm/handback; no unchanged retry. Old timing estimates unverified. L01 approved: club0-65px; hidden attack<=1s,in place; wait/face approaching enemy; retarget>=20px nearer; potions HP65/MP50,farming50%; settle landing knockback on destination. Preserve these choices.",
+      "history": "Read 16 reports, tracking_benchmark.py load/interpolate and related tests; no tests run. main@630d7ad. Historical combat: 144f31b/4e374fd/198cb8f; reported1412+ tests; go-here-115128 38s HPmin90%(prior56%/15s),6 waits/6 attacks, corridor stop; 198cb8f live-pending.",
+      "risk": "Every native batch needs fresh explicit go/operator; old engine/map state unverified.",
+      "deferral": {
+        "reason": "Live batches not authorized.",
+        "revisit": "Operator explicitly authorizes a bounded batch and is present; inspect existing failure and recheck gates."
+      }
+    }
+  ]
+}
