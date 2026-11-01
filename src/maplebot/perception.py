@@ -276,6 +276,11 @@ class TemplateDetector:
     def __init__(self, directory: Path, config: PerceptionConfig) -> None:
         self.directory, self.config = directory, config
         self.enemy_source = None
+        self.enemy_scan_context = None
+        self.enemy_empty_observations = 0
+        self.enemy_scan_frame = None
+        self.enemy_wide_at = float("-inf")
+        self.enemy_scan_stage = "local"
         self.templates: list[Template] = []
         self.nametags: list[NameTag] = []
         # Sprites snapshotted from frames where the tag confirmed the player; memory only.
@@ -315,6 +320,7 @@ class TemplateDetector:
         self.reload()
 
     def reload(self) -> None:
+        self.enemy_scan_context = None
         self.masked_cache.clear()
         self.enemy_tracker = EnemyTracker(self.config)
         self.enemy_context = None
@@ -1036,6 +1042,16 @@ class TemplateDetector:
             return player, 0.0, False
         return self._fuse_nametag(tags, player, failures, gray, now)
 
+    def enemy_scan_feedback(self, frame_id: str, *, fresh: bool, eligible: bool) -> None:
+        """Only independent, fresh runtime observations advance the empty-scan counter."""
+        if frame_id == self.enemy_scan_frame:
+            return
+        self.enemy_scan_frame = frame_id
+        if not fresh or eligible:
+            self.enemy_empty_observations = 0
+        else:
+            self.enemy_empty_observations += 1
+
     def detect(self, image: Image, now: float | None = None, *,
                monsters: bool = True) -> Observation:
         """monsters=False searches only the player, for work that never targets an enemy."""
@@ -1065,6 +1081,21 @@ class TemplateDetector:
         )
         self.catalog_info["catalog_paused"] = paused
         self.catalog_info["active_variants"] = len(templates)
+        scan_context = (self.enemy_source, self.catalog_info["active_map"],
+                        self.map_filter.source, self.map_filter.revision, image.shape,
+                        monsters, paused)
+        if scan_context != self.enemy_scan_context:
+            self.enemy_empty_observations = 0
+            self.enemy_scan_frame = None
+            self.enemy_wide_at = float("-inf")
+            self.enemy_scan_context = scan_context
+        self.enemy_scan_stage = "local"
+        if (monsters and not paused and self.enemy_empty_observations >= 3
+                and now - self.enemy_wide_at >= 1.0):
+            self.enemy_scan_stage = "wide"
+            self.enemy_wide_at = now
+        self.catalog_info["enemy_scan_stage"] = self.enemy_scan_stage
+        self.catalog_info["enemy_empty_observations"] = self.enemy_empty_observations
         self._predict(*camera.result())
         predicted = self.track[0] if self.track else None
         search_enemies = monsters
@@ -1228,6 +1259,9 @@ class TemplateDetector:
         *, player_only: bool = False,
     ) -> tuple[Detection | None, list[Detection], list[str], float]:
         window = self._window(image, player_only=player_only)
+        if not player_only and self.enemy_scan_stage == "wide" and self.track is not None:
+            # Keep the small player search area and all boxes in frame coordinates.
+            window = Rect(0, 0, image.shape[1], image.shape[0])
         self.origin = (0, 0)
         if window is None:
             return self._observe_full(image, now, templates, floor)

@@ -124,12 +124,15 @@ class Agent:
         self.skill_ready = False
         self.target_seen_at: float | None = None
         self.ready_facing = False
+        self.challenger = None
+        self.challenger_at = None
 
     def stop(self, reason: str) -> Decision:
         self.state, self.target, self.facing = State.IDLE, None, None
         self.attempts, self.missing_frames = 0, 0
         self.last_distance, self.stalled_steps = None, 0
         self.skill_ready, self.target_seen_at, self.ready_facing = False, None, False
+        self.challenger, self.challenger_at = None, None
         return Decision(self.state, Action(), reason)
 
     def start(self) -> None:
@@ -170,6 +173,8 @@ class Agent:
             "skill_ready": self.skill_ready,
             "target_seen_at": self.target_seen_at,
             "ready_facing": self.ready_facing,
+            "challenger": self.challenger,
+            "challenger_at": self.challenger_at,
         }
 
     def restore(self, snapshot: dict[str, Any]) -> None:
@@ -193,6 +198,8 @@ class Agent:
             )
             self.target_seen_at = snapshot.get("target_seen_at")
             self.ready_facing = bool(snapshot.get("ready_facing", False))
+            self.challenger = snapshot.get("challenger")
+            self.challenger_at = snapshot.get("challenger_at")
             self.facing = snapshot["facing"]
             self.verify_until = float(snapshot["verify_until"])
             self.attempts = int(snapshot["attempts"])
@@ -218,13 +225,15 @@ class Agent:
             and not monster.tracked
             and abs(monster.box.feet - player.box.feet) <= self.config.platform_tolerance
         ]
+        if policy_input.last_outcome.get("status") == "pending":
+            return self._result("Input pending; retain target until action boundary")
         if self.state == State.SEARCH:
             if not candidates:
                 return self._result(
                     "Waiting for a fresh confident same-platform target; no movement"
                 )
             self.target = min(
-                candidates, key=lambda item: abs(item.box.center[0] - player.box.center[0])
+                candidates, key=lambda item: self._target_rank(item, player)
             )
             self.state, self.attempts, self.missing_frames = State.APPROACH, 0, 0
             self.target_seen_at = now
@@ -248,7 +257,7 @@ class Agent:
             key=lambda item: math.dist(item.box.center, expected.center),
         )
         if same_species and not tracked:
-            return self._search("Target track changed; release and reacquire a fresh target")
+            return self._reacquire(candidates, player, now, "Target track changed")
         match = tracked[0] if tracked else None
         distance = math.dist(match.box.center, expected.center) if match else math.inf
         if len(tracked) > 1:
@@ -256,6 +265,8 @@ class Agent:
             if abs(second - distance) < 8:
                 return self._search("Ambiguous target association; waiting for a fresh target")
         if match is None or distance > 80:
+            if candidates:
+                return self._reacquire(candidates, player, now, "Target missing")
             hidden = self._hidden_target(observation, player, now)
             if hidden is not None and not (self.state == State.VERIFY and now < self.verify_until):
                 return self._attack_hidden(hidden, policy_input)
@@ -277,17 +288,30 @@ class Agent:
         self.missing_frames, self.target_seen_at = 0, now
         dx = match.box.center[0] - player.box.center[0]
         direction = "right" if dx >= 0 else "left"
-        if self.state == State.APPROACH and abs(dx) > self.config.attack_range:
-            nearer = [item for item in candidates if item is not match and abs(
-                item.box.center[0] - player.box.center[0]) < abs(dx) - RETARGET_MARGIN]
-            if nearer:
-                # Never walk through a closer enemy to reach the original one.
-                self.target = min(nearer, key=lambda item: abs(
-                    item.box.center[0] - player.box.center[0]))
-                self.attempts, self.last_distance, self.stalled_steps = 0, None, 0
-                self.ready_facing = False
+        challenger = min(candidates, key=lambda item: self._target_rank(item, player))
+        current_rank = self._target_rank(match, player)
+        challenger_rank = self._target_rank(challenger, player)
+        better_tier = challenger_rank[0] < current_rank[0]
+        nearer = (challenger_rank[0] == current_rank[0]
+                  and challenger_rank[1] <= current_rank[1] - RETARGET_MARGIN)
+        # Without a stable track ID, only identical observed boxes corroborate a
+        # challenger. Moving anonymous detections cannot establish identity safely.
+        key = challenger.track_id or f"{identity(challenger)}:{challenger.box.center}"
+        confirmed = (key == self.challenger and self.challenger_at is not None
+                     and now > self.challenger_at)
+        if challenger is not match and (better_tier or nearer):
+            if self.challenger != key:
+                self.challenger, self.challenger_at = key, now
+            if (better_tier or confirmed) and now >= self.verify_until:
+                self.target = challenger
+                self.last_distance, self.stalled_steps = None, 0
+                side = "right" if challenger.box.center[0] >= player.box.center[0] else "left"
+                self.ready_facing = self.ready_facing and self.facing == side
                 self.acquisitions += 1
-                return self._result("Nearer same-platform target; retargeting")
+                self.challenger, self.challenger_at = None, None
+                return self._result("Nearer same-platform target; retargeting at action boundary")
+        else:
+            self.challenger, self.challenger_at = None, None
         if self.state == State.VERIFY:
             if now < self.verify_until:
                 return self._result("Observing target after attack; no outcome assumed")
@@ -361,6 +385,23 @@ class Agent:
             f"{kind.capitalize()} attack requested; inspect subsequent screenshots",
             Action(kind, self.config.attack_seconds),
         )
+
+    def _reacquire(self, candidates: list[Detection], player: Detection,
+                   now: float, reason: str) -> Decision:
+        self.target = min(candidates, key=lambda item: self._target_rank(item, player))
+        side = "right" if self.target.box.center[0] >= player.box.center[0] else "left"
+        self.ready_facing = self.ready_facing and self.facing == side
+        self.target_seen_at, self.missing_frames = now, 0
+        self.last_distance, self.stalled_steps = None, 0
+        self.challenger, self.challenger_at = None, None
+        self.acquisitions += 1
+        # Preserve VERIFY, deadline and attempts: a replacement cannot buy extra attacks.
+        return self._result(f"{reason}; reacquired fresh target, release before action")
+
+    def _target_rank(self, target: Detection, player: Detection) -> tuple[int, float]:
+        distance = abs(target.box.center[0] - player.box.center[0])
+        in_range = self.config.attack_min_range <= distance <= self.config.attack_range
+        return (0 if in_range else 1, distance)
 
     def _hidden_target(self, observation: Observation, player: Detection,
                        now: float) -> float | None:

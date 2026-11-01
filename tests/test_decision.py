@@ -105,6 +105,10 @@ def test_unconfirmed_or_wrong_direction_approach_still_faces_before_attack(outco
     agent.step(scene([entity(x=0)]), 0)
     agent.step(scene([entity(x=0)]), .1)
     decision = agent.step_input(PolicyInput(scene([entity(x=50)]), .3, outcome, 100))
+    if outcome.get("status") == "pending":
+        assert decision.action.kind == "release"
+        assert decision.target.box.x == 0
+        return
     assert decision.action.kind == "left" and decision.state == State.ATTACK
     assert agent.attempts == 0
 
@@ -228,11 +232,9 @@ def test_recorded_species_crossing_releases_and_resets_before_reacquisition():
     agent.step(scene([mushroom], player), 0)
     agent.last_distance, agent.stalled_steps = 107, 4
     result = agent.step(scene([pig], player, shift=(32.7567, -.1355)), .3)
-    assert result.state == State.SEARCH and result.action.kind == "release"
-    assert result.target is None
+    assert result.state == State.APPROACH and result.action.kind == "release"
+    assert result.target == pig and "reacquired" in result.reason
     assert agent.last_distance is None and agent.stalled_steps == 0
-    acquired = agent.step(scene([pig], player), .6)
-    assert acquired.target == pig and acquired.action.kind == "release"
     assert agent.acquisitions == 2
 
 
@@ -445,11 +447,10 @@ def test_known_target_id_cannot_silently_swap_to_another_same_species_track():
     replacement = tracked_entity(track_id="enemy:8")
     result = agent.step(Observation(entity("player", 100), [replacement],
                                    enemy_tracks=[hidden_track(152)]), .2)
-    assert result.action.kind == "release" and result.state == State.SEARCH
-    assert result.target is None and "Target track changed" in result.reason
-    # A subsequent fresh search may explicitly acquire this target; this is not ID continuity.
-    reacquired = agent.step(scene([replacement]), .3)
-    assert reacquired.target == replacement and reacquired.action.kind == "release"
+    assert result.action.kind == "release"
+    assert result.target == replacement and "Target track changed" in result.reason
+    assert "reacquired" in result.reason
+
 
 
 def test_known_target_id_wins_over_nearer_same_species_crossing_during_association():
@@ -503,7 +504,8 @@ def test_a_clearly_nearer_target_replaces_the_current_one_instead_of_walking_thr
     agent.start()
     agent.step(scene([entity(x=300)]), 0)
     both = scene([entity(x=300), entity(x=200, confidence=.95)])
-    switched = agent.step(both, .2)
+    assert "retargeting" not in agent.step(both, .2).reason
+    switched = agent.step(both, .3)
     assert "retargeting" in switched.reason and switched.target.box.x == 200
     assert switched.action.kind == "release"
     # A candidate only slightly nearer than the margin does not cause flip-flopping.
@@ -585,3 +587,72 @@ def test_far_approach_is_longer_but_near_boundary_stays_short():
     assert agent.step(obs, .1).action.seconds == .24
     near = scene([entity(x=300)], player=entity("player", x=220))
     assert agent.step(near, .2).action.seconds == .12
+
+
+def test_in_range_target_replaces_far_target_without_resetting_attempts():
+    agent = Agent(AgentConfig(attack_range=65))
+    agent.start()
+    old = tracked_entity(x=300, track_id="old")
+    close = tracked_entity(x=50, track_id="new")
+    agent.step(scene([old]), 0)
+    agent.attempts = 3
+    result = agent.step(scene([old, close]), .1)
+    assert result.target == close and result.action.kind == "release"
+    assert agent.attempts == 3
+
+
+def test_duplicate_timestamp_does_not_confirm_challenger():
+    agent = Agent(AgentConfig(attack_range=65))
+    agent.start()
+    old = tracked_entity(x=160, track_id="old")
+    close = tracked_entity(x=125, track_id="new")
+    agent.step(scene([old]), 0)
+    observations = scene([old, close])
+    agent.step(observations, .1)
+    assert agent.step(observations, .1).target == old
+
+
+def test_switch_waits_for_cooldown_and_pending_input():
+    agent = Agent(AgentConfig(attack_range=65))
+    agent.start()
+    old = tracked_entity(x=300, track_id="old")
+    close = tracked_entity(x=150, track_id="new")
+    agent.step(scene([old]), 0)
+    agent.verify_until = 1
+    observations = scene([old, close])
+    assert agent.step(observations, .1).target == old
+    pending = PolicyInput(observations, 1, {"status": "pending"})
+    assert agent.step_input(pending).target == old
+    assert agent.step(observations, 1.1).target == close
+
+
+def test_initial_selection_prefers_attack_band_over_minimum_range_dead_zone():
+    agent = Agent(AgentConfig(attack_min_range=40, attack_range=65))
+    agent.start()
+    result = agent.step(scene([entity(x=110), entity(x=150)]), 0)
+    assert result.target.box.x == 150
+
+
+def test_moving_anonymous_challenger_does_not_establish_switch_identity():
+    agent = Agent(AgentConfig(attack_range=65))
+    agent.start()
+    old = entity(x=160)
+    agent.step(scene([old]), 0)
+    assert agent.step(scene([old, entity(x=125)]), .1).target == old
+    assert agent.step(scene([old, entity(x=130)]), .2).target == old
+
+
+def test_challenger_survives_json_snapshot_round_trip():
+    import json
+
+    agent = Agent(AgentConfig(attack_range=65))
+    agent.start()
+    old = tracked_entity(x=300, track_id="old")
+    challenger = tracked_entity(x=200, track_id="new")
+    agent.step(scene([old]), 0)
+    agent.step(scene([old, challenger]), .1)
+    restored = Agent(agent.config)
+    restored.restore(json.loads(json.dumps(agent.snapshot())))
+    assert restored.snapshot() == agent.snapshot()
+    result = restored.step(scene([old, challenger]), .2)
+    assert result.target == challenger and "retargeting" in result.reason

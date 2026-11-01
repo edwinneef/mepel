@@ -1875,6 +1875,10 @@ class Application:
             "player": asdict(observation.player) if observation.player else None,
             "monsters": [asdict(item) for item in observation.monsters],
         }, self.config, time.time())
+        scan_feedback = getattr(self.detector, "enemy_scan_feedback", None)
+        if scan_feedback is not None:
+            scan_feedback(evidence["frame_id"], fresh=evidence["fresh_player"],
+                          eligible=bool(evidence["same_platform_targets"]))
         self.combat_evidence.observe({
             "frame_id": evidence["frame_id"], "captured_at": captured_at,
             "same_platform_targets": evidence["same_platform_targets"],
