@@ -62,5 +62,39 @@ the normal versioned debugger command API. Record the start, travel, stopped
 target and one-second settled arrival. First failure: release input, save clip,
 alarm, leave the game open and hand control back immediately. No unchanged retry.
 
-No live walk, control probe or native movement test was performed by this task.
-Do not interpret the installed command as approval to start one.
+The implementation task performed no live walk or control probe. The separately
+approved native verification is recorded below; it grants no further attempts.
+
+## First supervised native pass: 2026-11-01
+
+The operator explicitly authorized setup, necessary controls and exactly one
+80-pixel left walk. One managed input-capable restart and overlay start completed;
+the existing Southperry revision-3 saved calibration was loaded. The engine
+accepted its restored left/right confirmations, so **zero new probes** were
+needed. Guarded focus restored the unobscured game view before movement. Fresh
+same-character `fh2` feedback and the real stopping corridor passed preflight.
+
+**One walk attempted, passed, no retries.** `nav_walk` was requested at
+05:01:02.770 UTC. The batch ended at 05:01:09.621 UTC, taking **6.91 seconds**
+including countdown, movement, settled arrival and cleanup; startup/setup time
+is additional. Dispatch history contains exactly **six left key-down/up pairs**
+and no other keys, spanning 1.33 seconds from first press to last release.
+
+The saved-position estimate moved from X 644.523 to 565.414 (79.109 pixels left),
+against target X 564.523, while Y remained 549 and the surface remained `fh2`.
+The reported target residual is 0.891 pixels in that saved coordinate system;
+the quantized minimap estimate is not an independent claim of subpixel world
+accuracy. The fresh player box separately moved 81 screen pixels left. Saved
+before/after images visibly show the character move left relative to the NPC.
+
+The engine reported `arrived`, `Short walk arrived; keys released`, with trusted
+fresh same-platform feedback. Dispatch key releases balance every key-down.
+Stop returned the engine to capture/Off; no active alarm or further input was
+reported. The game remains open and under operator control.
+
+Evidence: `artifacts/southperry-walk-native-20261101T045858Z/summary.json`,
+`result.json`, `before.png`, `after.png` and `walk.mp4`. Original recording:
+`data/recordings/session-1793509262768236300-manual/`. The summary pins its decision
+log by SHA-256. All evidence is retained. This passes one saved-calibration flat
+walk only; automatic alignment, jumps, ladders and multi-platform routes remain
+unverified. Another live batch needs a new explicit operator-present request.
