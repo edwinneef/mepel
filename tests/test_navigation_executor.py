@@ -187,6 +187,20 @@ def test_marker_only_destination_never_counts_as_settled():
     assert nav.stage == "arrived"
 
 
+def test_stationary_landing_restarts_settling_after_marker_only_gap():
+    nav, f = setup()
+    takeoff(nav, f)
+    landing = replace(f, feet=(280, 300), surface="ledge")
+    nav.step(replace(landing, now=1))
+    nav.step(replace(landing, now=1.2, marker_only=True))
+    assert nav.settle_since is None and nav.stage == "flight"
+    for now in (1.4, 1.6):
+        nav.step(replace(landing, now=now))
+        assert nav.stage == "flight"
+    motion = nav.step(replace(landing, now=1.8))
+    assert nav.stage == "arrived" and motion.release
+
+
 @pytest.mark.parametrize(("launch", "landing", "heights", "direction"), [
     (342.1, 312.1, (438.76, 360.02, 328.52, 312.77), "up"),
     (312.1, 342.1, (250, 296.35, 328.52, 344.27), "down"),

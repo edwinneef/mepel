@@ -107,7 +107,7 @@ class Navigator:
         steady = (self.last_feet is not None and feedback.feet is not None
                   and abs(feedback.feet[1] - self.last_feet[1]) <= 3
                   and abs(feedback.feet[0] - self.last_feet[0]) <= 8)
-        if not steady or self.settle_surface != surface:
+        if self.settle_since is None or not steady or self.settle_surface != surface:
             self.settle_since, self.settle_surface = feedback.now, surface
         self.last_feet = feedback.feet
         return self.settle_since is not None and feedback.now - self.settle_since >= .3
