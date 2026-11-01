@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Maple External · Visual debugger</title>
+<style>
+:root { color-scheme: dark; font: 14px/1.5 system-ui,sans-serif; background:#111918; color:#e1e9e4 }
+* { box-sizing:border-box } [hidden] { display:none!important } body { margin:0; padding:24px; max-width:1600px; margin-inline:auto }
+header { display:flex; gap:20px; align-items:center; justify-content:space-between; margin-bottom:20px }
+h1 { font-size:22px; margin:0 } h2 { font-size:15px; margin:0 0 12px; color:#b4c8bc }
+small,.muted { color:#9aada1 } main { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:20px }
+section { background:#192421; border:1px solid #34443c; padding:16px; margin-bottom:16px; border-radius:6px }
+button,select,input { background:#25372e; border:1px solid #516b59; color:#ecf4ed; border-radius:4px; padding:8px; font:inherit }
+button { cursor:pointer } button:hover { background:#35533e } button:disabled { opacity:.5; cursor:default }
+button.danger { background:#713b36; border-color:#b86e63 } select { width:100% } input { width:100% }
+.row { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px }.row>* { flex:1 }
+.metrics { display:flex; flex-wrap:wrap; gap:18px; margin-bottom:12px }.metrics b { font:20px monospace; display:block }
+#viewport { position:relative; min-height:260px; background:#0a0f0e; display:grid; place-items:center; overflow:hidden }
+canvas { display:block; width:100%; height:auto; touch-action:none; cursor:crosshair }
+#empty { padding:80px 24px; text-align:center } #reason { color:#e6cd8b; white-space:pre-wrap; overflow-wrap:anywhere }
+#message { min-height:24px; color:#c5dcad; overflow-wrap:anywhere } pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; margin:0 }
+ol { padding-left:22px; margin:8px 0 } .badge { border:1px solid #516b59; padding:5px 10px; border-radius:4px }
+#stop-banner { border-color:#b86e63; background:#3c2421; color:#ffe4dc } #stop-details { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text }
+.panel { margin-top:0 } .panel>summary { cursor:pointer; font-size:15px; font-weight:600; color:#b4c8bc } .panel[open]>summary { margin-bottom:12px } .panel>summary:focus-visible { outline:2px solid #b4c8bc; outline-offset:4px }
+label { display:block; margin-top:10px } details { margin-top:12px } #history { max-height:240px; overflow:auto; font-size:12px }
+@media(max-width:900px) { main { grid-template-columns:1fr } body { padding:12px } header { align-items:start } }
+</style>
+<header><div><h1>Maple External</h1><small>Screenshot capture · Calibration · Decision inspection</small></div><button id="acknowledge" class="danger" disabled>Acknowledge alarm</button><button id="restart-bot" disabled title="Restarts unarmed. Saved settings stay; reattach and confirm capture afterward.">Restart bot</button><button id="stop-server" class="danger" disabled>Stop server</button><span class="badge" id="mode">CAPTURE ONLY</span></header>
+<p id="input-policy" role="status">Checking session input policy…</p>
+<section id="stop-banner" hidden><h2>Safety stop</h2><pre id="stop-details"></pre><div class="row"><button id="copy-alarm">Copy alarm</button><button id="restart-capture">Restart capture worker</button></div><small id="copy-alarm-status" role="status"></small></section>
+<main><div>
+<section><details class="panel" data-panel="game-view" open><summary>Game view</summary><div class="metrics"><span>State<b id="state">IDLE</b></span><span>Capture FPS<b id="fps">—</b></span><span>Latency<b id="latency">—</b></span><span>Window focus<b id="focus">—</b></span></div>
+<p id="recognized-map" role="status">Map: waiting for recognition…</p>
+<div id="viewport"><div id="empty">Select a visible game window to begin.</div><canvas id="canvas" hidden></canvas></div>
+<p id="reason">No gameplay keys are sent during capture or calibration.</p><div id="message" role="status"></div>
+<div class="row"><button id="freeze">Freeze for selection</button><button id="live">Return to live view</button><button id="save">Save screenshot</button><button id="record">Start / stop full recording</button><button id="clip">Save last clip</button></div>
+<small id="selection">Drag a rectangle on a frozen screenshot. Coordinates use original screenshot pixels.</small></details></section>
+<section><details class="panel" data-panel="detection-failures" open><summary>Detection failures</summary><pre id="failures">No frames yet.</pre></details></section>
+<section><details class="panel" data-panel="recent-decisions" open><summary>Recent decisions</summary><div id="history">No decisions yet.</div></details></section>
+</div><aside>
+<section><details class="panel" data-panel="game-connection" open><summary>Game connection</summary>
+<p id="connection">Looking for the saved game window…</p><p class="muted" id="calibration">The game view is verified when the player or HP/MP is recognized.</p>
+<button id="reconnect">Reconnect</button>
+<details id="advanced-capture"><summary>Advanced setup</summary><p class="muted">Choose another capture source</p><select id="windows" aria-label="Target window"></select><div class="row"><button id="refresh">Refresh windows</button><button id="attach">Attach</button></div>
+<details><summary>Manual desktop region</summary><small>Physical screen pixels. Negative x/y work for secondary monitors. This mode cannot send gameplay input.</small><div class="row"><input id="mx" type="number" value="0" aria-label="Screen x"><input id="my" type="number" value="0" aria-label="Screen y"></div><div class="row"><input id="mw" type="number" value="1366" aria-label="Screen width"><input id="mh" type="number" value="768" aria-label="Screen height"></div><button id="manual">Capture manual region</button></details><p class="muted">Change the saved crop</p><ol><li>Use visible native 1x game pixels; 1366 × 768 is recommended.</li><li>Freeze, then drag around the rendered game, excluding Editor tools.</li><li>Apply crop, return to live view and inspect the pixels.</li></ol>
+<div class="row"><button id="crop">Apply selected crop</button><button id="reset">Reset crop</button></div><button id="confirm" disabled>Confirm game view manually</button>
+</details></details></section>
+<section id="detection-tools" hidden><details class="panel" data-panel="3-sprite-recognition" open><summary>Sprite recognition</summary><p id="catalog">Checking cached enemy catalog…</p><small>Catalog enemies are detected automatically. Teach your player from a frozen screenshot; include its feet. Add monster examples only for enemies missing from the catalog. Add your name tag (the dark box with your name under your feet) so the player is still found after gear changes or on ropes.</small><div class="row"><button id="player">Add player</button><button id="monster">Add monster</button><button id="nametag">Add name tag</button></div><button id="reload">Reload templates</button><pre id="detections"></pre></details></section>
+<section id="potter-tools"><details class="panel" data-panel="autopotter-preview" open><summary>Autopotter</summary><small>Preview shows potion decisions without input. Live mode presses the configured potion keys after two low readings and respects the cooldown. Verify each enabled potion control first; live mode waits 3 seconds for game focus. Combat stays stopped. Freeze a screenshot with full bars, select one entire bar including its pale border (exclude the numbers), then calibrate it.</small><div class="row"><button id="pot-hp">Calibrate HP bar</button><button id="pot-mp">Calibrate MP bar</button></div><label>HP threshold (%)<input id="pot-hp-threshold" type="number" min="0" max="95" value="50"></label><label>MP threshold (%)<input id="pot-mp-threshold" type="number" min="0" max="95" value="30"></label><label>Cooldown (seconds)<input id="pot-cooldown" type="number" min="0.5" max="30" step="0.1" value="1.5"></label><small>Set a threshold to 0 to disable that resource. Two low readings are required; HP takes priority.</small><div class="row"><button id="pot-settings">Save thresholds</button><button id="pot-start">Start potion preview</button><button id="pot-live" class="danger">Start live potions</button><button id="pot-stop">Stop potions</button></div><pre id="pot-readings">Calibrate the HUD bars first.</pre><p id="pot-reason">Preview stopped.</p></details></section>
+<section id="control-tools" hidden><details class="panel" data-panel="4-verify-controls" open><summary>Verify controls</summary><small>Bindings are read-only from config.toml. Each probe waits 3 seconds for you to focus the game, then sends one bounded key press. Confirm manual probes only after observing the one expected effect. Successful probes are saved for this game layout and binding; repeat only after a relevant setting changes.</small><pre id="bindings">Loading bindings…</pre><div class="row"><button data-probe="left">Left</button><button data-probe="right">Right</button><button data-probe="attack">Attack</button><button data-probe="jump">Jump</button><button data-probe="skill">Skill</button></div><div class="row"><button data-probe="up">Up</button><button data-probe="down">Down</button><button data-probe="hp_potion">HP potion</button><button data-probe="mp_potion">MP potion</button></div><pre id="probe-status">No probes requested.</pre><div class="row" id="probe-confirmation" hidden><button id="probe-confirm">Confirm observed effect</button><button id="probe-reject">Reject probe</button></div></details></section>
+<section><details class="panel" data-panel="frame-timing" open><summary>Frame timing</summary><pre id="stage-timing">Waiting for captured frame timing…</pre><pre id="encoder-timing">Waiting for encoder timing…</pre></details></section>
+<section id="agent-tools" hidden><details class="panel" data-panel="5-observe-run" open><summary>Observe / run</summary><small id="agent-help">Dry run produces decisions without input. Armed run waits for the Game view to regain focus. Any uncertainty stops the agent.</small><div class="row"><button id="dry">Dry run</button><button id="arm">Arm combat</button></div><div class="row"><button id="stop" class="danger">STOP · release keys</button></div></details></section>
+</aside></main>
+<script>
+const token='__TOKEN__', $=id=>document.getElementById(id), canvas=$('canvas'), ctx=canvas.getContext('2d');
+for(const panel of document.querySelectorAll('details[data-panel]')) {
+  const key='maple-debugger-panel:'+panel.dataset.panel;
+  try { const saved=localStorage.getItem(key); if(saved!==null)panel.open=saved==='open'; } catch {}
+  panel.addEventListener('toggle',()=>{try { localStorage.setItem(key,panel.open?'open':'closed'); } catch {}});
+}
+let frozen=null, source=null, roi=null, origin=null, busy=false, restarting=false, stopping=false, freezing=false, viewVersion=0, potSettingsLoaded=false;
+async function api(name,payload={}) { const r=await fetch('/api/'+name,{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Token':token},body:JSON.stringify(payload)}); const data=await r.json(); if(!r.ok) throw Error(data.error||r.statusText); return data }
+function message(value) { $('message').textContent=typeof value==='string'?value:JSON.stringify(value) }
+function bind(id,fn) { $(id).onclick=async()=>{try { await fn() } catch(e) { message(e.message) }} }
+async function refresh() { const windows=await api('windows'); $('windows').replaceChildren(new Option('Select a window…','')); for(const w of windows) { const o=document.createElement('option'); o.value=w.hwnd; o.textContent=w.title+' · '+w.client.width+'×'+w.client.height; if(/maplestory/i.test(w.title)) o.selected=true; $('windows').append(o) } }
+async function draw(url,version=viewVersion) { const response=await fetch(url); if(version!==viewVersion)return; if(response.status===204) { $('empty').hidden=false; canvas.hidden=true; return } if(!response.ok) throw Error('Frame unavailable'); const bitmap=await createImageBitmap(await response.blob()); if(version!==viewVersion){bitmap.close();return} source?.close(); source=bitmap; canvas.width=bitmap.width; canvas.height=bitmap.height; ctx.drawImage(bitmap,0,0); $('empty').hidden=true; canvas.hidden=false }
+function paint() { if(!source)return; ctx.drawImage(source,0,0); if(roi) { ctx.strokeStyle='#ffe692'; ctx.lineWidth=2; ctx.strokeRect(roi.x,roi.y,roi.width,roi.height); $('selection').textContent=JSON.stringify(roi) } }
+function point(e) { const r=canvas.getBoundingClientRect(); return {x:Math.max(0,Math.min(canvas.width,Math.round((e.clientX-r.left)*canvas.width/r.width))),y:Math.max(0,Math.min(canvas.height,Math.round((e.clientY-r.top)*canvas.height/r.height)))} }
+canvas.onpointerdown=e=>{if(!frozen)return; origin=point(e); canvas.setPointerCapture(e.pointerId)};
+canvas.onpointermove=e=>{if(!origin)return; const p=point(e); roi={x:Math.min(origin.x,p.x),y:Math.min(origin.y,p.y),width:Math.abs(origin.x-p.x),height:Math.abs(origin.y-p.y)}; paint()};
+canvas.onpointerup=()=>{origin=null};
+bind('refresh',refresh); bind('attach',async()=>{++viewVersion; await api('attach',{hwnd:Number($('windows').value)}); frozen=null; roi=null; message('Connected. The saved crop is recognized automatically; use Advanced setup to change it.')});
+bind('manual',async()=>{++viewVersion; await api('manual',{x:Number($('mx').value),y:Number($('my').value),width:Number($('mw').value),height:Number($('mh').value)}); frozen=null; message('Manual region attached; input disabled.')});
+bind('freeze',async()=>{
+  const version=++viewVersion; freezing=true; $('freeze').disabled=true;
+  try {
+    const frame=await api('freeze');
+    if(version!==viewVersion)return;
+    await draw('/frame.png?id='+frame.id,version);
+    if(version!==viewVersion)return;
+    frozen=frame; roi=null; origin=null; message('Frozen. Drag a rectangle to select pixels.');
+  } finally { freezing=false; $('freeze').disabled=false; }
+});
+bind('live',async()=>{++viewVersion; await api('resume_view'); frozen=null; roi=null; message('Live view')});
+function selection() {if(!frozen||!roi||roi.width<2||roi.height<2)throw Error('Freeze and select a rectangle first'); return {id:frozen.id,...roi}}
+bind('crop',async()=>{++viewVersion;message(await api('crop',selection())); frozen=null; roi=null});
+bind('reset',async()=>{++viewVersion;message(await api('reset_crop')); frozen=null; roi=null});
+bind('confirm',async()=>message(await api('confirm_capture')));
+bind('reconnect',async()=>{++viewVersion;const result=await api('connect_saved_window');frozen=null;roi=null;message(result.reason)});
+bind('save',async()=>message(await api('save'))); bind('record',async()=>message(await api('record'))); bind('clip',async()=>message(await api('clip')));
+for(const kind of ['player','monster','nametag'])bind(kind,async()=>message(await api('template',{...selection(),kind})));
+bind('reload',async()=>message(await api('reload_templates')));
+for(const b of document.querySelectorAll('[data-probe]'))b.onclick=async()=>{try{message(await api('probe',{action:b.dataset.probe}))}catch(e){message(e.message)}};
+bind('probe-confirm',async()=>{const p=window.activeProbe;if(!p)throw Error('No manual probe is awaiting confirmation');message(await api('confirm_probe',{id:p.id,generation:p.generation}))});
+bind('probe-reject',async()=>{const p=window.activeProbe;if(!p)throw Error('No active probe to reject');message(await api('reject_probe',{id:p.id,generation:p.generation}))});
+for(const [id,name] of [['dry','dry_run'],['arm','arm'],['stop','stop']])bind(id,async()=>message(await api(name)));
+bind('acknowledge',async()=>{const id=window.displayedAlarmId;if(!id)throw Error('Wait for the current alarm to appear');message(await api('acknowledge',{incident_id:id}))}); bind('restart-capture',async()=>message(await api('restart_capture')));
+bind('copy-alarm',async()=>{
+  const details=$('stop-details');
+  try { await navigator.clipboard.writeText(details.textContent); $('copy-alarm-status').textContent='Alarm copied.'; }
+  catch { const range=document.createRange(); range.selectNodeContents(details); const selection=window.getSelection(); selection.removeAllRanges(); selection.addRange(range); $('copy-alarm-status').textContent='Text selected. Press Ctrl+C to copy.'; }
+});
+bind('restart-bot',async()=>{
+  restarting=true; ++viewVersion; $('restart-bot').disabled=true;
+  try {
+    const previous=await api('restart_bot');
+    message('Restarting bot. Saved settings are preserved; the bot will stay unarmed.');
+    const deadline=Date.now()+20000;
+    while(Date.now()<deadline) {
+      await new Promise(resolve=>setTimeout(resolve,350));
+      try {
+        const response=await fetch('/api/status',{cache:'no-store',signal:AbortSignal.timeout(1500)});
+        if(response.ok) {
+          const status=await response.json();
+          if(status.instance_id&&status.instance_id!==previous.instance_id) { location.reload(); return; }
+        }
+      } catch {}
+    }
+    throw Error('Bot restart did not finish within 20 seconds. Refresh this page or restart from PowerShell.');
+  } finally { restarting=false; $('restart-bot').disabled=false; }
+});
+bind('stop-server',async()=>{
+  stopping=true; ++viewVersion; $('stop-server').disabled=true; $('restart-bot').disabled=true;
+  try {
+    await api('shutdown_bot');
+    message('Server shutdown requested. Gameplay keys released.');
+    const deadline=Date.now()+15000;
+    while(Date.now()<deadline) {
+      await new Promise(resolve=>setTimeout(resolve,350));
+      try { await fetch('/api/status',{cache:'no-store',signal:AbortSignal.timeout(1500)}); }
+      catch(e) { if(e.name==='TimeoutError')continue; $('state').textContent='STOPPED'; message('Server stopped. Start run.ps1 to reopen it.'); return; }
+    }
+    throw Error('Server has not finished stopping. Check the PowerShell window.');
+  } catch(e) { stopping=false; $('stop-server').disabled=false; throw e; }
+});
+for(const resource of ['hp','mp'])bind('pot-'+resource,async()=>message(await api('autopotter_calibrate',{...selection(),resource})));
+bind('pot-settings',async()=>message(await api('autopotter_settings',{hp_threshold:Number($('pot-hp-threshold').value),mp_threshold:Number($('pot-mp-threshold').value),cooldown:Number($('pot-cooldown').value)})));
+bind('pot-start',async()=>message(await api('autopotter_start'))); bind('pot-live',async()=>message(await api('autopotter_live'))); bind('pot-stop',async()=>message(await api('autopotter_stop')));
+function showPotter(p) { if(!p)return; if(!potSettingsLoaded&&p.settings){$('pot-hp-threshold').value=p.settings.hp_threshold;$('pot-mp-threshold').value=p.settings.mp_threshold;$('pot-cooldown').value=p.settings.cooldown;potSettingsLoaded=true} const rows=['HP','MP'].map(name=>{const key=name.toLowerCase(),r=p.readings?.[key];return name+': '+(r?.percent!=null?r.percent+'% · confidence '+r.confidence.toFixed(2):(p.calibrated?.includes(key)?'waiting for a confident HUD frame':'not calibrated'))});$('pot-readings').textContent=rows.join('\n');$('pot-reason').textContent=(p.enabled?(p.preview_only?'PREVIEW · ':'LIVE · '):'STOPPED · ')+p.reason }
+function showStop(stop,alarm) { const active=Boolean(alarm?.active); window.displayedAlarmId=active?(alarm.incident_id||stop?.id):null; $('acknowledge').disabled=!active; const visible=active||Boolean(stop&&!stop.acknowledged); $('stop-banner').hidden=!visible; if(!visible)return; const text=stop?JSON.stringify(stop,null,2):'Alarm active. Use Acknowledge alarm to silence it.'; if($('stop-details').textContent!==text){$('stop-details').textContent=text;$('copy-alarm-status').textContent='';} $('restart-capture').hidden=active; }
+function showProbes(s) { $('bindings').textContent=JSON.stringify(s.bindings||{},null,2); $('probe-status').textContent=JSON.stringify({required:s.required_probes,optional:s.optional_probes,probes:s.probes},null,2); window.activeProbe=s.active_probe||null; $('probe-confirmation').hidden=window.activeProbe?.phase!=='awaiting_confirmation'; for(const b of document.querySelectorAll('[data-probe]'))b.disabled=Boolean(window.activeProbe); }
+function showConnection(s) { const ready=Boolean(s.calibration?.capture_verified); $('connection').textContent=s.window?s.window.title+' · '+s.window.client.width+'×'+s.window.client.height:'No saved game connected. Open the game and click Reconnect, or use Advanced setup.'; $('calibration').textContent=ready?'Game view ready · saved controls retained':s.calibration?'Saved crop loaded. Waiting for confident player or HP/MP recognition…':'Choose a window and crop under Advanced setup.'; $('confirm').hidden=ready; $('confirm').disabled=!s.calibration||!s.width||Boolean(frozen); }
+function showTiming(s) { $('stage-timing').textContent=JSON.stringify(s.stage_timing||{},null,2); $('encoder-timing').textContent=JSON.stringify(s.encoder||{},null,2); }
+function showMap(catalog) { const name=catalog?.active_map; $('recognized-map').textContent=name?`Map: ${name} · Map-specific detection`:'Map: not recognized · Searching full catalog' }
+async function poll(){if(restarting||stopping||busy)return; busy=true; try {const s=await(await fetch('/api/status')).json(); if(stopping||restarting)return; showMap(s.catalog); showPotter(s.autopotter); showStop(s.stop,s.alarm); showProbes(s); showTiming(s); $('restart-bot').disabled=restarting||stopping||!s.restart_available; $('stop-server').disabled=restarting||stopping||!s.shutdown_available; $('state').textContent=s.state; $('fps').textContent=s.fps??'—'; $('latency').textContent=s.latency_ms==null?'—':s.latency_ms+' ms'; $('focus').textContent=s.focused?'YES':'NO'; $('reason').textContent=s.reason; $('mode').textContent=s.capture_only?'CAPTURE ONLY · INPUT LOCKED':(s.mode||'capture').toUpperCase(); $('input-policy').textContent=s.capture_only?'Keyboard output is locked for this session. Play manually; capture, recognition and dry run remain available.':'Input-capable session. Capture and control verification are required before gameplay input.'; showConnection(s); $('failures').textContent=(s.failures||[]).join('\n')||'No detection failures'; $('catalog').textContent=s.catalog?.species?`${s.catalog.species} enemy species · ${s.catalog.frames} cached frames. ${s.catalog.names.join(', ')}`:'No enemy catalog installed. Run: python -m maplebot catalog'; $('history').replaceChildren(); for(const event of s.history||[]){const p=document.createElement('div');p.textContent=new Date(event.time*1000).toLocaleTimeString()+'  '+event.reason;$('history').append(p)} for(const id of ['detection-tools','agent-tools'])$(id).hidden=!s.features; $('control-tools').hidden=!s.features||Boolean(s.capture_only); $('arm').hidden=Boolean(s.capture_only); $('pot-live').hidden=Boolean(s.capture_only); $('agent-help').textContent=s.capture_only?'Dry run shows proposed decisions only. Keyboard output stays locked. Any uncertainty stops the agent.':'Dry run produces decisions without input. Armed run waits for the Game view to regain focus. Any uncertainty stops the agent.'; $('detections').textContent=JSON.stringify({player:s.player,monsters:s.monsters?.length,target:s.target,direction:s.direction,last_action:s.last_action,camera_shift:s.camera_shift},null,2); if(!frozen&&!freezing&&!stopping&&!restarting)await draw('/frame.png?t='+Date.now())}catch(e){message(e.message)}finally{busy=false}}
+refresh().catch(e=>message(e.message)); setInterval(poll,180); poll();
+</script></html>
