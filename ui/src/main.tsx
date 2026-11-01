@@ -8,6 +8,6 @@ import { DashboardSession } from './dashboard';
 
 const token = document.querySelector<HTMLMetaElement>('meta[name="debug-token"]')?.content ?? '';
 createRoot(document.getElementById('root')!).render(window.mapleOverlay
-  ? <OverlayApp client={new OverlayClient(token)} />
+  ? <OverlayApp client={new OverlayClient(token)} outlinesOnly />
   : new URLSearchParams(location.search).has('workbench') ? <App client={new EngineClient(token)} />
     : <OverlayApp client={new OverlayClient(token)} dashboard={new DashboardSession(token)} />);

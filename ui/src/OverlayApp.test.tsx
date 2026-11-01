@@ -9,6 +9,36 @@ import { deferred, json, snapshot } from './test-fixtures';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); delete window.mapleOverlay; });
 
+it('shows detection outlines and attack range without native settings or HUD', async () => {
+  const current = snapshot({ monsters: [{ kind: 'monster', box: { x: 150, y: 200, width: 30, height: 30 },
+    confidence: 1, template: 'enemy', tracked: false }], attack_setup: {
+    minimum_px: 0, maximum_px: 55, measured: false, reason: 'Configured band',
+  } });
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    if (url === '/api/v1/status') return json(current);
+    if (url === '/api/v1/drawings') return json({ display: true,
+      frame: { ...current.frame, id: 'display:1', source_id: `${current.session_id}:source:1` }, player: current.player,
+      monsters: current.monsters, target: current.target });
+    const command = JSON.parse(String(options?.body));
+    return json(command.name === 'area_list' ? { areas: [] } : { ok: true });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
+    subscribe: callback => {
+      callback({ type: 'game-bounds', value: { x: 20, y: 40, width: 1024, height: 768, visible: true } });
+      callback({ type: 'panel', value: true });
+      return () => {};
+    } };
+  const view = render(<OverlayApp client={new OverlayClient('token', fetcher)} outlinesOnly />);
+  await waitFor(() => expect(screen.getByLabelText('Detection boxes')).toBeTruthy());
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.queryByLabelText('Overlay settings')).toBeNull();
+  expect(view.container.querySelector('button, input, nav, .terrain-inset')).toBeNull();
+  expect(view.container.querySelector('[aria-label="Live detections"]')).toBeTruthy();
+  expect(screen.getByLabelText('Configured attack range')).toBeTruthy();
+  expect(screen.getByLabelText('Detection boxes').querySelectorAll('rect')).toHaveLength(2);
+});
+
 it('keeps dashboard drawings paired with the displayed analyzed picture while newer frames load', async () => {
   vi.stubGlobal('Image', class { src = ''; decode = async () => {}; });
   let imageNumber = 0;

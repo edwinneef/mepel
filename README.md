@@ -241,7 +241,7 @@ Unlabeled frames are excluded from accuracy metrics. Without labels, accuracy is
 
 ## Tests and reproducible checks
 
-For the usual edit/check loop, use `./tools/dev_cycle.ps1`. It runs focused
+The default edit/check workflow is `./tools/dev_cycle.ps1`. It runs focused
 navigation tests and lint without requiring the game. Choose test files with
 `-PythonTests`, or use `-Scope ui -UiTests client.test.ts` for a focused UI check.
 `-Scope all -BuildUi` checks both sides and builds the installed UI, backing up
@@ -249,11 +249,13 @@ the previous assets first. Add `-Restart` only when the running engine needs the
 change (`-EnableGameplayInput` explicitly selects an input-capable restart).
 `-DryRun` lists the steps without running them. A failed step stops the sequence;
 timings and build backups go to `artifacts/dev-cycle/<timestamp>/`.
-Use `-Scope combat`, `-Scope perception` or `-Scope navigation` to select affected
-tests; `-LintPaths` selects affected Python files instead of the default full lint.
-Add `-FailureResult <saved-result.json> -ReplayPolicy` to summarize the
-failure and compare its saved decisions with the current policy before checks,
-without loading the sprite catalog or sending input. The report separates recorded
+Choose `-Scope combat`, `-Scope perception` or `-Scope navigation` for affected
+tests and lint. General `engine` and `all` scopes retain full-tree lint;
+`-LintPaths` overrides the selected paths. Add `-FailureResult <saved-result.json>`
+to summarize the failure and compare its saved decisions with the current policy before checks,
+without loading the sprite catalog or sending input. Policy replay is automatic
+when a failure result is supplied; `-ReplayPolicy:$false` requests summary only.
+The report separates recorded
 active time from the runner's total time and shows frame gaps and slow stages;
 policy differences are comparisons, not proof of native behavior. For navigation
 edits, `-Scope navigation -ReloadNavigation` checks first, then uses the engine's

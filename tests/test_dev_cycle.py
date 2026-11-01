@@ -80,7 +80,7 @@ def test_focused_scopes_plan_offline_checks_and_reload_after_success(tmp_path):
     script = """
         $reports = @()
         $reports += (& $args[0] -Scope navigation -ReloadNavigation -DryRun | ConvertFrom-Json)
-        $reports += (& $args[0] -Scope combat -FailureResult $args[1] -ReplayPolicy -DryRun |
+        $reports += (& $args[0] -Scope combat -FailureResult $args[1] -DryRun |
             ConvertFrom-Json)
         $reports += (& $args[0] -Scope perception -LintPaths src/maplebot/perception.py -DryRun |
             ConvertFrom-Json)
@@ -95,13 +95,41 @@ def test_focused_scopes_plan_offline_checks_and_reload_after_success(tmp_path):
     navigation, combat, perception = json.loads(result.stdout)
     assert [s["name"] for s in navigation["steps"]] == ["engine tests", "lint", "navigation reload"]
     assert "tests/test_navigation_reload.py" in navigation["steps"][0]["arguments"]
+    assert "src/maplebot/navigation_runtime.py" in navigation["steps"][1]["arguments"]
+    assert "tools/enemy_tracking_replay.py" not in navigation["steps"][1]["arguments"]
     assert [s["name"] for s in combat["steps"]] == ["saved failure", "engine tests", "lint"]
     assert "--replay-policy" in combat["steps"][0]["arguments"]
+    assert "src/maplebot/farming.py" in combat["steps"][2]["arguments"]
+    assert "src" not in combat["steps"][2]["arguments"]
     assert "tests/test_farming_check.py" in combat["steps"][1]["arguments"]
     assert "tests/test_reacquisition.py" in perception["steps"][0]["arguments"]
     assert perception["steps"][1]["arguments"] == ["check", "src/maplebot/perception.py"]
     assert all("restart" not in [s["name"] for s in r["steps"]]
                for r in (navigation, combat, perception))
+
+
+def test_summary_only_override_and_general_lint_default(tmp_path):
+    source = Path(__file__).resolve().parents[1] / "tools/dev_cycle.ps1"
+    failure = tmp_path / "failure.json"
+    failure.write_text("{}", "utf-8")
+    runner = tmp_path / "defaults.ps1"
+    runner.write_text("""
+        $reports = @()
+        $options = @{ Scope = 'perception'; FailureResult = $args[1];
+            ReplayPolicy = $false; DryRun = $true }
+        $reports += (& $args[0] @options | ConvertFrom-Json)
+        $reports += (& $args[0] -Scope engine -DryRun | ConvertFrom-Json)
+        ConvertTo-Json -InputObject $reports -Depth 8
+    """, "utf-8")
+    result = subprocess.run(["pwsh", "-NoProfile", "-File", str(runner), str(source), str(failure)],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    perception, engine = json.loads(result.stdout)
+    assert "--replay-policy" not in perception["steps"][0]["arguments"]
+    assert perception["steps"][2]["arguments"] == [
+        "check", "src/maplebot/perception.py", "src/maplebot/reacquisition.py",
+        "tests/test_perception.py", "tests/test_reacquisition.py"]
+    assert engine["steps"][1]["arguments"] == ["check", "src", "tests", "tools"]
 
 
 def test_rejects_reload_of_other_scopes_or_combined_restart(tmp_path):

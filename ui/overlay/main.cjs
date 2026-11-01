@@ -30,6 +30,7 @@ const send = (type, value) => { if (win && !win.isDestroyed()) win.webContents.s
 const heartbeat = open => post('overlay', { owner, panel: open,
   hwnd: Number(win.getNativeWindowHandle().readBigUInt64LE()) });
 async function settings(open) {
+  if (open) return; // The native window is outlines only; settings stay in the dashboard.
   if (transition || !win || win.isDestroyed()) return;
   transition = true;
   try {
@@ -38,9 +39,10 @@ async function settings(open) {
     panel = open;
     win.setIgnoreMouseEvents(true, { forward: true });
     win.setFocusable(open);
-    // Windows drops always-on-top when focusability changes; the game would cover the HUD.
-    win.setAlwaysOnTop(true);
     if (open) { win.show(); win.focus(); } else { win.blur(); win.showInactive(); }
+    // Click-through/show transitions can clear the native topmost flag on Windows.
+    win.setAlwaysOnTop(true);
+    win.moveTop();
     send('panel', open);
   } catch (error) { send('error', error.message); }
   finally { transition = false; }
@@ -76,7 +78,11 @@ async function poll() {
       send('game-bounds', { x: bounds.x - desktop.x, y: bounds.y - desktop.y,
         width: bounds.width, height: bounds.height, visible: Boolean(status.focused || panel) });
     } else send('game-bounds', null);
-    if (!panel) win.showInactive();
+    if (!panel) {
+      win.showInactive();
+      win.setAlwaysOnTop(true);
+      win.moveTop();
+    }
   } catch (error) {
     send('error', error.message);
     send('game-bounds', null);
@@ -104,8 +110,9 @@ else app.whenReady().then(async () => {
     ipcMain.on('overlay-paint', event => { if (own(event)) lastPaint = Date.now(); });
     ipcMain.on('overlay-mouse', (event, interactive) => {
       if (own(event) && typeof interactive === 'boolean') {
-        // Closed settings still accept clicks on the HUD's settings button.
-        win.setIgnoreMouseEvents(!interactive, { forward: true });
+        win.setIgnoreMouseEvents(true, { forward: true });
+        win.setAlwaysOnTop(true);
+        win.moveTop();
       }
     });
     ipcMain.handle('overlay-settings', (event, open) => own(event) && settings(Boolean(open)));
@@ -156,8 +163,6 @@ else app.whenReady().then(async () => {
     for (const [key, action] of [
       // Always deliver the key. The renderer reports blockers and the engine
       // retains its authoritative focus/input gates. Off must never be ignored.
-      ['F6', () => send('toggle')],
-      ['F7', () => void settings(!panel)],
       ['F8', () => { void stop(); send('off'); }],
       ['F9', () => send('layers')],
     ]) if (!globalShortcut.register(key, action)) throw new Error(`${key} is already registered by another app`);

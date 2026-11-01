@@ -6,6 +6,27 @@ End each final reply about this project with one next-prompt direction, includin
 Suggestions are advisory. Invoke NEEF only when the user explicitly requests it; setup does not authorize automatic workflows or executing suggested prompts.
 <!-- neef:next-prompt:end -->
 
+## Default test loop
+
+Use the offline failure-to-retest workflow for bot changes. Runner options are in
+[README.md](README.md#tests-and-reproducible-checks).
+
+- Inspect the saved failure result and clip before editing. Run `tools/dev_cycle.ps1`
+  with `-Scope navigation`, `-Scope combat`, `-Scope perception` or `-Scope ui` to
+  match the change. Supply `-FailureResult <result.json>`
+  when diagnosing a saved failure; policy replay runs automatically. Replay compares
+  decisions and does not prove live focus, capture timing, input delivery or hits.
+- Select affected tests and lint paths. Reuse passing evidence while its source and
+  conditions still match; broaden checks for cross-cutting changes, failures or a
+  concrete unresolved risk. Proceed to delivery once affected checks pass.
+- For navigation-bundle edits, prefer `-Scope navigation -ReloadNavigation` after
+  checks. The existing engine gate requires Bot Off and released, idle input. Changes
+  outside that reload bundle require the restart workflow below when authorized.
+- Reuse unchanged accepted controls, calibration and map evidence. Every live batch
+  still requires operator presence and explicit authorization under the rules below.
+- Separate command runtime from investigation, setup, installation and reporting
+  overhead. A faster offline check does not establish a faster complete live cycle.
+
 ## Engine restarts
 
 Restart the debugger engine only with `tools/restart_engine.ps1` (`-EnableGameplayInput` for

@@ -123,7 +123,7 @@ def test_rope_proximity_without_vertical_progress_cannot_confirm_grip():
     assert nav.stage == "stopped"
 
 
-def test_dropped_rope_grab_chord_is_repeated_from_the_launch_floor():
+def test_rope_grab_aligns_before_jumping_and_ignores_delayed_launch_feedback():
     profile, _ = fixture()
     profile["ropes"] = [{"id": "rope", "start": {"x": 150, "y": 250},
                          "end": {"x": 150, "y": 400}}]
@@ -137,16 +137,26 @@ def test_dropped_rope_grab_chord_is_repeated_from_the_launch_floor():
                               ("back", profile["links"][1], [[150, 350], [150, 400]]))}}
     graph = RouteMap(profile, evidence)
     nav = Navigator(graph, graph.plan("floor", "rope"), 0)
-    f = Feedback(0, graph.fingerprint, (150, 400), "floor", True)
-    for now in (0, .2, .4, .6):  # the .6 takeoff chord is lost behind a running walk pulse
+    f = Feedback(0, graph.fingerprint, (136, 400), "floor", True)
+    for now in (0, .2, .4):
         nav.step(replace(f, now=now))
+    alignment = nav.step(replace(f, now=.6))
+    assert nav.stage == "approach" and alignment.vertical is None
+    assert [hold.action for hold in alignment.holds] == ["right"]
+    # A short tap may not move the coarse minimap marker. Settle and tap again.
+    assert nav.step(replace(f, now=.8)).release
+    realign = nav.step(replace(f, now=1.2))
+    assert [hold.action for hold in realign.holds] == ["right"]
+    assert nav.stage == "approach" and realign.vertical is None
+    assert nav.step(replace(f, now=1.4, feet=(150, 400))).release
+    grab = nav.step(replace(f, now=1.8, feet=(150, 400)))
     assert nav.stage == "flight"
-    aligned = nav.step(replace(f, now=.8, feet=(158, 400)))
-    assert aligned.vertical == "up" and [hold.action for hold in aligned.holds] == ["jump"]
-    offset = nav.step(replace(f, now=1, feet=(170, 400)))
-    assert offset.horizontal == "left" and offset.vertical == "up"
-    assert [hold.action for hold in offset.holds] == ["jump"]
-    assert nav.step(replace(f, now=1.2, feet=(150, 380), surface=None)).vertical == "up"
+    assert grab.vertical == "up" and [hold.action for hold in grab.holds] == ["jump"]
+    for now, feet, surface in ((2.0, (150, 400), "floor"),
+                               (2.2, (170, 330), None), (2.4, (182, 330), None)):
+        motion = nav.step(replace(f, now=now, feet=feet, surface=surface))
+        assert motion.vertical == "up" and not motion.holds
+        assert motion.horizontal is None
 
 
 def test_rope_to_platform_approaches_recorded_height_before_entering_its_corridor():
@@ -198,6 +208,24 @@ def test_rope_launch_height_overshoot_keeps_the_route_direction(
         assert motion.vertical == direction or motion.release
         assert not motion.holds
     assert nav.stage == "flight"
+
+
+@pytest.mark.parametrize(("y", "climbing"), [(345.2, False), (343, False), (352, True)])
+def test_ladder_exit_one_marker_step_short_releases_instead_of_climbing_on(y, climbing):
+    # Live (SHG III rope3): the marker read 2.2 px below the exit for 1.2 s; holding "up"
+    # walked the player off the ladder top and out of the recorded corridor.
+    profile, evidence = fixture()
+    graph = RouteMap(profile, evidence)
+    graph.profile["ropes"] = [{"id": "rope", "start": {"x": 150, "y": 200},
+                               "end": {"x": 150, "y": 450}}]
+    graph.nodes["rope"] = graph.profile["ropes"][0]
+    edge = Edge("off", "rope", "ledge", "climb", (150, 373), (150, 343),
+                ((150, 373), (150, 343)), "saved")
+    nav = Navigator(graph, Route(profile["id"], 4, graph.fingerprint, "rope", "ledge",
+                                 (edge,)), 0)
+    nav.stage, nav.departed, nav.takeoff_at = "flight", True, 0
+    motion = nav.step(Feedback(.2, graph.fingerprint, (150, y), None, True))
+    assert (motion.vertical == "up") is climbing and motion.release is not climbing
 
 
 def test_rope_approach_brakes_before_takeoff_instead_of_jumping_with_horizontal_motion():

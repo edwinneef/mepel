@@ -46,6 +46,8 @@ APPROACH_STALL_SECONDS = 3
 LAUNCH_PX = 16
 # A down-jump hops within 16 px of its launch platform first; judge a fall-back after this.
 FALL_BACK_SECONDS = 1.0
+# Half a minimap marker step: a climb reading this close to its exit has arrived.
+QUANTIZED_EXIT_PX = 8
 
 
 def distance(point: tuple, trace: tuple) -> float:
@@ -251,6 +253,12 @@ class Navigator:
                 if f.surface != origin or not self._settled(f, origin):
                     self.reason = "Braking at rope launch; waiting for settled origin"
                     return Motion(release=True)
+                rope_x = next((p["start"]["x"] for p in self.graph.profile["ropes"]
+                               if p["id"] == edge.target), edge.launch[0])
+                if abs(f.feet[0] - rope_x) > 12:
+                    self.reason = "Aligning with rope before jumping"
+                    self.settle_since = self.last_feet = None
+                    return self._walk(f.feet[0], rope_x)
             if edge.kind in {"jump", "drop"} and not rope:
                 # Take off from rest: arriving mid-walk carried a live jump past the edge
                 # before the jump key fired.
@@ -356,11 +364,17 @@ class Navigator:
         if edge.kind == "climb":
             rope_x = next((p["start"]["x"] for p in self.graph.profile["ropes"]
                            if p["id"] in {edge.source, edge.target}), f.feet[0])
+            if target_rope:
+                # A grab jump can pass its waypoint before the rope catches. Keep its
+                # climb direction without another jump or sideways steering in flight.
+                return Motion(vertical="up" if edge.landing[1] < edge.launch[1] else "down")
             if not target_rope and abs(f.feet[1] - edge.landing[1]) <= 16:
                 if abs(f.feet[0] - edge.landing[0]) > 12:
                     return self._walk(f.feet[0], edge.landing[0])
-                if ((f.feet[1] - edge.landing[1])
-                        * (edge.landing[1] - edge.launch[1]) >= 0):
+                # A marker step (~16 px) can read just short of the exit; holding the
+                # climb key there walked the player off the ladder top (SHG III rope3).
+                if ((f.feet[1] - edge.landing[1]) * (1 if edge.landing[1] > edge.launch[1]
+                                                     else -1) >= -QUANTIZED_EXIT_PX):
                     # Wait for contact evidence instead of reversing at a quantized exit.
                     return Motion(release=True)
             # Still on the launch floor below the rope: the takeoff chord can be dropped

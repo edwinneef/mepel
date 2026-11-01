@@ -10,7 +10,7 @@ async function startOverlay() {
     webContents: { send: vi.fn(), on: vi.fn(), setWindowOpenHandler: vi.fn() },
     setContentProtection: vi.fn(), setMenu: vi.fn(), on: vi.fn(),
     setIgnoreMouseEvents: vi.fn(), setFocusable: vi.fn(), show: vi.fn(),
-    focus: vi.fn(), blur: vi.fn(), showInactive: vi.fn(), setAlwaysOnTop: vi.fn(),
+    focus: vi.fn(), blur: vi.fn(), showInactive: vi.fn(), setAlwaysOnTop: vi.fn(), moveTop: vi.fn(),
     isDestroyed: () => false, getNativeWindowHandle: () => Buffer.alloc(8, 1),
     loadURL: vi.fn(async () => {}),
   };
@@ -47,6 +47,9 @@ it('starts Off with settings closed and click-through without activating the ove
   expect(win.focus).not.toHaveBeenCalled();
   expect(win.show).not.toHaveBeenCalled();
   expect(win.showInactive).toHaveBeenCalled();
+  expect(win.setAlwaysOnTop.mock.invocationCallOrder.at(-1))
+    .toBeGreaterThan(win.showInactive.mock.invocationCallOrder.at(-1));
+  expect(win.moveTop).toHaveBeenCalled();
   expect(win.setIgnoreMouseEvents).toHaveBeenCalledWith(true, { forward: true });
   expect(requests.map(request => request.url)).toEqual([
     'http://127.0.0.1:8765/api/stop', 'http://127.0.0.1:8765/api/overlay',
@@ -55,28 +58,22 @@ it('starts Off with settings closed and click-through without activating the ove
   expect(win.webContents.send).toHaveBeenCalledWith('overlay-event', { type: 'panel', value: false });
 });
 
-it('activates settings only on explicit F7 and never resumes gameplay when closing', async () => {
-  const { win, shortcuts, requests } = await startOverlay();
-  shortcuts.get('F7')();
-  await vi.waitFor(() => expect(win.focus).toHaveBeenCalledOnce());
-  expect(requests.at(-1).body.panel).toBe(true);
-  shortcuts.get('F7')();
-  await vi.waitFor(() => expect(requests.at(-1).body.panel).toBe(false));
-  expect(win.focus).toHaveBeenCalledOnce();
-  expect(requests.every(request => /\/api\/(stop|overlay)$/.test(request.url))).toBe(true);
+it('registers only emergency Stop and outline visibility shortcuts', async () => {
+  const { shortcuts } = await startOverlay();
+  expect([...shortcuts.keys()]).toEqual(['F8', 'F9']);
 });
 
-it('lets the closed HUD settings button take clicks and opens settings through the lease', async () => {
+it('stays click-through and refuses native settings requests', async () => {
   const { win, requests, electron } = await startOverlay();
   const mouse = electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-mouse')[1];
   mouse({ sender: win.webContents }, true);
-  expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(false, { forward: true });
+  expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true, { forward: true });
   mouse({ sender: win.webContents }, false);
   expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true, { forward: true });
   const settings = electron.ipcMain.handle.mock.calls.find(([name]) => name === 'overlay-settings')[1];
   await settings({ sender: win.webContents }, true);
-  expect(requests.at(-1).body.panel).toBe(true);
-  expect(win.focus).toHaveBeenCalledOnce();
+  expect(requests.at(-1).body.panel).toBe(false);
+  expect(win.focus).not.toHaveBeenCalled();
   await settings({ sender: win.webContents }, false);
   expect(requests.at(-1).body.panel).toBe(false);
   expect(win.setFocusable).toHaveBeenLastCalledWith(false);

@@ -3,7 +3,7 @@ param(
     [ValidateSet('engine', 'navigation', 'combat', 'perception', 'ui', 'all')]
     [string]$Scope = 'engine',
     [string[]]$PythonTests,
-    [string[]]$LintPaths = @('src', 'tests', 'tools'),
+    [string[]]$LintPaths,
     [string[]]$UiTests = @(),
     [string]$FailureResult,
     [switch]$ReplayPolicy,
@@ -18,6 +18,7 @@ $ErrorActionPreference = 'Stop'
 $total = [Diagnostics.Stopwatch]::StartNew()
 $root = Split-Path -Parent $PSScriptRoot
 if ($EnableGameplayInput -and -not $Restart) { throw '-EnableGameplayInput requires -Restart.' }
+if ($FailureResult -and -not $PSBoundParameters.ContainsKey('ReplayPolicy')) { $ReplayPolicy = $true }
 if ($ReplayPolicy -and -not $FailureResult) { throw '-ReplayPolicy requires -FailureResult.' }
 if ($ReloadNavigation -and ($Scope -ne 'navigation' -or $Restart)) {
     throw '-ReloadNavigation requires -Scope navigation and cannot combine with -Restart.'
@@ -43,6 +44,19 @@ if ($Scope -ne 'ui') {
             default { @('tests/test_dev_cycle.py', 'tests/test_failure_report.py',
                 'tests/test_town_check.py', 'tests/test_navigation_check.py',
                 'tests/test_navigation_runtime.py', 'tests/test_navigation_harness.py') }
+        }
+    }
+    if (-not $PSBoundParameters.ContainsKey('LintPaths')) {
+        $LintPaths = switch ($Scope) {
+            'navigation' { @('src/maplebot/navigation.py', 'src/maplebot/navigation_executor.py',
+                'src/maplebot/navigation_runtime.py', 'src/maplebot/navigation_reload.py',
+                'src/maplebot/short_walk.py', 'tools/navigation_check.py',
+                'tools/reload_navigation.py') + $PythonTests }
+            'combat' { @('src/maplebot/decision.py', 'src/maplebot/keyboard.py',
+                'src/maplebot/runtime.py', 'src/maplebot/farming.py',
+                'tools/combat_check.py', 'tools/farming_check.py') + $PythonTests }
+            'perception' { @('src/maplebot/perception.py', 'src/maplebot/reacquisition.py') + $PythonTests }
+            default { @('src', 'tests', 'tools') }
         }
     }
     if (-not $PythonTests.Count) { throw 'Select at least one Python test.' }

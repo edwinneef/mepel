@@ -6,6 +6,10 @@ End each final reply about this project with one next-prompt direction, includin
 Suggestions are advisory. Invoke NEEF only when the user explicitly requests it; setup does not authorize automatic workflows or executing suggested prompts.
 <!-- neef:next-prompt:end -->
 
+## Default test loop
+
+For bot changes, follow [AGENTS.md: Default test loop](AGENTS.md#default-test-loop).
+
 ## Engine restarts
 
 Restart the debugger engine only with `tools/restart_engine.ps1` (`-EnableGameplayInput` for

@@ -11,6 +11,7 @@ import { SettingsTool, TrackingTool, PotionsTool, DiagnosticsTool } from './tool
 import { PositionPanel } from './PositionPanel';
 import { GoBar } from './GoBar';
 import { NavigationPanel } from './NavigationPanel';
+import { MapTab } from './MapTab';
 import { AlarmBanner } from './AlarmBanner';
 import { SavedTerrainOverlay } from './SavedTerrainOverlay';
 import { BowmanSetup } from './BowmanSetup';
@@ -19,7 +20,9 @@ import { AttackRangeOverlay } from './AttackRangeOverlay';
 import type { DashboardSession } from './dashboard';
 import './overlay.css';
 
-export function OverlayApp({ client, dashboard }: { client: OverlayClient; dashboard?: DashboardSession }) {
+export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
+  client: OverlayClient; dashboard?: DashboardSession; outlinesOnly?: boolean;
+}) {
   const host = dashboard ?? window.mapleOverlay;
   const state = useSyncExternalStore(client.subscribe, client.getState);
   const s = state.snapshot;
@@ -157,6 +160,14 @@ export function OverlayApp({ client, dashboard }: { client: OverlayClient; dashb
     <LiveDetectionBoxes drawing={packet} />
     {attackRange && <AttackRangeOverlay player={packet.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
   </>;
+  if (outlinesOnly && !dashboard) return <div className="native-overlay">
+    {layers && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
+      style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
+      viewBox={`0 0 ${drawing.frame.width} ${drawing.frame.height}`} preserveAspectRatio="none" aria-label="Live detections">
+      <LiveDetectionBoxes drawing={drawing} />
+      <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />
+    </svg>}
+  </div>;
   return <div className={`${dashboard ? 'dashboard-overlay' : 'native-overlay'} ${panel ? 'editing-layout' : ''}`}>
     {dashboard && <section className="dashboard-preview" aria-label="Dashboard game view">
       <GameViewport image={view.image} frozen={Boolean(view.frozen)} stale={!fresh || (layers && !previewDrawing)} selection={view.selection}
@@ -223,6 +234,8 @@ export function OverlayApp({ client, dashboard }: { client: OverlayClient; dashb
         {toolProps && (tab === 'Connection' ? <SettingsTool {...toolProps} /> : tab === 'Recognition' ? <TrackingTool {...toolProps} /> : <PotionsTool {...toolProps} />)}
       </>}
       {tab === 'Map' && toolProps && <>
+        <MapTab snapshot={toolProps.snapshot} client={client} act={act} disabled={disabled}
+          onPreview={() => setAction({ name: 'nav_start', label: 'Previewed navigation route', payload: { opt_in: false } })} />
         <NavigationPanel snapshot={toolProps.snapshot} client={client} act={act} disabled={disabled}
           areas={areas} supervised={supervised}
           onInvalidate={() => { setSupervised(false); choose('dry_run', 'Decision preview'); }}
