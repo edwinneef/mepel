@@ -6,6 +6,7 @@ from tools.floor_batch_button import main
 def test_actual_button_click_hides_window_runs_once_and_displays_result():
     seen = []
     errors = []
+    inspected = []
 
     def runner(command, **kwargs):
         seen.append((command, kwargs))
@@ -25,6 +26,7 @@ def test_actual_button_click_hides_window_runs_once_and_displays_result():
             try:
                 assert "offline gate refused" in output.get("1.0", "end")
                 assert window.state() != "withdrawn"
+                inspected.append(True)
             except AssertionError as error:
                 errors.append(error)
             window.destroy()
@@ -35,6 +37,7 @@ def test_actual_button_click_hides_window_runs_once_and_displays_result():
 
     main(runner=runner, on_ready=ready)
     assert not errors
+    assert inspected, "GUI result callback did not complete before timeout"
     assert len(seen) == 1
     assert seen[0][0][-2:] == ["--run", "--focus"]
     assert seen[0][0][0].endswith("python.exe")

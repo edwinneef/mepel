@@ -1,4 +1,5 @@
 """Local operator button; opening the window never starts gameplay."""
+import queue
 import subprocess
 import sys
 import threading
@@ -17,6 +18,7 @@ def main(*, runner=subprocess.run, on_ready=None):
              "Clear the alarm first. Stay present. F8 stops gameplay.").pack(pady=10)
     output = ScrolledText(window, height=12, wrap="word")
     busy = False
+    results = queue.SimpleQueue()
 
     def finished(text):
         nonlocal busy
@@ -36,7 +38,15 @@ def main(*, runner=subprocess.run, on_ready=None):
             text = result.stdout + result.stderr
         except Exception as error:
             text = str(error)
-        window.after(0, finished, text)
+        results.put(text)
+
+    def poll_result():
+        try:
+            text = results.get_nowait()
+        except queue.Empty:
+            window.after(25, poll_result)
+        else:
+            finished(text)
 
     def start():
         nonlocal busy
@@ -47,6 +57,7 @@ def main(*, runner=subprocess.run, on_ready=None):
         output.insert("end", "Starting one guarded batch; restoring game focus...\n")
         window.withdraw()
         threading.Thread(target=worker, daemon=True).start()
+        window.after(25, poll_result)
 
     button = tk.Button(window, text="Start one 60-second floor batch", command=start)
     button.pack(pady=6)
