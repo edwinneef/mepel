@@ -5,7 +5,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
-BUNDLE = ("navigation", "navigation_executor", "short_walk", "navigation_runtime")
+BUNDLE = ("navigation", "navigation_executor", "short_walk", "navigation_replay",
+          "navigation_runtime")
 
 
 def reload_navigation(app) -> dict:

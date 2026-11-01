@@ -2241,6 +2241,7 @@ class Application:
             "camera_confidence": observation.camera_confidence,
             "policy_input": policy_input.to_dict(),
             "policy_before": policy_before,
+            "navigation_step": self.navigation.last_step,
             "decision": asdict(decision),
             "action_outcome": policy_input.last_outcome,
             "stage_timing": {

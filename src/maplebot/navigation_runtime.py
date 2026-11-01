@@ -10,6 +10,7 @@ from .decision import Action
 from .move_proofs import MoveProofs
 from .navigation import RouteMap, map_hash, pose_gaps, required_poses
 from .navigation_executor import EdgeStep, Feedback, Navigator, distance
+from .navigation_replay import recorded_step
 from .reacquisition import RECOVERY_SECONDS
 from .scheduler import SUSTAIN
 from .short_walk import ShortWalk
@@ -33,6 +34,7 @@ class NavigationRuntime:
         self.app = app
         self.graph = self.route = self.agent = self.feedback = None
         self.previous = None
+        self.last_step = None
         self.ticket = self.lease = None
         self.resume_combat = False
         self.agreed_at = float("-inf")
@@ -484,6 +486,7 @@ class NavigationRuntime:
             and f.now - self.agreed_at <= FLIGHT_GRACE_SECONDS)
 
     def tick(self, suggestion: str | None, now: float) -> None:
+        self.last_step = None
         app = self.app
         if app.mode not in {"navigation", "navigation_wait"}:
             return
@@ -538,8 +541,11 @@ class NavigationRuntime:
         if isinstance(self.agent, EdgeStep):
             motion = self.agent.step(f)
         else:
-            motion = self.agent.step(replace(f, motion_ok=True, marker_only=True)
-                                     if airborne else f)
+            effective = replace(f, motion_ok=True, marker_only=True) if airborne else f
+            if type(self.agent) is Navigator:
+                motion, self.last_step = recorded_step(self.agent, effective)
+            else:
+                motion = self.agent.step(effective)
             self._learn()
         if not self.agent.active:
             if self.agent.stage == "arrived" and self.resume_combat:
