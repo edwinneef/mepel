@@ -16,6 +16,7 @@ class Window:
     client: Rect
     focused: bool
     dpi: int
+    foreground: dict | None = None
 
 
 class TitleBarInfo(ctypes.Structure):
@@ -74,13 +75,26 @@ class Windows:
             raise ctypes.WinError(ctypes.get_last_error())
         if not self.api.ClientToScreen(hwnd, ctypes.byref(point)):
             raise ctypes.WinError(ctypes.get_last_error())
+        foreground = self.api.GetForegroundWindow()
         return Window(
             hwnd,
             title.value,
             Rect(point.x, point.y, rect.right, rect.bottom),
-            self.api.GetForegroundWindow() == hwnd,
+            foreground == hwnd,
             self.api.GetDpiForWindow(hwnd),
+            self.foreground_identity(foreground) if foreground != hwnd else None,
         )
+
+    def foreground_identity(self, hwnd: int | None) -> dict:
+        """Record the other foreground owner on loss; never request activation."""
+        length = self.api.GetWindowTextLengthW(hwnd) if hwnd else 0
+        title = ctypes.create_unicode_buffer(length + 1)
+        pid = wintypes.DWORD()
+        if hwnd:
+            self.api.GetWindowTextW(hwnd, title, length + 1)
+            self.api.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        return {"hwnd": hwnd, "title": title.value, "pid": pid.value,
+                "observed_at": time.time()}
 
     def focus(self, hwnd: int, *, click_fallback: bool = False) -> bool:
         """Wait for activation, optionally click verified title chrome once, then stop."""

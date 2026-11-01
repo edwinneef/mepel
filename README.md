@@ -249,6 +249,20 @@ the previous assets first. Add `-Restart` only when the running engine needs the
 change (`-EnableGameplayInput` explicitly selects an input-capable restart).
 `-DryRun` lists the steps without running them. A failed step stops the sequence;
 timings and build backups go to `artifacts/dev-cycle/<timestamp>/`.
+Use `-Scope combat`, `-Scope perception` or `-Scope navigation` to select affected
+tests; `-LintPaths` selects affected Python files instead of the default full lint.
+Add `-FailureResult <saved-result.json> -ReplayPolicy` to summarize the
+failure and compare its saved decisions with the current policy before checks,
+without loading the sprite catalog or sending input. The report separates recorded
+active time from the runner's total time and shows frame gaps and slow stages;
+policy differences are comparisons, not proof of native behavior. For navigation
+edits, `-Scope navigation -ReloadNavigation` checks first, then uses the engine's
+existing stopped-and-released reload gate instead of restarting. It never starts
+gameplay, focuses the game or acknowledges an alarm. Other engine edits still need
+the existing restart workflow. A live batch needs separate operator authorization.
+Focus-loss frames now include the other foreground window's handle, title, PID and
+observation time. This diagnostic becomes active after an engine restart and cannot
+identify the owner in older recordings; it leaves all focus gates unchanged.
 See [town movement checks](docs/town-validation.md) for the bounded Mushroom Park run.
 Use the [offline navigation harness](docs/offline-navigation-harness.md) to test
 command timing, modeled movement and route handoffs without running the game.

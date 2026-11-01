@@ -60,3 +60,21 @@ def test_native_caption_point_is_outside_gameplay_and_window_buttons():
     info = TitleBarInfo()
     info.rect.left, info.rect.top, info.rect.right, info.rect.bottom = 25,7,1369,30
     assert caption_point(info, Rect(3,30,1366,768)) == (89,18)
+
+
+def test_foreground_loss_evidence_reads_owner_without_changing_focus():
+    windows = Windows.__new__(Windows)
+    def title(hwnd, buffer, length):
+        buffer.value = "Maple Overlay"
+    def process(hwnd, pointer):
+        pointer._obj.value = 123
+    windows.api = SimpleNamespace(
+        GetWindowTextLengthW=lambda hwnd: 13, GetWindowTextW=title,
+        GetWindowThreadProcessId=process,
+    )
+    evidence = windows.foreground_identity(99)
+    assert evidence["hwnd"] == 99
+    assert evidence["title"] == "Maple Overlay"
+    assert evidence["pid"] == 123
+    assert evidence["observed_at"] > 0
+    assert windows.foreground_identity(None)["hwnd"] is None
