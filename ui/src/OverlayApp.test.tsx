@@ -37,6 +37,9 @@ it('shows detection outlines and attack range without native settings or HUD', a
   expect(view.container.querySelector('[aria-label="Live detections"]')).toBeTruthy();
   expect(screen.getByLabelText('Configured attack range')).toBeTruthy();
   expect(screen.getByLabelText('Detection boxes').querySelectorAll('rect')).toHaveLength(2);
+  // The in-game overlay is outlines only: no labels or tracking diagnostics.
+  expect(screen.getByLabelText('Detection boxes').querySelectorAll('text')).toHaveLength(0);
+  expect(screen.queryByLabelText('Enemy tracking diagnostics')).toBeNull();
 });
 
 it('shows passive position learning progress over the focused game only', async () => {

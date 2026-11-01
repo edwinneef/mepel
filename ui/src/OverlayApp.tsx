@@ -167,7 +167,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     {layers && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
       viewBox={`0 0 ${drawing.frame.width} ${drawing.frame.height}`} preserveAspectRatio="none" aria-label="Live detections">
-      <LiveDetectionBoxes drawing={drawing} />
+      <LiveDetectionBoxes drawing={drawing} compact />
       <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />
     </svg>}
   </div>;

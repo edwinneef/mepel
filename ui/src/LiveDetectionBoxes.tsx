@@ -46,7 +46,8 @@ export function projectDisplayBoxes(current: Detection[], previous: Detection[],
   });
 }
 
-export function LiveDetectionBoxes({ drawing }: { drawing: LiveDetections }) {
+/** `compact`: outlines only for the in-game overlay; labels and diagnostics stay in the dashboard. */
+export function LiveDetectionBoxes({ drawing, compact = false }: { drawing: LiveDetections; compact?: boolean }) {
   const [now, setNow] = useState(Date.now());
   const history = useRef<{ current: LiveDetections; previous?: LiveDetections }>({ current: drawing });
   if (history.current.current.frame.id !== drawing.frame.id
@@ -75,8 +76,8 @@ export function LiveDetectionBoxes({ drawing }: { drawing: LiveDetections }) {
     ? projectDisplayBoxes([drawing.player], previous?.player ? [previous.player] : [], dt, age)[0] : drawing.player;
   const box = (item: Detection, key: string, color: string) => <g key={`${key === 'Target' ? 'target:' : ''}${item.track_id ?? key}`} stroke={color}>
     <rect {...item.box} fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-    <text x={item.box.x} y={Math.max(14, item.box.y - 5)} fill={color} stroke="#091019"
-      strokeWidth="3" paintOrder="stroke" fontSize="13">{key} · {item.tracked ? 'tracked' : `${Math.round(item.confidence * 100)}% similarity`}</text>
+    {(!compact || key === 'Target') && <text x={item.box.x} y={Math.max(14, item.box.y - 5)} fill={color} stroke="#091019"
+      strokeWidth="3" paintOrder="stroke" fontSize="13">{compact ? key : `${key} · ${item.tracked ? 'tracked' : `${Math.round(item.confidence * 100)}% similarity`}`}</text>}
   </g>;
   return <g aria-label="Detection boxes">
     {player && box(player, 'Player', '#81edbb')}
@@ -85,8 +86,8 @@ export function LiveDetectionBoxes({ drawing }: { drawing: LiveDetections }) {
       ? item.track_id === drawing.target.track_id
       : observed[i].template === drawing.target?.template && distance(observed[i], drawing.target!) < 1)
       ?? drawing.target, 'Target', '#ff6b89')}
-    {age >= 0 && age <= 500 && <EnemyTrackDiagnostics tracks={drawing.enemy_tracks ?? []} />}
-    {age >= 0 && age <= 500 && drawing.player_tracking
+    {!compact && age >= 0 && age <= 500 && <EnemyTrackDiagnostics tracks={drawing.enemy_tracks ?? []} />}
+    {!compact && age >= 0 && age <= 500 && drawing.player_tracking
       && <PlayerTrackDiagnostics tracking={drawing.player_tracking} />}
   </g>;
 }

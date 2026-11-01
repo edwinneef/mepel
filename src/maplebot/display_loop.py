@@ -64,9 +64,10 @@ class Track:
 
 class DisplayTracks:
     # Seconds since a recognition result confirming the track reached the display. Counted
-    # from arrival, not capture: results arrive about 0.5 s late, so a capture-time clock
-    # expired boxes just before each refresh and made the overlay blink.
-    LIFETIME = 1.0
+    # from arrival, not capture: results arrive late, so a capture-time clock expired boxes
+    # just before each refresh and made the overlay blink. Monsters outside the player's
+    # search window are only re-confirmed by the wide scan about once a second.
+    LIFETIME = 1.5
     VISIBLE = 0.5  # seconds since an image patch last confirmed the box
     SCORE = 0.6
     REFRESH = 0.8  # confident matches refresh the patch; recognition bounds any drift
@@ -216,11 +217,22 @@ class DisplayTracks:
             return (track.x + track.template.shape[1] / 2, track.y + track.template.shape[0] / 2)
 
         # A single recognition miss keeps a visible track (and its ID) until its lifetime
-        # ends, unless another track now covers the same place.
+        # ends, unless another track now covers the same place. Recognition's "not visible"
+        # only removes a box where this result actually searched: outside the player's
+        # search window the monster was not looked for, not found missing.
         hidden = {item["track_id"] for item in drawing.get("enemy_tracks") or []
                   if item["state"] != "visible"}
+        search = (drawing.get("player_tracking") or {}).get("search")
+
+        def searched(track: Track) -> bool:
+            if not search:
+                return True
+            x, y = center(track)
+            return (search["x"] <= x <= search["x"] + search["width"]
+                    and search["y"] <= y <= search["y"] + search["height"])
+
         for key, old in self.tracks.items():
-            if (key in tracks or key in hidden or self.time is None
+            if (key in tracks or (key in hidden and searched(old)) or self.time is None
                     or self.time - old.seen > self.VISIBLE):
                 continue
             ox, oy = center(old)

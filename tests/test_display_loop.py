@@ -47,6 +47,32 @@ def test_recognition_ids_survive_display_and_hidden_diagnostics_remove_old_boxes
     assert tracks.items(1.1)[1] == []
 
 
+def test_boxes_outside_the_searched_window_survive_until_the_next_wide_scan():
+    # A wide scan found a far monster; the next results searched only near the player.
+    tracks = DisplayTracks()
+    image = scene([((300, 300), 1), ((1100, 300), 2)])
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    tracks.update(gray, 1.0)
+    near = {**monster(300, 300), "track_id": "enemy:1"}
+    far = {**monster(1100, 300, "Ribbon Pig"), "track_id": "enemy:2"}
+    tracks.anchor(drawing("wide", 1.0, [near, far]), image)
+    local = {"x": 0, "y": 90, "width": 700, "height": 420}
+    for step, now in enumerate((1.2, 1.4, 1.6, 2.2)):
+        tracks.update(gray, now)
+        result = drawing(f"local{step}", now, [near])
+        result["enemy_tracks"] = [{"track_id": "enemy:2", "state": "lost"}]
+        result["player_tracking"] = {"search": local}
+        tracks.anchor(result, image)
+        assert {item["track_id"] for item in tracks.items(now)[1]} == {"enemy:1", "enemy:2"}
+    # A result that did search there still removes the box at once.
+    tracks.update(gray, 2.3)
+    full = drawing("full", 2.3, [near])
+    full["enemy_tracks"] = [{"track_id": "enemy:2", "state": "lost"}]
+    full["player_tracking"] = {"search": None}
+    tracks.anchor(full, image)
+    assert {item["track_id"] for item in tracks.items(2.3)[1]} == {"enemy:1"}
+
+
 def test_enemy_diagnostics_follow_camera_without_becoming_fresh_evidence():
     from maplebot.display_loop import project_enemy_diagnostics
 
@@ -116,8 +142,8 @@ def test_tracks_hide_without_image_support_and_expire_without_recognition():
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     tracks.update(gray, 1.9)
     assert len(tracks.items(1.9)[1]) == 1
-    tracks.update(gray, 2.1)  # Recognition has not confirmed it for over a second.
-    assert tracks.tracks == {} and tracks.items(2.1) == (None, [], None)
+    tracks.update(gray, 2.6)  # Recognition has not confirmed it for over 1.5 seconds.
+    assert tracks.tracks == {} and tracks.items(2.6) == (None, [], None)
 
 
 def test_late_recognition_refreshes_boxes_before_they_expire():
