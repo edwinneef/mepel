@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "development_maps": [60],
+  "evaluation_maps": [42, 100000200, 101010102, 101040002, 103030200, 100030001],
+  "criteria": {
+    "minimum_evaluation_maps_with_xy_truth": 2,
+    "p95_error_px": 4,
+    "minimum_observable_scene_coverage": 0.8,
+    "maximum_false_ready": 0,
+    "maximum_label_uncertainty_px": 2
+  },
+  "runtime_forbidden": ["evaluation_labels", "map_specific_image_templates", "map_specific_detector_settings"],
+  "notes": "Frozen before generic detector development. Map data is an allowed input. Independent labels are evaluation-only; absent truth cannot count as accuracy or successful refusal. Source compatibility must be established separately from minimap appearance."
+}
