@@ -55,6 +55,7 @@ class PolicyInput:
                 raw_player["confidence"],
                 raw_player.get("template", ""),
                 raw_player.get("tracked", False),
+                raw_player.get("identity"),
             ) if raw_player else None
             monsters = [
                 Detection(
@@ -63,6 +64,7 @@ class PolicyInput:
                     item["confidence"],
                     item.get("template", ""),
                     item.get("tracked", False),
+                    item.get("identity"),
                 )
                 for item in raw_observation["monsters"]
             ]
@@ -156,6 +158,7 @@ class Agent:
                     target["confidence"],
                     target.get("template", ""),
                     target.get("tracked", False),
+                    target.get("identity"),
                 )
                 if target
                 else None

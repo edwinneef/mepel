@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -349,6 +350,28 @@ def test_partly_covered_tag_of_another_player_never_extends_the_track(tmp_path):
     covered = other.copy()
     covered[:, 30:] = (90, 140, 60)
     assert detector.detect(tag_scene(covered), now=0.3).player is None
+
+
+def test_named_sprite_alias_requires_prior_full_name_and_expires(tmp_path):
+    teach_tag(tmp_path, name_tag())
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    gray = cv2.cvtColor(tag_scene(name_tag()), cv2.COLOR_BGR2GRAY)
+    matches = detector._nametag_candidates(gray)
+    body = detector.body_from_nametag(matches[0][1], matches[0][0].box)
+    sprite = Detection("player", body, .95, "pose")
+    assert detector._resolve([sprite], [], [], gray, .1)[0].identity is None
+    named = detector._resolve([sprite], matches, [], gray, .2)[0]
+    assert named.template == "nametag:name"
+    recovered = detector._resolve([sprite], [], [], gray, .5)[0]
+    assert recovered.template == "pose" and recovered.identity == "nametag:name"
+    assert not recovered.tracked and recovered.confidence == sprite.confidence
+    unknown = replace(sprite, template="unknown")
+    assert detector._resolve([unknown], [], [], gray, .6)[0].identity is None
+    assert detector._resolve([sprite], [], [], gray, 2.2)[0].identity is None
+    detector._resolve([sprite], matches, [], gray, 2.3)
+    ambiguous = replace(sprite, box=body.translated(80, 0), confidence=.94)
+    assert detector._resolve([sprite, ambiguous], [], [], gray, 2.4)[0] is None
+    assert detector._resolve([sprite], [], [], gray, 2.5)[0].identity is None
 
 
 def test_occluded_name_requires_a_fresh_matching_sprite_and_glyphs_across_the_name(tmp_path):

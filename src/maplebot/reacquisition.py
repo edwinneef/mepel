@@ -1,11 +1,40 @@
 """Bounded player reacquisition for combat and farming. Pure: the runtime owns input."""
 
+import math
 from dataclasses import dataclass
+
+from .geometry import Rect
 
 # Same bounds as navigation's recognition recovery.
 RECOVERY_SECONDS = 2.0
 RESUME_MATCHES = 2
 RESUME_SPACING = 0.15
+
+
+class ConfirmedSprites:
+    """Session-only sprite/name associations learned from independently agreeing pixels."""
+
+    def __init__(self) -> None:
+        self.names: dict[str, str | None] = {}
+        self.last: tuple[str, Rect, float] | None = None
+
+    def observe(self, identity: str, sprite: str | None, box: Rect, now: float) -> None:
+        if sprite is not None:
+            if sprite in self.names and self.names[sprite] != identity:
+                self.names[sprite] = None  # This appearance cannot distinguish the two names.
+            else:
+                self.names[sprite] = identity
+        self.last = (identity, box, now)
+
+    def resolve(self, sprite: str, box: Rect, now: float, max_distance: float) -> str | None:
+        if self.last is None:
+            return None
+        identity, named_box, named_at = self.last
+        if (self.names.get(sprite) != identity or not math.isfinite(now)
+                or not 0 <= now - named_at < RECOVERY_SECONDS
+                or math.dist(box.center, named_box.center) > max_distance):
+            return None
+        return identity
 
 
 @dataclass

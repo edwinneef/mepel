@@ -7,10 +7,35 @@ from test_runtime import app as _app
 from maplebot.decision import Action, Decision, State
 from maplebot.geometry import Rect
 from maplebot.perception import Detection, Observation
-from maplebot.reacquisition import RECOVERY_SECONDS, Reacquisition
+from maplebot.reacquisition import RECOVERY_SECONDS, ConfirmedSprites, Reacquisition
 
 app = _app
 ME, OTHER = "nametag:me", "nametag:other"
+
+
+def test_sprite_association_needs_a_recent_name_and_independent_spatial_agreement():
+    identities = ConfirmedSprites()
+    box = Rect(100, 100, 44, 64)
+    assert identities.resolve("pose", box, 0, 80) is None
+    identities.observe(ME, "pose", box, 0)
+    assert identities.resolve("pose", box, .5, 80) == ME
+    assert identities.resolve("unknown", box, .5, 80) is None
+    assert identities.resolve("pose", box.translated(100, 0), .5, 80) is None
+    assert identities.resolve("pose", box, RECOVERY_SECONDS, 80) is None
+    assert identities.resolve("pose", box, -.1, 80) is None
+    identities.observe(ME, None, box, 1.8)  # Fresh name alone renews its identity evidence.
+    assert identities.resolve("pose", box, 2.2, 80) == ME
+    assert identities.resolve("unknown", box, 2.2, 80) is None
+
+
+def test_sprite_shared_by_different_names_is_never_an_identity_alias():
+    identities = ConfirmedSprites()
+    box = Rect(100, 100, 44, 64)
+    identities.observe(ME, "pose", box, 0)
+    identities.observe(OTHER, "pose", box, .1)
+    assert identities.resolve("pose", box, .2, 80) is None
+    identities.observe(ME, "pose", box, .3)
+    assert identities.resolve("pose", box, .4, 80) is None
 
 
 def test_pause_then_resume_on_two_spaced_fresh_frames_of_the_same_player():
@@ -86,6 +111,19 @@ def test_live_dropout_suspends_keys_then_resumes_on_fresh_frames(app, monkeypatc
     time.sleep(.16)
     process(app)
     assert not app.controller.suspended and app.mode == "live" and len(calls) == 2
+
+
+def test_live_dropout_resumes_with_a_fresh_independently_named_sprite(app, monkeypatch):
+    frame, calls = drive(app, monkeypatch)
+    process(app)
+    frame["player"] = None
+    process(app)
+    frame["player"] = replace(player("pose"), identity=ME)
+    process(app)
+    assert app.controller.suspended and len(calls) == 1
+    time.sleep(.16)
+    process(app)
+    assert not app.controller.suspended and len(calls) == 2
 
 
 def test_live_dropout_stops_after_two_seconds_without_the_player(app, monkeypatch):

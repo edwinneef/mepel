@@ -1001,7 +1001,8 @@ class Application:
         fresh = (player is not None and not player.tracked
                  and player.confidence >= self.config.perception.confidence)
         step = self.reacquisition.step(
-            player.template.removesuffix(":tag-only") if fresh else None, now)
+            (getattr(player, "identity", None) or player.template.removesuffix(":tag-only"))
+            if fresh else None, now)
         live = self.mode == "live"
         if step.state in {"pass", "ok"}:
             return None

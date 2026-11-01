@@ -19,6 +19,7 @@ from .capture import Image
 from .config import PerceptionConfig
 from .geometry import Rect
 from .map_filter import MapFilter
+from .reacquisition import ConfirmedSprites
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,8 @@ class Detection:
     # Accepted below the confidence threshold because it is close to the last confirmed
     # position; see TemplateDetector._follow.
     tracked: bool = False
+    # A recent full-name/sprite agreement; never supplied by positional tracking.
+    identity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -301,6 +304,7 @@ class TemplateDetector:
         self.reload()
 
     def reload(self) -> None:
+        self.confirmed_sprites = ConfirmedSprites()
         if hasattr(self, "map_filter"):
             self.map_filter.close()
         templates = []
@@ -978,15 +982,17 @@ class TemplateDetector:
         tags: list[tuple[Detection, NameTag]],
         failures: list[str],
         gray: Image,
+        now: float | None = None,
     ) -> tuple[Detection | None, float, bool]:
         player = players[0] if players and players[0].confidence >= self.config.confidence else None
         if player and len(players) > 1:
             if player.confidence - players[1].confidence < self.config.player_margin:
                 player = None
+                self.confirmed_sprites = ConfirmedSprites()
                 failures.append("Ambiguous player: multiple similar matches")
         if not self.nametags:
             return player, 0.0, False
-        return self._fuse_nametag(tags, player, failures, gray)
+        return self._fuse_nametag(tags, player, failures, gray, now)
 
     def detect(self, image: Image, now: float | None = None, *,
                monsters: bool = True) -> Observation:
@@ -1205,15 +1211,16 @@ class TemplateDetector:
         players = [item for item in kept if item.kind == "player"]
         tags = self._nametag_candidates(gray, searches)
         failures: list[str] = []
-        player, tag_confidence, conflict = self._resolve(players, tags, failures, gray)
+        player, tag_confidence, conflict = self._resolve(players, tags, failures, gray, now)
         if player is None and not conflict and self.fresh:
             # Snapshots are only searched when the taught templates and the tag fall short.
             fresh = [item for group in self.fresh for item in group]
             kept = self._suppress(candidates + self._candidates(image, gray, fresh, floor))
             players = [item for item in kept if item.kind == "player"]
             failures = []
-            player, tag_confidence, conflict = self._resolve(players, tags, failures, gray)
+            player, tag_confidence, conflict = self._resolve(players, tags, failures, gray, now)
         if conflict:
+            self.confirmed_sprites = ConfirmedSprites()
             self.fresh.clear()
             self.track, self.track_tag = None, None
         elif player is not None:
@@ -1372,6 +1379,7 @@ class TemplateDetector:
         sprite: Detection | None,
         failures: list[str],
         gray: Image,
+        now: float | None = None,
     ) -> tuple[Detection | None, float, bool]:
         """Returns the player, the tag confidence used, and whether tag and sprite conflict."""
         # The name tag survives gear changes and climbing poses; the sprite cross-checks it.
@@ -1383,11 +1391,19 @@ class TemplateDetector:
                             and not partial):
             if sprite:
                 failures.append("Name tag not found; located by player sprite")
+                if (now is not None and not sprite.tracked
+                        and sprite.confidence >= self.config.confidence):
+                    identity = self.confirmed_sprites.resolve(
+                        sprite.template, sprite.box.translated(*self.origin), now, TRACK_MAX_RADIUS)
+                    if identity:
+                        sprite = replace(sprite, identity=identity)
+                        failures.append("Fresh sprite corroborated by recent full-name agreement")
             return sprite, 0.0, False
         match, tag = distinct[0]
         if len(distinct) > 1 and match.confidence - distinct[1][0].confidence < (
             self.config.player_margin
         ):
+            self.confirmed_sprites = ConfirmedSprites()
             failures.append("Ambiguous name tag: multiple similar matches")
             return sprite, 0.0, False
         body = self.body_from_nametag(tag, match.box)
@@ -1404,6 +1420,11 @@ class TemplateDetector:
         if partial:
             failures.append("Occluded name corroborated by fresh player sprite")
         name = f"nametag:{tag.name}"
+        if now is not None and not partial:
+            known_sprite = (sprite.template if sprite and not sprite.tracked
+                            and sprite.confidence >= self.config.confidence else None)
+            self.confirmed_sprites.observe(
+                name, known_sprite, body.translated(*self.origin), now)
         if not sprite:
             failures.append("Player sprite not matched; located by name tag")
             name += ":tag-only"
