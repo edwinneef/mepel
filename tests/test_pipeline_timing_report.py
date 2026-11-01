@@ -213,3 +213,112 @@ def test_run_writes_only_new_output_and_is_deterministic(tmp_path):
         run(source, output)
     with pytest.raises(ValueError, match="new path"):
         run(source, source)
+
+
+def observation(captured=10.0, deadline=10.5, sequence=4):
+    return {"capture_clock": captured, "deadline": deadline,
+            "source_generation": 1, "view_generation": 2, "sequence": sequence}
+
+
+def observed_event(sequence=1, clock=10.1, *, down=True):
+    item = event(sequence, clock)
+    item.update(ticket=8, observation=observation(), capture_age_ms=(clock - 10) * 1000,
+                down=down)
+    return item
+
+
+def test_mixed_old_and_new_events_have_explicit_causal_age_denominators(tmp_path):
+    row = frame(20, 12)
+    row["input_timing"].update(history=[event(1, 10.05), observed_event(2, 10.1)],
+                               history_last_sequence=2)
+    # A later frame context cannot become the earlier ticket's capture origin.
+    row.update(view_generation=3, source_generation=3)
+    report = analyze(recording(tmp_path, [row, {**row, "sequence": 21, "capture_clock": 13}]))
+    age = report["input"]["key_down_observation_evidence"]
+    assert age["key_down_events"] == 2
+    assert age["known_age"] == age["unknown_age"] == 1
+    assert age["missing_reasons"] == {"observation": 1}
+    assert age["age_ms"]["p50"] == pytest.approx(100)
+    assert age["events"][0]["observation"] == observation()
+    assert age["pre_dispatch_deadline_violations"] == 0
+    assert report["capture"]["observation_age_at_input_ms"] == age["age_ms"]
+    assert report["capture"]["age_unavailable_reason"] is None
+
+
+def test_deadline_violations_apply_to_key_down_only(tmp_path):
+    row = frame()
+    row["input_timing"].update(history=[observed_event(1, 10.5), observed_event(2, 10.6),
+                                        observed_event(3, 11, down=False)],
+                               history_last_sequence=3)
+    report = analyze(recording(tmp_path, [row]))["input"]["key_down_observation_evidence"]
+    assert report["known_age"] == 2
+    assert report["pre_dispatch_deadline_violations"] == 1
+    assert report["age_ms"]["max"] == pytest.approx(600)
+
+
+def test_outcome_context_alone_cannot_establish_key_down_age(tmp_path):
+    row = frame()
+    row["input_timing"].update(history=[event()], history_last_sequence=1)
+    row["action_outcome"] = {"status": "pending", "ticket": 8, "observation": observation()}
+    report = analyze(recording(tmp_path, [row]))
+    assert report["capture"]["observation_age_at_input_ms"] is None
+    age = report["input"]["key_down_observation_evidence"]
+    assert age["known_age"] == 0 and age["unknown_age"] == 1
+
+
+@pytest.mark.parametrize("change", ["wrong_age", "wall_domain", "negative_age", "bad_deadline",
+                                    "bad_sequence", "nan_age"])
+def test_invalid_or_contradictory_observation_metadata_is_rejected(tmp_path, change):
+    item = observed_event()
+    if change == "wrong_age":
+        item["capture_age_ms"] = 700
+    elif change == "wall_domain":
+        item["observation"]["clock_domain"] = "wall"
+    elif change == "negative_age":
+        item["clock"] = 9
+    elif change == "bad_deadline":
+        item["observation"]["deadline"] = 9
+    elif change == "bad_sequence":
+        item["observation"]["sequence"] = True
+    else:
+        item["capture_age_ms"] = float("nan")
+    row = frame()
+    row["input_timing"].update(history=[item], history_last_sequence=1)
+    with pytest.raises(ValueError):
+        analyze(recording(tmp_path, [row]))
+
+
+def test_same_ticket_cannot_rebind_to_new_observation_in_event_or_outcome(tmp_path):
+    row = frame()
+    first, second = observed_event(1, 10.1), observed_event(2, 10.2)
+    second["observation"]["sequence"] = 5
+    row["input_timing"].update(history=[first, second], history_last_sequence=2)
+    with pytest.raises(ValueError, match="metadata changed"):
+        analyze(recording(tmp_path, [row]))
+    row["input_timing"]["history"] = [first]
+    row["action_outcome"] = {"status": "pending", "ticket": 8,
+                             "observation": observation(sequence=5)}
+    with pytest.raises(ValueError, match="metadata changed"):
+        analyze(recording(tmp_path, [row]))
+
+
+def test_missing_observation_field_stays_unknown_and_supplied_age_is_optional(tmp_path):
+    first, second = observed_event(1, 10.1), observed_event(2, 10.2)
+    del first["capture_age_ms"]
+    del second["observation"]["sequence"]
+    second["ticket"] = 9
+    row = frame()
+    row["input_timing"].update(history=[first, second], history_last_sequence=2)
+    report = analyze(recording(tmp_path, [row]))["input"]["key_down_observation_evidence"]
+    assert report["known_age"] == report["unknown_age"] == 1
+    assert report["missing_reasons"] == {"incomplete_observation": 1}
+    assert report["age_ms"]["p50"] == pytest.approx(100)
+
+
+def test_unkeyed_event_still_rejects_contradictory_clock_metadata(tmp_path):
+    item = observed_event()
+    del item["history_id"]
+    del item["sequence"]
+    item["capture_age_ms"] = 999
+    with pytest.raises(ValueError, match="contradicts"):
+        analyze(recording(tmp_path, [{"input_timing": {"events": [item]}}]))

@@ -31,6 +31,16 @@ def test_global_cost_alone_does_not_resolve_true_crossing(results):
     assert case["baseline"] == case["reference"]
 
 
+def test_species_suppression_recovers_overlap_but_exposes_conflicting_species_false_positive():
+    cases = {row["case"]: row for row in experiment.suppression_cases()}
+    overlap = cases["different_species_overlap"]
+    assert overlap["baseline_count_error"] == -1 and overlap["challenger_count_error"] == 0
+    duplicate = cases["animation_duplicate"]
+    assert duplicate["baseline_count_error"] == duplicate["challenger_count_error"] == 0
+    confused = cases["same_sprite_species_confusion"]
+    assert confused["baseline_count_error"] == 0 and confused["challenger_count_error"] == 1
+
+
 def test_ambiguity_veto_prevents_assignments_and_duplicate_births(results):
     case = results["ambiguous_overlap"]
     assert case["feasible_edges"] and not case["eligible_after_ambiguity_veto"]

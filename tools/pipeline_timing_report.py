@@ -140,9 +140,9 @@ def capture_timing(rows: list[dict]) -> dict:
         "source_generations": len(previous), "wall_clock_rollbacks": wall_rollbacks,
         "recorded_capture_gap_ms": distribution(intervals, len(rows)),
         "observation_age_at_input_ms": None,
-        "age_unavailable_reason": "Tickets have no causal observation sequence/capture clock. "
-        "policy_input.now is session-relative; captured_at is wall time; capture_clock and "
-        "input event clocks are perf_counter. Sharing a clock does not establish causality.",
+        "age_unavailable_reason": "No key-down event with a complete originating observation "
+        "and comparable event clock was recorded. Surrounding frame timestamps, ticket outcomes "
+        "and session-relative policy times do not substitute for event causality.",
     }
 
 
@@ -156,6 +156,90 @@ def _event_identity(event: dict, timing: dict):
     if sequence is not None:
         integer(sequence, "input event sequence")
     return (identity, sequence) if identity is not None and sequence is not None else None
+
+
+def observation_metadata(value) -> dict | None:
+    if value is None:
+        return None
+    observation = mapping(value, "input observation")
+    if observation.get("clock_domain", "perf_counter") != "perf_counter":
+        raise ValueError("Input observation clock_domain must be perf_counter")
+    for field in ("capture_clock", "deadline"):
+        if observation.get(field) is not None:
+            number(observation[field], f"input observation.{field}")
+    for field in ("source_generation", "view_generation", "sequence"):
+        if observation.get(field) is not None:
+            integer(observation[field], f"input observation.{field}")
+    if (observation.get("deadline") is not None and observation.get("capture_clock") is not None
+            and observation["deadline"] < observation["capture_clock"]):
+        raise ValueError("Input observation deadline precedes capture_clock")
+    return observation
+
+
+def event_observation(event: dict) -> tuple[dict | None, float | None]:
+    if event.get("clock_domain", "perf_counter") != "perf_counter":
+        raise ValueError("Input event clock_domain must be perf_counter")
+    observation = observation_metadata(event.get("observation"))
+    supplied_age = event.get("capture_age_ms")
+    if supplied_age is not None:
+        number(supplied_age, "input event.capture_age_ms")
+    computed_age = None
+    if (observation is not None and observation.get("capture_clock") is not None
+            and event.get("clock") is not None):
+        clock = number(event["clock"], "input event.clock")
+        computed_age = number(1000 * (clock - observation["capture_clock"]),
+                              "computed input capture age")
+        if (supplied_age is not None
+                and not math.isclose(computed_age, supplied_age, rel_tol=1e-9, abs_tol=1e-6)):
+            raise ValueError("Input capture_age_ms contradicts event and observation clocks")
+    return observation, computed_age
+
+
+def key_down_observations(events: dict, tickets: dict) -> dict:
+    """Use explicit original context only; never join against a later frame snapshot."""
+    bindings = {}
+    for key, outcome in tickets.items():
+        observation = observation_metadata(outcome.get("observation"))
+        if observation is not None:
+            bindings[key] = observation
+    evidence, missing = [], Counter()
+    down_count = 0
+    fields = ("capture_clock", "deadline", "source_generation", "view_generation", "sequence")
+    for (history_id, sequence), event in events.items():
+        observation, computed_age = event_observation(event)
+        ticket = event.get("ticket")
+        if ticket is not None:
+            integer(ticket, "input event.ticket")
+        if observation is not None and ticket is not None:
+            key = history_id, ticket
+            if key in bindings and bindings[key] != observation:
+                raise ValueError("Ticket observation metadata changed between outcome or events")
+            bindings[key] = observation
+        if event.get("down") is not True:
+            continue  # Release after expiry is permitted; it is not a stale key-down.
+        down_count += 1
+        if observation is None:
+            missing["observation"] += 1
+        elif ticket is None:
+            missing["ticket"] += 1
+        elif any(observation.get(field) is None for field in fields):
+            missing["incomplete_observation"] += 1
+        elif computed_age is None:
+            missing["event_clock"] += 1
+        else:
+            evidence.append({"history_id": history_id, "event_sequence": sequence,
+                             "ticket": ticket, "observation": observation,
+                             "capture_age_ms": computed_age,
+                             "deadline_exceeded": event["clock"] > observation["deadline"]})
+    return {"clock_contract": "keyboard InputObservation.capture_clock/deadline and event.clock "
+            "are perf_counter seconds; optional explicit clock_domain must agree",
+            "key_down_events": down_count, "known_age": len(evidence),
+            "unknown_age": down_count - len(evidence), "missing_reasons": dict(missing),
+            "age_ms": distribution([item["capture_age_ms"] for item in evidence], down_count),
+            "pre_dispatch_deadline_violations": sum(item["deadline_exceeded"] for item in evidence),
+            "events": evidence,
+            "scope": "Age at backend call start, not game receipt. Key-ups are excluded; "
+            "unkeyed event snapshots are excluded from unique-event denominators."}
 
 
 def input_timing(rows: list[dict]) -> dict:
@@ -189,6 +273,7 @@ def input_timing(rows: list[dict]) -> dict:
         previous_sequence = None
         for sample in samples:
             event = mapping(sample, "input event")
+            event_observation(event)  # Validate even snapshots lacking a deduplication identity.
             key = _event_identity(event, timing)
             for field in ("clock", "finished_clock", "issued_at", "at_seconds"):
                 if event.get(field) is not None:
@@ -211,6 +296,7 @@ def input_timing(rows: list[dict]) -> dict:
             missing_outcome += 1
             continue
         outcome = mapping(row["action_outcome"], "action_outcome")
+        observation_metadata(outcome.get("observation"))
         status = outcome.get("status", "missing")
         if not isinstance(status, str):
             raise ValueError("action_outcome.status: expected a string")
@@ -231,7 +317,8 @@ def input_timing(rows: list[dict]) -> dict:
             continue
         key = identity, ticket
         prior = tickets.get(key, {})
-        for field in ("generation", "action", "submitted_at", "started_at", "finished_at"):
+        for field in ("generation", "action", "submitted_at", "started_at", "finished_at",
+                      "observation"):
             if (prior.get(field) is not None and outcome.get(field) is not None
                     and prior[field] != outcome[field]):
                 raise ValueError(f"Ticket {ticket}: conflicting repeated {field}")
@@ -275,6 +362,7 @@ def input_timing(rows: list[dict]) -> dict:
                                                 and item.get("finished_at") is not None
                                                 and "started_at" in item for item in interrupted),
         "ticket_timing_ms": measurements,
+        "key_down_observation_evidence": key_down_observations(events, tickets),
     }
 
 
@@ -285,13 +373,19 @@ def analyze(path: Path) -> dict:
     if any(not name.endswith("_ms") for name in names):
         raise ValueError("stage_timing: expected millisecond fields ending in _ms")
     encoders = [optional_object(row, "encoder") for row in rows]
+    input_report = input_timing(rows)
+    capture_report = capture_timing(rows)
+    ages = input_report["key_down_observation_evidence"]
+    if ages["known_age"]:
+        capture_report["observation_age_at_input_ms"] = ages["age_ms"]
+        capture_report["age_unavailable_reason"] = None
     return {
         "version": 1, "provenance": provenance,
         "percentile_method": "linear interpolation at (n - 1) * quantile; milliseconds",
         "stages_ms": {name: field_stats(stages, name, "stage_timing") for name in sorted(names)},
         "loop_to_processed_ms": field_stats(rows, "latency_ms", "record"),
         "png_encode_callback_ms": field_stats(encoders, "png_encode_ms", "encoder"),
-        "capture": capture_timing(rows), "input": input_timing(rows),
+        "capture": capture_report, "input": input_report,
         "limitations": [
             "Only recorded samples are measured; absent/null timings are not zero.",
             "Stages overlap or omit work. No summed end-to-end latency is reported. latency_ms "
@@ -306,6 +400,9 @@ def analyze(path: Path) -> dict:
             "event sequence. Dropped history does not prove this recording missed those events.",
             "Ticket worker start is not first key dispatch. Schedule reaction delays are included "
             "in worker duration. Last-outcome snapshots can miss intermediate tickets.",
+            "Capture-to-key-down age uses only explicit event observation metadata. Older or "
+            "incomplete events remain unknown; newer frame contexts cannot renew their origin. "
+            "Deadline violations compare recorded backend-call start with the original deadline.",
             "Interrupted outcomes establish interruption, not its cause, cancellation request "
             "time or stop-to-release latency. No complete ticket lifecycle is inferred.",
             "Successful backend submission is not game input consumption, movement "

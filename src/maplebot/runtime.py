@@ -1,5 +1,6 @@
 import hashlib
 import json
+import math
 import queue
 import threading
 import time
@@ -32,7 +33,14 @@ from .display_loop import DisplayLoop, DisplaySource
 from .farming import CHECKPOINT_STOP, Farming
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
-from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win32Input
+from .keyboard import (
+    KEYS,
+    DisabledInput,
+    InputBackend,
+    InputObservation,
+    KeyboardController,
+    Win32Input,
+)
 from .live_position import STALE_SECONDS, LivePosition
 from .navigation_runtime import NavigationRuntime
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
@@ -253,6 +261,7 @@ class Application:
             replay=capture_only,
             timing=config.timing,
             on_stop=self._controller_stop,
+            observation=self._input_observation,
         )
         self.navigation = NavigationRuntime(self)
         self.farming: Farming | None = None
@@ -835,6 +844,22 @@ class Application:
     def note(self, reason: str) -> None:
         with self.lock:
             self.history.appendleft({"time": round(time.time(), 3), "reason": reason})
+
+    def _input_observation(self) -> InputObservation | None:
+        # Called under the input lock: read immutable frame metadata, never take app.lock.
+        frame = self.processing_frame
+        if frame is None:
+            if self.mode in {"live", "navigation"}:
+                return InputObservation(-1., -1., self.source_generation, self.view_generation, -1)
+            return None
+        source = frame.get("source_generation", self.source_generation)
+        view = frame.get("view_generation", self.view_generation)
+        captured = frame.get("capture_clock")
+        if ((source, view) != (self.source_generation, self.view_generation)
+                or not isinstance(captured, (int, float)) or not math.isfinite(captured)
+                or not isinstance(frame.get("sequence"), int)):
+            return InputObservation(-1., -1., self.source_generation, self.view_generation, -1)
+        return InputObservation(captured, captured + .5, source, view, frame["sequence"])
 
     def _input_safe(self) -> bool:
         reason = self._input_block_reason()
@@ -1798,7 +1823,10 @@ class Application:
         *, captured_at: float | None = None,
     ) -> tuple[Image, dict]:
         policy_now = now if policy_now is None else policy_now
-        self.processing_frame = {"sequence": self.sequence, "capture_clock": now, "stage": "map"}
+        self.processing_frame = {
+            "sequence": self.sequence, "capture_clock": now, "stage": "map",
+            "source_generation": self.source_generation, "view_generation": self.view_generation,
+        }
         map_began = time.perf_counter()
         captured_at = time.time() if captured_at is None else captured_at
         fix = self.position.read_map(image) if self.position is not None else None

@@ -241,10 +241,14 @@ class Agent:
                 return item.template.rsplit(":", 1)[0]
             return item.template
 
+        same_species = [item for item in candidates if identity(item) == identity(self.target)]
         tracked = sorted(
-            (item for item in candidates if identity(item) == identity(self.target)),
+            (item for item in same_species if not self.target.track_id or not item.track_id
+             or item.track_id == self.target.track_id),
             key=lambda item: math.dist(item.box.center, expected.center),
         )
+        if same_species and not tracked:
+            return self._search("Target track changed; release and reacquire a fresh target")
         match = tracked[0] if tracked else None
         distance = math.dist(match.box.center, expected.center) if match else math.inf
         if len(tracked) > 1:
@@ -342,7 +346,7 @@ class Agent:
 
     def _hidden_target(self, observation: Observation, player: Detection,
                        now: float) -> float | None:
-        """Horizontal offset of the current target's hidden tracker position within reach."""
+        """Hidden target offset only when its entire uncertainty interval stays in reach."""
         if (self.target is None or self.target.track_id is None or self.target_seen_at is None
                 or not 0 <= now - self.target_seen_at <= OCCLUDED_ATTACK_SECONDS):
             return None
@@ -350,10 +354,20 @@ class Agent:
                       if t.track_id == self.target.track_id and not t.observed), None)
         if track is None:
             return None
-        x, feet = track.ground_position
+        try:
+            x, feet = track.ground_position
+            ux, uy = track.uncertainty
+            values = (x, feet, ux, uy, track.confidence)
+            if (not all(not isinstance(value, bool) and math.isfinite(value) for value in values)
+                    or ux < 0 or uy < 0 or not 0 < track.confidence <= 1):
+                return None
+        except (TypeError, ValueError):
+            return None
         dx = x - player.box.center[0]
-        if (abs(feet - player.box.feet) > self.config.platform_tolerance
-                or not self.config.attack_min_range <= abs(dx) <= self.config.attack_range):
+        if (abs(dx) <= ux  # The interval touches/crosses the player; facing is ambiguous.
+                or abs(feet - player.box.feet) + uy > self.config.platform_tolerance
+                or abs(dx) - ux < self.config.attack_min_range
+                or abs(dx) + ux > self.config.attack_range):
             return None
         return dx
 

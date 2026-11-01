@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from tools.occlusion_evaluation import digest
-from tools.occlusion_report import render
+from tools.occlusion_report import recovery_intents, render
 
 
 def test_report_preserves_unknowns_and_rejects_stale_or_unaligned_evidence(tmp_path):
@@ -38,3 +38,23 @@ def test_report_preserves_unknowns_and_rejects_stale_or_unaligned_evidence(tmp_p
     with pytest.raises(ValueError, match="Hash mismatch"):
         render(manifest, result, result, tmp_path / "stale", tmp_path)
     assert not (tmp_path / "stale").exists()
+
+
+@pytest.mark.parametrize("outcome,visibility,wrong,unknown", [
+    ("correct_fresh_identity", "visible", 0, 0), ("wrong_fresh", "visible", 1, 0),
+    ("unsupported_fresh", "unknown", 0, 1), ("unsupported_fresh", "hidden", 1, 0),
+])
+def test_recovery_label_support(outcome, visibility, wrong, unknown):
+    def row(at, fresh, classification):
+        return {"at": at, "player": {"template": "nametag:alice"},
+                "evaluation": {"fresh": fresh, "outcome": classification,
+                               "visibility": visibility}}
+
+    result = recovery_intents({"id": "synthetic", "frames": [
+        row(0, True, "correct_fresh_identity"), row(.1, False, "abstained"),
+        row(.2, True, outcome), row(.4, True, outcome)]})
+    assert [r["state"] for r in result["intents"]] == ["ok", "pause", "wait", "resume"]
+    assert result["resume_requests"] == 1
+    assert result["wrong_resume_requests"] == wrong
+    assert result["unknown_resume_requests"] == unknown
+    assert result["native_acceptance"] is False

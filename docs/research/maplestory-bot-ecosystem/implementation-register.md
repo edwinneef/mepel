@@ -11,37 +11,37 @@ All 16 original reports and the dirty AGENTS.md/CLAUDE.md pointers are preserved
 | ID | Finding | Phase | Disposition | Source |
 | --- | --- | --- | --- | --- |
 | B01 | Independent occlusion/reacquisition benchmark | p2 | implemented_offline | [source](improvement-backlog.md#1-independent-occlusionreacquisition-benchmark) |
-| B02 | Minimap-guided player search ROI | p5 | planned | [source](improvement-backlog.md#2-minimap-guided-player-search-roi) |
-| B03 | Marker/other-player consistency veto | p5 | planned | [source](improvement-backlog.md#3-markerother-player-consistency-veto) |
-| B04 | Calibrated confidence and ambiguity reporting | p5 | planned | [source](improvement-backlog.md#4-calibrated-confidence-and-ambiguity-reporting) |
-| B05 | Whole-pipeline tail-latency profiling | p3 | partial | [source](improvement-backlog.md#5-whole-pipeline-tail-latency-profiling) |
+| B02 | Minimap-guided player search ROI | p5 | experimented_not_promoted | [source](improvement-backlog.md#2-minimap-guided-player-search-roi) |
+| B03 | Marker/other-player consistency veto | p5 | experimented_not_promoted | [source](improvement-backlog.md#3-markerother-player-consistency-veto) |
+| B04 | Calibrated confidence and ambiguity reporting | p5 | diagnostics_only | [source](improvement-backlog.md#4-calibrated-confidence-and-ambiguity-reporting) |
+| B05 | Whole-pipeline tail-latency profiling | p3 | partial_instrumentation | [source](improvement-backlog.md#5-whole-pipeline-tail-latency-profiling) |
 | B06 | Recording completeness and write-error reporting | p3 | implemented_offline | [source](improvement-backlog.md#6-recording-completeness-and-write-error-reporting) |
 | B07 | Two-stage monster association experiment | p6 | experimented_not_promoted | [source](improvement-backlog.md#7-two-stage-monster-association-experiment) |
 | B08 | Global assignment for crowded monster tracks | p6 | experimented_not_promoted | [source](improvement-backlog.md#8-global-assignment-for-crowded-monster-tracks) |
-| B09 | Timestamp-aware bounded motion model | p5 | planned | [source](improvement-backlog.md#9-timestamp-aware-bounded-motion-model) |
-| B10 | Partial nametag morphology ablation | p5 | planned | [source](improvement-backlog.md#10-partial-nametag-morphology-ablation) |
-| B11 | Prediction-first local template verification | p5 | planned | [source](improvement-backlog.md#11-prediction-first-local-template-verification) |
-| B12 | Explicit observation-age contracts across consumers | p3 | partial | [source](improvement-backlog.md#12-explicit-observation-age-contracts-across-consumers) |
-| B13 | Combat feedback evidence ladder | p6 | planned | [source](improvement-backlog.md#13-combat-feedback-evidence-ladder) |
-| B14 | Matched-map projection/quantization corpus | p4 | partial | [source](improvement-backlog.md#14-matched-map-projectionquantization-corpus) |
-| B15 | Navigation failure taxonomy and replay coverage | p7 | planned | [source](improvement-backlog.md#15-navigation-failure-taxonomy-and-replay-coverage) |
+| B09 | Timestamp-aware bounded motion model | p5 | experimented_not_promoted | [source](improvement-backlog.md#9-timestamp-aware-bounded-motion-model) |
+| B10 | Partial nametag morphology ablation | p5 | experimented_not_promoted | [source](improvement-backlog.md#10-partial-nametag-morphology-ablation) |
+| B11 | Prediction-first local template verification | p5 | existing_retained | [source](improvement-backlog.md#11-prediction-first-local-template-verification) |
+| B12 | Explicit observation-age contracts across consumers | p3 | implemented_offline | [source](improvement-backlog.md#12-explicit-observation-age-contracts-across-consumers) |
+| B13 | Combat feedback evidence ladder | p6 | already_covered | [source](improvement-backlog.md#13-combat-feedback-evidence-ladder) |
+| B14 | Matched-map projection/quantization corpus | p4 | partial_missing_inputs | [source](improvement-backlog.md#14-matched-map-projectionquantization-corpus) |
+| B15 | Navigation failure taxonomy and replay coverage | p7 | partial_missing_inputs | [source](improvement-backlog.md#15-navigation-failure-taxonomy-and-replay-coverage) |
 | B16 | Movement-proof provenance audit/extension | p4 | audited_deferred_migration | [source](improvement-backlog.md#16-movement-proof-provenance-auditextension) |
-| B17 | Multi-rate perception scheduling experiment | p8 | planned | [source](improvement-backlog.md#17-multi-rate-perception-scheduling-experiment) |
-| B18 | Alternate capture backend A/B evaluation | p8 | planned | [source](improvement-backlog.md#18-alternate-capture-backend-ab-evaluation) |
-| B19 | Lightweight learned monster detector experiment | p8 | planned | [source](improvement-backlog.md#19-lightweight-learned-monster-detector-experiment) |
-| B20 | Extract small interruptible action primitives | p8 | planned | [source](improvement-backlog.md#20-extract-small-interruptible-action-primitives) |
-| X01 | Species/evidence-aware overlap suppression | p6 | planned | [source](monster-detection.md#bounding-boxes-classification-overlaps-and-death) |
-| X02 | Hidden-target uncertainty and combat/track identity | p6 | planned | [source](monster-detection.md#bounding-boxes-classification-overlaps-and-death) |
-| X03 | HP bars, facing, animation/range, projectiles and AOE | p6 | planned | [source](combat.md#ranked-local-opportunities) |
-| X04 | Body fragments, masked points and appearance reidentification | p5 | planned | [source](player-tracking.md#recommended-incremental-work) |
-| X05 | Marker shapes, minimap motion, reset and stitching | p4 | planned | [source](navigation.md#minimap-versus-full-screen-localization) |
-| X06 | Route teaching/compression, physics, landing and boundaries | p7 | planned | [source](navigation.md#physics-boundaries-and-geometry) |
+| B17 | Multi-rate perception scheduling experiment | p8 | deferred | [source](improvement-backlog.md#17-multi-rate-perception-scheduling-experiment) |
+| B18 | Alternate capture backend A/B evaluation | p8 | deferred | [source](improvement-backlog.md#18-alternate-capture-backend-ab-evaluation) |
+| B19 | Lightweight learned monster detector experiment | p8 | deferred | [source](improvement-backlog.md#19-lightweight-learned-monster-detector-experiment) |
+| B20 | Extract small interruptible action primitives | p8 | targeted_contract_only | [source](improvement-backlog.md#20-extract-small-interruptible-action-primitives) |
+| X01 | Species/evidence-aware overlap suppression | p6 | experimented_not_promoted | [source](monster-detection.md#bounding-boxes-classification-overlaps-and-death) |
+| X02 | Hidden-target uncertainty and combat/track identity | p6 | implemented_offline | [source](monster-detection.md#bounding-boxes-classification-overlaps-and-death) |
+| X03 | HP bars, facing, animation/range, projectiles and AOE | p6 | deferred | [source](combat.md#ranked-local-opportunities) |
+| X04 | Body fragments, masked points and appearance reidentification | p5 | existing_retained | [source](player-tracking.md#recommended-incremental-work) |
+| X05 | Marker shapes, minimap motion, reset and stitching | p4 | existing_retained | [source](navigation.md#minimap-versus-full-screen-localization) |
+| X06 | Route teaching/compression, physics, landing and boundaries | p7 | existing_retained | [source](navigation.md#physics-boundaries-and-geometry) |
 | X07 | Paired visual evidence reports and uncertainty overlays | p2 | implemented_offline | [source](debugging.md#external-reporting-pattern) |
-| X08 | Cancellation contracts, ticket timeline and recovery reasons | p3 | partial | [source](input-and-automation.md#practical-improvements-and-verification) |
-| X09 | Template caches, buffer ownership, worker counts and cadence | p8 | planned | [source](performance.md#optimization-comparison) |
-| X10 | Scale/features/differencing/background/OCR alternatives | p8 | planned | [source](computer-vision.md#recognition-choices) |
-| X11 | Code, model, data and dependency provenance | p8 | planned | [source](repositories.md#licensing-and-maturity-interpretation) |
-| X12 | Reconcile stale claims and research unknowns | p8 | planned | [source](open-questions.md#preserved-research-requiring-caution) |
+| X08 | Cancellation contracts, ticket timeline and recovery reasons | p3 | partial_instrumentation | [source](input-and-automation.md#practical-improvements-and-verification) |
+| X09 | Template caches, buffer ownership, worker counts and cadence | p8 | existing_retained | [source](performance.md#optimization-comparison) |
+| X10 | Scale/features/differencing/background/OCR alternatives | p8 | deferred | [source](computer-vision.md#recognition-choices) |
+| X11 | Code, model, data and dependency provenance | p8 | provenance_checked | [source](repositories.md#licensing-and-maturity-interpretation) |
+| X12 | Reconcile stale claims and research unknowns | p8 | reconciled | [source](open-questions.md#preserved-research-requiring-caution) |
 | L01 | Preserved club combat native acceptance | p9 | blocked | [source](combat.md#current-behavior-and-demonstrated-limits) |
 
 ## Phase acceptance
@@ -121,3 +121,9 @@ Coverage/handoff audit. Depends on: p8.
 - p1: Created 33 stable entries (20 backlog, 12 supplementary groups, one unfinished combat outcome); all 16 reports mapped. Original report/instruction hashes recorded; acceptance source text retained. No app changes or live runs.
 
 - p2/p3/p4/p6 offline evidence and remaining limits: [implementation-evidence.md](implementation-evidence.md). P3 contracts and later ready phases continue; no live authorization.
+
+## Current execution handoff
+
+[Evidence](implementation-evidence.md) and [decisions/remaining acceptance](implementation-decisions.md) continue the original reports. Ready offline work is checked; p4 needs compatible independent map bundles, p7 needs a complete action-aligned clip, and p9 needs separate explicit batch authorization. Each promotion retains its evidence prerequisites. Original acceptance above is intact; JSON preserves original dependencies and explains independent experiment execution.
+
+Validate with: .venv/Scripts/python.exe -m tools.validate_research_register. Never renumber IDs or turn deferred/unknown evidence into success.

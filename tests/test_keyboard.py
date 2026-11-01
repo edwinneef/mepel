@@ -1,13 +1,20 @@
 import threading
 import time
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
 from maplebot.config import InputConfig, TimingConfig
 from maplebot.decision import Action
 from maplebot.input_timing import KeyHold
-from maplebot.keyboard import EXTENDED_KEYS, KEYS, KeyboardController, Win32Input
+from maplebot.keyboard import (
+    EXTENDED_KEYS,
+    KEYS,
+    InputObservation,
+    KeyboardController,
+    Win32Input,
+)
 
 
 class Backend:
@@ -411,6 +418,142 @@ def test_stop_cancels_queued_and_active_submissions_without_later_key_down():
         assert backend.events == [("right", True), ("right", False)]
     finally:
         control.close()
+
+
+@pytest.fixture
+def observation_clock(controller, monkeypatch):
+    from maplebot import keyboard
+
+    control, backend, _ = controller
+    # Stop background threads; drive the real queue/schedule with a deterministic clock.
+    control.close()
+    while not control.queue.empty():
+        control.queue.get_nowait()
+    clock = [100.1]
+    source = [InputObservation(100., 100.5, 1, 2, 3)]
+    monkeypatch.setattr(keyboard, "time", SimpleNamespace(
+        perf_counter=lambda: clock[0], time=lambda: 1800000000. + clock[0]))
+
+    def wait(seconds):
+        clock[0] += max(0, seconds)
+        return control.stopped.is_set()
+
+    monkeypatch.setattr(control.stopped, "wait", wait)
+    control.observation = lambda: source[0]
+    control.planner.config = TimingConfig(enabled=False)
+    control.enable()
+    return control, backend, clock, source
+
+
+def queued_plan(control):
+    return control.queue.get_nowait()[2]
+
+
+def test_reaction_delay_cannot_dispatch_from_expired_originating_frame(observation_clock):
+    control, backend, clock, _ = observation_clock
+    clock[0] = 100.49
+    control.planner.config = TimingConfig(reaction_min_seconds=.025, reaction_max_seconds=.025,
+                                          rest_min_seconds=0, rest_max_seconds=0)
+    ticket = control.submit(Action("attack", .06))
+    item = queued_plan(control)
+    assert item.ticket == ticket and item.observation.capture_clock == 100.
+    assert control._execute_schedule(item) == "attack interrupted"
+    assert clock[0] == pytest.approx(100.515)
+    assert backend.events == [] and not control.held and not control.enabled
+    assert "observation expired" in control.reason
+
+
+def test_newer_frame_cannot_renew_an_expired_queued_plan(observation_clock):
+    control, backend, clock, source = observation_clock
+    control.submit(Action("right", .1))
+    item = queued_plan(control)
+    clock[0] = 100.51
+    source[0] = replace(source[0], capture_clock=100.4, deadline=100.9, sequence=4)
+    result = control._execute_schedule(item)
+    control._finish(item, result, clock[0])
+    outcome = control.poll_outcomes()[0]
+    assert result == "right interrupted" and backend.events == []
+    assert outcome.observation.sequence == 3 and outcome.observation.deadline == 100.5
+
+
+@pytest.mark.parametrize("field", ["source_generation", "view_generation"])
+def test_queued_plan_rejects_changed_source_or_view(observation_clock, field):
+    control, backend, _, source = observation_clock
+    control.submit_sequence((KeyHold("jump", .03),))
+    item = queued_plan(control)
+    source[0] = replace(source[0], **{field: getattr(source[0], field) + 1})
+    assert control._execute_schedule(item) == "navigation interrupted"
+    assert backend.events == [] and not control.held
+
+
+@pytest.mark.parametrize("captured,deadline", [(-1., -1.), (float("nan"), 100.5),
+                                              (99., 99.5), (101., 101.5)])
+def test_invalid_current_observation_rejects_old_plan_and_releases_hold(
+        observation_clock, captured, deadline):
+    control, backend, _, source = observation_clock
+    control.refresh_movement("left", .2)
+    control.submit(Action("attack", .05))
+    item = queued_plan(control)
+    source[0] = replace(source[0], capture_clock=captured, deadline=deadline)
+    assert control._execute_schedule(item) == "attack interrupted"
+    assert backend.events == [("left", True), ("left", False)]
+    assert not control.held and not control.enabled
+
+
+def test_sequence_regression_cannot_authorize_queued_plan(observation_clock):
+    control, backend, _, source = observation_clock
+    control.submit(Action("right", .1))
+    item = queued_plan(control)
+    source[0] = replace(source[0], sequence=source[0].sequence - 1)
+    assert control._execute_schedule(item) == "right interrupted"
+    assert backend.events == [] and not control.held
+
+
+def test_expiry_between_chord_downs_releases_first_key(observation_clock):
+    control, backend, clock, _ = observation_clock
+    clock[0] = 100.48
+    control.submit_sequence((KeyHold("right", .1), KeyHold("jump", .05, .04)))
+    assert control._execute_schedule(queued_plan(control)) == "navigation interrupted"
+    assert backend.events == [("right", True), ("right", False)]
+    assert not control.held
+
+
+def test_key_up_still_runs_after_observation_deadline(observation_clock):
+    control, backend, clock, _ = observation_clock
+    clock[0] = 100.48
+    ticket = control.submit(Action("attack", .1))
+    item = queued_plan(control)
+    assert control._execute_schedule(item) == "attack completed"
+    assert backend.events == [("z", True), ("z", False)] and not control.held
+    events = control.timing_snapshot()["events"]
+    assert events[0]["capture_age_ms"] == pytest.approx(480)
+    assert events[1]["capture_age_ms"] == pytest.approx(580)
+    assert all(e["ticket"] == ticket and e["observation"]["sequence"] == 3 for e in events)
+
+
+def test_fresh_priority_potion_precedes_stale_combat_without_rebinding_it(observation_clock):
+    control, backend, clock, source = observation_clock
+    old = control.submit(Action("attack", .1))
+    source[0] = replace(source[0], capture_clock=100.4, deadline=100.9, sequence=4)
+    clock[0] = 100.51
+    potion = control.submit(Action("hp_potion", .02), priority=1)
+    item = queued_plan(control)
+    assert item.ticket == potion
+    assert control._execute_schedule(item) == "hp_potion completed"
+    item = queued_plan(control)
+    assert item.ticket == old
+    assert control._execute_schedule(item) == "attack interrupted"
+    assert backend.events == [("insert", True), ("insert", False)]
+
+
+def test_stop_cancels_bound_plan_without_late_down_or_lost_origin(observation_clock):
+    control, backend, _, _ = observation_clock
+    ticket = control.submit(Action("right", .1))
+    control.stop("operator stop")
+    outcome = control.poll_outcomes()[0]
+    assert outcome.ticket == ticket and outcome.started_at is None
+    assert outcome.observation.capture_clock == 100.
+    assert outcome.result == "right interrupted" and backend.events == []
 
 
 @pytest.mark.parametrize("flag", ["focus", "emergency"])

@@ -386,6 +386,96 @@ def test_policy_input_round_trip_keeps_enemy_tracks_and_track_ids():
     assert restored.observation.enemy_tracks == [hidden_track(152)]
 
 
+@pytest.mark.parametrize("minimum,track", [
+    (0, replace(hidden_track(152), uncertainty=(26, 8))),  # Outer edge exceeds 65px.
+    (20, replace(hidden_track(152), uncertainty=(21, 8))),  # Inner edge enters dead zone.
+    (0, replace(hidden_track(152, feet=140), uncertainty=(12, 8))),
+    (0, replace(hidden_track(152), uncertainty=(40, 8))),  # Facing touches player X.
+    (0, replace(hidden_track(152), uncertainty=(41, 8))),  # Facing crosses player X.
+])
+def test_hidden_attack_requires_the_whole_uncertainty_interval_in_range(minimum, track):
+    agent = Agent(AgentConfig(attack_min_range=minimum, attack_range=65))
+    agent.start()
+    close = scene([tracked_entity()])
+    agent.step(close, 0)
+    agent.step(close, .1)
+    result = agent.step(Observation(entity("player", 100), [], enemy_tracks=[track]), .2)
+    assert result.action.kind == "release" and result.state == State.SEARCH
+    assert agent.attempts == 0
+
+
+@pytest.mark.parametrize("change", [
+    {"ground_position": (float("nan"), 128)},
+    {"ground_position": (152, float("nan"))},
+    {"ground_position": (152, float("inf"))},
+    {"uncertainty": (-1, 8)}, {"uncertainty": (12, -1)},
+    {"uncertainty": (float("nan"), 8)}, {"uncertainty": (12, float("nan"))},
+    {"uncertainty": (float("inf"), 8)}, {"uncertainty": (1,)},
+    {"confidence": 0}, {"confidence": -.1}, {"confidence": 1.1},
+    {"confidence": float("nan")}, {"confidence": float("inf")}, {"confidence": True},
+])
+def test_hidden_attack_rejects_invalid_track_evidence_without_input(change):
+    agent = Agent(AgentConfig())
+    agent.start()
+    close = scene([tracked_entity()])
+    agent.step(close, 0)
+    agent.step(close, .1)
+    hidden = replace(hidden_track(152), **change)
+    result = agent.step(Observation(entity("player", 100), [], enemy_tracks=[hidden]), .2)
+    assert result.action.kind == "release" and result.state == State.SEARCH
+
+
+def test_hidden_interval_accepts_existing_inclusive_range_and_height_boundaries():
+    agent = Agent(AgentConfig(attack_min_range=15, attack_range=65))
+    agent.start()
+    close = scene([tracked_entity()])
+    agent.step(close, 0)
+    agent.step(close, .1)
+    hidden = replace(hidden_track(152), uncertainty=(25, 18), confidence=.1)
+    result = agent.step(Observation(entity("player", 100), [], enemy_tracks=[hidden]), .2)
+    assert result.action.kind == "attack" and "no outcome assumed" in result.reason
+
+
+def test_known_target_id_cannot_silently_swap_to_another_same_species_track():
+    agent = Agent(AgentConfig())
+    agent.start()
+    original = tracked_entity()
+    agent.step(scene([original]), 0)
+    agent.step(scene([original]), .1)
+    replacement = tracked_entity(track_id="enemy:8")
+    result = agent.step(Observation(entity("player", 100), [replacement],
+                                   enemy_tracks=[hidden_track(152)]), .2)
+    assert result.action.kind == "release" and result.state == State.SEARCH
+    assert result.target is None and "Target track changed" in result.reason
+    # A subsequent fresh search may explicitly acquire this target; this is not ID continuity.
+    reacquired = agent.step(scene([replacement]), .3)
+    assert reacquired.target == replacement and reacquired.action.kind == "release"
+
+
+def test_known_target_id_wins_over_nearer_same_species_crossing_during_association():
+    agent = Agent(AgentConfig())
+    agent.start()
+    original = tracked_entity()
+    agent.step(scene([original]), 0)
+    agent.step(scene([original]), .1)
+    moved = tracked_entity(x=150)
+    crossing = tracked_entity(track_id="enemy:8")
+    result = agent.step(scene([crossing, moved]), .2)
+    assert result.target == moved and result.action.kind == "attack"
+
+
+@pytest.mark.parametrize("before,after", [(None, None), ("enemy:7", None), (None, "enemy:7")])
+def test_fresh_target_association_preserves_missing_id_compatibility(before, after):
+    agent = Agent(AgentConfig())
+    agent.start()
+    original = tracked_entity(track_id=before)
+    agent.step(scene([original]), 0)
+    agent.step(scene([original]), .1)
+    moved = tracked_entity(x=145, track_id=after)
+    result = agent.step(scene([moved]), .2)
+    assert result.target == moved and result.action.kind == "attack"
+
+
 def test_target_walking_toward_the_player_is_awaited_then_attacked_without_refacing():
     agent = Agent(AgentConfig(range_profile="custom", attack_min_range=0, attack_range=65))
     agent.start()

@@ -19,7 +19,7 @@ import maplebot.enemy_tracking as enemy_tracking
 from maplebot.config import PerceptionConfig
 from maplebot.enemy_tracking import EnemyTracker, species
 from maplebot.geometry import Rect
-from maplebot.perception import Detection
+from maplebot.perception import Detection, TemplateDetector
 
 MAX_TARGETS = 6
 
@@ -212,6 +212,31 @@ def compare_case(case):
     }
 
 
+def suppression_cases():
+    """Compare a species-aware suppression challenger, including its false-positive cost."""
+    first = Detection("monster", Rect(100, 100, 30, 30), .99, "catalog:Snail:move-0")
+    rows = []
+    for name, second, true_count in (
+        ("different_species_overlap", Detection("monster", Rect(106, 100, 30, 30), .98,
+                                                "catalog:BlueSnail:move-0"), 2),
+        ("animation_duplicate", Detection("monster", first.box, .98, "catalog:Snail:move-1"), 1),
+        ("same_sprite_species_confusion", Detection("monster", first.box, .98,
+                                                   "catalog:BlueSnail:move-0"), 1),
+    ):
+        candidates = [first, second]
+        baseline = TemplateDetector._suppress(candidates)
+        challenger = []
+        for candidate in sorted(candidates, key=lambda d: d.confidence, reverse=True):
+            if not any(species(old.template) == species(candidate.template)
+                       and old.box.iou(candidate.box) > .5 for old in challenger):
+                challenger.append(candidate)
+        rows.append({"case": name, "construction_count": true_count,
+                     "baseline_count": len(baseline), "challenger_count": len(challenger),
+                     "baseline_count_error": len(baseline) - true_count,
+                     "challenger_count_error": len(challenger) - true_count})
+    return rows
+
+
 def experiment(repeats=50):
     if not isinstance(repeats, int) or not 1 <= repeats <= 1000:
         raise ValueError("repeats must be an integer between 1 and 1000")
@@ -228,6 +253,8 @@ def experiment(repeats=50):
     return {
         "schema": "monster-association-experiment-v1",
         "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "suppression_source_sha256": hashlib.sha256(
+            source.with_name("perception.py").read_bytes()).hexdigest(),
         "input_sent": False, "evidence": "synthetic_fixed_detections",
         "scope": "One-transition cases; construction identities; no pixels or live input",
         "promotion": "deferred",
@@ -239,7 +266,8 @@ def experiment(repeats=50):
             "Actual tracker update includes lifecycle work, unlike solver-only timing.",
             "Constructed results cannot establish gameplay accuracy or justify promotion.",
         ],
-        "cases": results, "processing_seconds": time.perf_counter() - started,
+        "cases": results, "suppression": suppression_cases(),
+        "processing_seconds": time.perf_counter() - started,
     }
 
 

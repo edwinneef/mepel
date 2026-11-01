@@ -30,7 +30,40 @@ def classify(reason: str) -> tuple[str, str]:
         return "focus", "Foreground ownership at refusal is needed; do not blame the operator."
     if "recognition" in reason or "player" in reason:
         return "perception", "Replay the recorded player observations before another live check."
+    if any(word in reason for word in ("route", "corridor", "landing", "rope", "launch platform",
+                                        "navigation", "departure not observed")):
+        return "navigation", "Inspect navigation phase, localization and input evidence separately."
     return "combat", "Inspect the recorded policy decisions and input outcomes."
+
+
+def navigation_diagnosis(reason: str, state: dict) -> dict:
+    """Classify recorded symptoms, keeping ambiguous causes and absent evidence explicit."""
+    navigation = state.get("navigation")
+    navigation = navigation if isinstance(navigation, dict) else {}
+    observed = " ".join((reason, str(navigation.get("reason", "")))).lower()
+    groups = {
+        "observation_freshness": ("stale", "freshness", "non-increasing", "500 ms"),
+        "identity_localization": ("recognition", "name tag", "rope alignment", "fused position"),
+        "rope_grip": ("grip", "climb progress"),
+        "trajectory_corridor": ("corridor", "overshoot", "departure not observed",
+                                "launch platform", "unexpected or excluded surface"),
+        "boundary": ("boundary", "excluded zone"),
+        "execution_budget": ("deadline", "budget", "no progress"),
+        "input_refusal": ("input refused", "input denied", "input rejected"),
+        "focus": ("focus lost", "focus loss", "actual game window"),
+        "map_context": ("map changed", "map revision", "wrong map", "origin no longer matches"),
+    }
+    symptoms = [key for key, terms in groups.items() if any(t in observed for t in terms)]
+    refusal = navigation.get("last_input_refusal") or state.get("input_refusal")
+    if refusal and "input_refusal" not in symptoms:
+        symptoms.append("input_refusal")
+    return {"symptoms": symptoms or ["unknown"], "causal_attribution": "unknown",
+            "recorded_reason": reason, "stage": navigation.get("stage"),
+            "edge": navigation.get("edge"), "feedback": navigation.get("feedback"),
+            "last_feedback_failure": navigation.get("last_feedback_failure"),
+            "input_refusal": refusal, "input_state": state.get("input_state"),
+            "limits": "Symptoms can overlap. A failed departure does not prove missing input; "
+                      "a dispatch record does not prove game delivery. No retry is authorized."}
 
 
 def clip_summary(clip: Path, since: float | None = None, until: float | None = None) -> dict:
@@ -92,6 +125,7 @@ def summarize(path: Path) -> dict:
     after = result.get("after") or {}
     return {"source": str(path.resolve()), "input_sent": False, "native_acceptance": False,
             "category": category, "reason": reason, "next_diagnostic": next_step,
+            "navigation_diagnosis": navigation_diagnosis(reason, after),
             "reported_run_seconds": result.get("seconds"), "stops": relevant[-3:],
             "input_refusal": after.get("input_refusal"),
             "input_state": after.get("input_state"),

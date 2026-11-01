@@ -793,7 +793,9 @@
         "Inventory/hash 16 reports; preserve existing research/dirty instructions. Create implementation-register.md with B01-B20,X01-X12,L01; append extra IDs, never renumber.",
         "Rows: source section/permalink, code seam, phase/dependencies, disposition, acceptance, evidence, risks, deferral reason/revisit trigger. Map every actionable passage; alias duplicates; retain rejected/already-covered findings. Validate zero orphan IDs/links. Preserve combat decisions/evidence as L01."
       ],
-      "status": "complete"
+      "status": "complete",
+      "originalDependsOn": [],
+      "verification": "Offline acceptance/conditional dispositions: see implementation-evidence.md and implementation-decisions.md. No native acceptance."
     },
     {
       "id": "p2",
@@ -805,7 +807,11 @@
         "Sources debugging.md; X07=paired reports/uncertainty overlays.",
         "Extend replay/benchmark: freeze hashes/session splits, independent identity/visibility labels, hidden=unknown/interval, separate real/synthetic, explicit gaps. Deterministic unchanged baseline; false identity/resume, recall, recovery, abstention, timing; no capture/input/tuning."
       ],
-      "status": "complete"
+      "status": "complete",
+      "originalDependsOn": [
+        "p1"
+      ],
+      "verification": "Offline acceptance/conditional dispositions: see implementation-evidence.md and implementation-decisions.md. No native acceptance."
     },
     {
       "id": "p3",
@@ -817,7 +823,11 @@
         "X08=input-and-automation.md: cancellation/tickets/recovery reasons; performance.md for profiling.",
         "Recorder fault injection exposes errors/backlog. Reject stale/out-of-order generations; Stop/release retained. Stage tails/frame age measured with offline/native timing distinguished."
       ],
-      "status": "active"
+      "status": "complete",
+      "originalDependsOn": [
+        "p2"
+      ],
+      "verification": "Offline acceptance/conditional dispositions: see implementation-evidence.md and implementation-decisions.md. No native acceptance."
     },
     {
       "id": "p4",
@@ -830,20 +840,33 @@
         "X05=navigation.md: marker shapes, terrain-motion challenger, resets/stitching.",
         "Independent matched-build anchors/quantization; no circular labels. Audit code/control/physics proof provenance; migrate only if needed, preserve records. Incompatible maps/unknowns explicit; open-questions.md."
       ],
-      "status": "pending"
+      "status": "pending",
+      "originalDependsOn": [
+        "p2",
+        "p3"
+      ],
+      "verification": "Audit/constructed checks done; independent reserved-map XY validation blocked on absent compatible bundles."
     },
     {
       "id": "p5",
       "task": "B02-B04/B09-B11/X04 player recovery",
       "dependsOn": [
-        "p3",
-        "p4"
+        "p2",
+        "p3"
       ],
       "acceptance": [
         "X04=player-tracking.md: fragments/masked body points; re-ID alternatives in computer-vision.md.",
         "Paired ROI/veto/confidence/elapsed-time/morphology/local-check ablations. Ambiguous/stale cues retain fallback; no false fresh identity/resume. Promote measured gains only; otherwise reason+revisit trigger."
       ],
-      "status": "pending"
+      "status": "complete",
+      "originalDependsOn": [
+        "p3",
+        "p4"
+      ],
+      "promotionRequires": [
+        "p4"
+      ],
+      "verification": "Offline acceptance/conditional dispositions: see implementation-evidence.md and implementation-decisions.md. No native acceptance."
     },
     {
       "id": "p6",
@@ -856,20 +879,33 @@
         "X01=monster-detection.md: suppression. X02=same plus combat.md: hidden uncertainty/identity consistency.",
         "X03=combat.md HPbar/facing/range/animation/projectile/AOE cues. Fixed-detection crossings/range negatives; no weak new target/hidden pursuit. Dispatch/disappearance != hit/kill. Retain unknown; log changes to L01 choices for p9."
       ],
-      "status": "pending"
+      "status": "complete",
+      "originalDependsOn": [
+        "p3",
+        "p5"
+      ],
+      "verification": "Offline acceptance/conditional dispositions: see implementation-evidence.md and implementation-decisions.md. No native acceptance."
     },
     {
       "id": "p7",
       "task": "B15/X06 navigation replay",
       "dependsOn": [
-        "p4",
+        "p3",
         "p5"
       ],
       "acceptance": [
         "X06=navigation.md: route compression/teaching,physics/landing,boundaries.",
         "Action-aligned held-out replay distinguishes localization/grip/trajectory/input failures; no false arrival/extra retries. Proposed/simulated/proven separate; unidentified physics explicit."
       ],
-      "status": "pending"
+      "status": "pending",
+      "originalDependsOn": [
+        "p4",
+        "p5"
+      ],
+      "realGeometryRequires": [
+        "p4"
+      ],
+      "verification": "Taxonomy/10 synthetic scenarios done; real held-out replay incomplete because source clip lacks decisions.jsonl."
     },
     {
       "id": "p8",
@@ -877,14 +913,23 @@
       "dependsOn": [
         "p3",
         "p5",
-        "p6",
-        "p7"
+        "p6"
       ],
       "acceptance": [
         "X09=performance.md caches/buffers/workers; X10=computer-vision.md scale/features/differencing/OCR; X11=repositories.md+3 evidence audits licenses/deps/assets; X12=open-questions.md stale claims.",
         "Scheduling/capture/ML only for measured residual gap; action primitives only for demonstrated complexity. Check code/model/data rights/dependencies before reuse; no untrusted execution. Each ID gets adopt/defer/reject evidence+trigger; adopted changes pass paired quality/tail-latency checks."
       ],
-      "status": "pending"
+      "status": "complete",
+      "originalDependsOn": [
+        "p3",
+        "p5",
+        "p6",
+        "p7"
+      ],
+      "promotionRequires": [
+        "p7"
+      ],
+      "verification": "Offline acceptance/conditional dispositions: see implementation-evidence.md and implementation-decisions.md. No native acceptance."
     },
     {
       "id": "p9",
@@ -897,7 +942,11 @@
         "Record HPmin,waits/attacks,stops,result/clip paths for preserved less-damage outcome. Old engine/map state unverified. Research changes need separate native acceptance when applicable."
       ],
       "status": "pending",
-      "userInput": "Fresh explicit authorization for each bounded batch, operator present; plan/next is not approval."
+      "userInput": "Fresh explicit authorization for each bounded batch, operator present; plan/next is not approval.",
+      "originalDependsOn": [
+        "p1"
+      ],
+      "verification": "No live authorization; preserved less-damage outcome pending."
     },
     {
       "id": "p10",
@@ -908,7 +957,11 @@
       "acceptance": [
         "Reconcile all16 reports: every B/X/L has source/disposition/dependencies/evidence/remaining acceptance. Update index/continuity; implemented/offline/live/deferred distinct. p9 pending keeps goal active."
       ],
-      "status": "pending"
+      "status": "complete",
+      "originalDependsOn": [
+        "p8"
+      ],
+      "verification": "Offline acceptance/conditional dispositions: see implementation-evidence.md and implementation-decisions.md. No native acceptance."
     }
   ],
   "entries": [
@@ -931,7 +984,10 @@
         "implementation-evidence.md#p2--independent-occlusion-baseline"
       ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": null,
+      "remainingAcceptance": [
+        "Seed corpus has zero resume requests and insufficient independent real identities for general accuracy; expand continuous independent labels before promotion."
+      ]
     },
     {
       "id": "B02",
@@ -947,11 +1003,16 @@
         "p3",
         "p4"
       ],
-      "disposition": "planned",
+      "disposition": "experimented_not_promoted",
       "acceptance": "- **Problem and technique:** the search window can remain near a stale screen prediction during occlusion. Use a fresh unique minimap marker plus valid independent camera/view registration to constrain search, inspired by [MapleStoryAuto's minimap zones](player-tracking.md). Preserve full-frame fallback and existing freshness rules.\r\n- **Benefit, cost and integration:** expected recovery/CPU benefit, M effort; small arithmetic plus existing matching, actual cost unknown. Medium integration across `LivePosition` and `TemplateDetector`; depends on #1 and a clearly non-circular transform.\r\n- **Risks/verification:** camera clamp, quantization, marker ambiguity and registration age. Compare ROI recall, recovery delay and p95 processing on the same clips; reject a prior that excludes the true player. A projected box never grants input. Confidence medium-high.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p5--player-recovery"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "General minimap projection is not independently registered on the seed corpus.",
+        "revisit": "Compatible independent transforms and camera-clamp/occlusion samples support paired ROI recall and cost measurement."
+      }
     },
     {
       "id": "B03",
@@ -967,11 +1028,16 @@
         "p3",
         "p4"
       ],
-      "disposition": "planned",
+      "disposition": "experimented_not_promoted",
       "acceptance": "- **Problem and technique:** similar players and nametags can be ambiguous. Use minimap agreement and other-player dot zones only to reject inconsistent identity candidates; [MapleStoryAuto](player-tracking.md) supplies a concrete allowed-zone implementation.\r\n- **Benefit, cost and integration:** fewer identity swaps; M effort, low expected arithmetic cost but uncertain additional dot-recognition cost. Medium integration; depends on #1/#2 and identity-aware labels.\r\n- **Risks/verification:** merging dots, party/marker colors, stale maps, overlapping X on different floors. Negative priors must fail open to existing conservative identity rules when unavailable, never manufacture confidence. Measure false vetoes and wrong-player resumes in crowded clips. Confidence medium.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p5--player-recovery"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Yellow self-marker detection does not identify red/party dots; rejecting real players from those dots needs labels.",
+        "revisit": "Independently labelled merged dots, same-X/different-floor and crowded clips demonstrate fewer wrong identities without blocking valid recovery."
+      }
     },
     {
       "id": "B04",
@@ -987,11 +1053,16 @@
         "p3",
         "p4"
       ],
-      "disposition": "planned",
+      "disposition": "diagnostics_only",
       "acceptance": "- **Problem and technique:** template correlation, partial evidence, camera agreement and model confidence are different scores, not probabilities. Preserve their provenance and fit per-evidence threshold curves on development data; compare on held-out data. Sources: [Norfair distance gates, ByteTrack score tiers](computer-vision.md), [current player fusion](player-tracking.md).\r\n- **Benefit, cost and integration:** justified abstention and fewer arbitrary threshold changes; M effort, little expected online overhead. Medium integration; depends on #1 and stable feature logging.\r\n- **Risks/verification:** overfitting, tiny positive-only sets, collapsing different evidence types. Publish precision/recall and abstention by visibility class; prediction remains distinct from observation. Confidence high in evaluation need, unknown improvement magnitude.\r\n\r\nInclude the concrete `Agent._hidden_target` boundary case: the existing bounded attack uses a point estimate without directly checking the track uncertainty interval/confidence. Compare a conservative interval-aware eligibility rule on offline range-boundary cases before changing policy; no observed failure or benefit is claimed yet.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p5--player-recovery"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Three independently identifiable real frames and no verified real negative identity labels cannot estimate calibration or false-accept rate.",
+        "revisit": "Session-held-out independent positive/negative identities per cue, including shared names and identical sprites."
+      }
     },
     {
       "id": "B05",
@@ -1006,13 +1077,16 @@
       "dependsOn": [
         "p2"
       ],
-      "disposition": "partial",
+      "disposition": "partial_instrumentation",
       "acceptance": "- **Problem and technique:** configured FPS and old timing anecdotes do not identify today's bottleneck. Aggregate existing stage timings and source age by scene density, including encoding/publication and dropped work. Compare capture-only and replay components separately. Sources: [MSS/DXcam](performance.md) and `Application._run/_process`.\r\n- **Benefit, cost and integration:** avoid expensive backend/model changes with no end-to-end gain; S effort, low integration, optional diagnostic overhead. Depends on reproducible inputs/hardware metadata, not new gameplay.\r\n- **Risks/verification:** warmed caches, background apps and async work excluded from timers. Report p50/p95/max, frame age, skipped jobs and wall-clock runtime; avoid converting a faster isolated stage into a claimed overall speedup. Confidence high.",
       "evidence": [
         "implementation-evidence.md#p3--recording-and-timing"
       ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Historical stage tails measured; recording/HTTP/UI durations and current native causal age unavailable.",
+        "revisit": "Authorized current complete-stage/causal event profile."
+      }
     },
     {
       "id": "B06",
@@ -1033,7 +1107,10 @@
         "implementation-evidence.md#p3--recording-and-timing"
       ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": null,
+      "remainingAcceptance": [
+        "Applicable native load/behavior remains pending separate explicit batch authorization."
+      ]
     },
     {
       "id": "B07",
@@ -1052,12 +1129,12 @@
       "disposition": "experimented_not_promoted",
       "acceptance": "- **Problem and technique:** low-score partial detections may continue an established track but should not create new targets. [ByteTrack's high/low association passes](computer-vision.md) offer a pattern; local `partial_enemies` already covers part of it, so first measure the residual gap.\r\n- **Benefit, cost and integration:** fewer identity breaks; M effort, modest extra association work; medium integration in `EnemyTracker.update`. Depends on #1/#4 and monster-labelled sequences.\r\n- **Risks/verification:** noise refreshing a false track indefinitely. Retain expiry, camera confidence and per-species/platform checks. Measure wrong associations, survival under true occlusion and false-track lifetime; no weak observation becomes new attack authority. Confidence medium.",
       "evidence": [
-        "implementation-evidence.md#p6--monster-assignment-experiment"
+        "implementation-decisions.md#p6--monsters-and-combat"
       ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
       "deferral": {
-        "reason": "Synthetic transitions show both improvement and remaining identity switches; no independent real crossing labels justify promotion.",
-        "revisit": "Paired real crossing and weak-positive labels show fewer ID switches without unsupported births."
+        "reason": "Weak-birth guard retained; no independent weak-positive labels support a new second association stage.",
+        "revisit": "Real weak-positive and crossing labels show fewer losses without new false targets."
       }
     },
     {
@@ -1077,12 +1154,12 @@
       "disposition": "experimented_not_promoted",
       "acceptance": "- **Problem and technique:** greedy per-detection association may choose locally convenient matches that conflict globally. Compare current behavior against gated bipartite assignment with species, ground position, elapsed time and optional appearance cost. Sources: [SORT, Deep SORT, ByteTrack](computer-vision.md).\r\n- **Benefit, cost and integration:** fewer ID switches in crossings; M effort, cost grows with track count; medium integration and possibly a new dependency (justify separately, none installed now). Depends on #7's fixed detection corpus.\r\n- **Risks/verification:** globally optimal costs can still be semantically wrong for identical overlapping sprites. Require clear gains at actual scene counts; retain unknown/ambiguous outcomes and no-pursuit hidden-target policy. Confidence medium.\r\n\r\nFirst audit detector-side loss: `_suppress` can suppress overlapping different-species boxes before association. Compare species/evidence-aware suppression on the same corpus; assignment cannot recover a candidate that never reaches it. Keep duplicate-template negatives so a more permissive suppression rule does not inflate counts.",
       "evidence": [
-        "implementation-evidence.md#p6--monster-assignment-experiment"
+        "implementation-decisions.md#p6--monsters-and-combat"
       ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
       "deferral": {
-        "reason": "Synthetic transitions show both improvement and remaining identity switches; no independent real crossing labels justify promotion.",
-        "revisit": "Paired real crossing and weak-positive labels show fewer ID switches without unsupported births."
+        "reason": "Global assignment fixes synthetic competition but still swaps true crossings and costs more on tiny cases.",
+        "revisit": "Real crossing labels show quality improvement at acceptable cost."
       }
     },
     {
@@ -1099,11 +1176,16 @@
         "p3",
         "p4"
       ],
-      "disposition": "planned",
+      "disposition": "experimented_not_promoted",
       "acceptance": "- **Problem and technique:** frame-based prediction may behave differently under dropped/slow frames. Compare current bounded world-step logic against alpha-beta or Kalman state with actual elapsed time, camera compensation and stop-aware velocity decay. Sources: [SORT/Norfair filters](computer-vision.md), [MapleStoryAuto decay](player-tracking.md).\r\n- **Benefit, cost and integration:** better search placement, not full-occlusion truth; M effort, low expected arithmetic cost, medium integration. Depends on #1/#5 and motion-labelled clips.\r\n- **Risks/verification:** knockback, acceleration, floor/rope transitions and uncertain camera. Sweep irregular timestamps and long gaps; prediction error must improve without more false fresh identities. Fit decay from evidence, not another bot's per-frame constant. Confidence medium.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p5--player-recovery"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Ideal cadence improvement does not resolve stops/reversals/camera uncertainty or establish detection recall.",
+        "revisit": "Paired independent motion/identity sequences show recovery improvement without false freshness or higher tail cost."
+      }
     },
     {
       "id": "B10",
@@ -1119,11 +1201,16 @@
         "p3",
         "p4"
       ],
-      "disposition": "planned",
+      "disposition": "experimented_not_promoted",
       "acceptance": "- **Problem and technique:** small interruptions can break visual anchors. [MapleStoryAuto's HSV strip morphology](player-tracking.md) supports testing a small closing operation; it does not prove closing white nametag glyphs is beneficial.\r\n- **Benefit, cost and integration:** possible fragment recovery; S\u2013M effort, small ROI cost to measure, low code integration after #1. No new dependency needed.\r\n- **Risks/verification:** merging adjacent names, creating false strokes or matching only a shared prefix. Require held-out lookalike negatives, preserve distributed glyph support and fresh sprite corroboration. Reject the change if false acceptance rises. Confidence medium-low because transfer to our glyph representation is speculative.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p5--player-recovery"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Generated glyph scores degraded, and negative primitive scores require full fusion checks.",
+        "revisit": "Real partial-name positives and shared-prefix/adjacent-name negatives show a gain through unchanged full identity fusion."
+      }
     },
     {
       "id": "B11",
@@ -1139,11 +1226,16 @@
         "p3",
         "p4"
       ],
-      "disposition": "planned",
+      "disposition": "existing_retained",
       "acceptance": "- **Problem and technique:** a stable frame may not require the full ROI template sweep. Test last-confirmed template at a small predicted neighbourhood, followed by the unchanged search on failure. [msbot early-exit matching](computer-vision.md) is an efficiency idea; current color/signature batching already optimizes matching.\r\n- **Benefit, cost and integration:** potential CPU reduction; S\u2013M effort, low\u2013medium integration. Depends on #5 demonstrating matching cost and #1 detecting identity regressions.\r\n- **Risks/verification:** first acceptable match hiding a stronger competing identity, stale template or animation change. Preserve ambiguity comparisons where needed; measure end-to-end tail latency and detection equivalence, not just fast-path time. Confidence medium.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p5--player-recovery"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Whole perception timing is measured; candidate-level cost and robust identity negatives are not. Adding another search shortcut now lacks demonstrated benefit.",
+        "revisit": "Stage/candidate counts identify repeated verification cost; paired benchmark retains competing-name checks and fallback."
+      }
     },
     {
       "id": "B12",
@@ -1158,13 +1250,16 @@
       "dependsOn": [
         "p2"
       ],
-      "disposition": "partial",
+      "disposition": "implemented_offline",
       "acceptance": "- **Problem and technique:** asynchronous OCR, preview, camera registration and future detector workers have distinct generations/ages. Preserve current IDs and add narrow typed evidence envelopes only where fields are missing: capture time, source/view generation, observation/prediction kind, uncertainty and expiry. Sources: [DXcam latest-frame buffering, Airtest polling](performance.md).\r\n- **Benefit, cost and integration:** easier stale-result rejection; M effort, low metadata cost, medium integration. Depends on an audit of current contracts so existing safeguards are not duplicated.\r\n- **Risks/verification:** mixing wall clock and monotonic time, breaking replay compatibility, broad refactor. Reject delayed/out-of-order old-generation results in focused offline tests; leave one runtime input owner. Confidence high for explicit evidence, not for a wholesale architecture change.",
       "evidence": [
         "implementation-evidence.md#p3--recording-and-timing"
       ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": null,
+      "remainingAcceptance": [
+        "Applicable native load/behavior remains pending separate explicit batch authorization."
+      ]
     },
     {
       "id": "B13",
@@ -1180,11 +1275,16 @@
         "p3",
         "p5"
       ],
-      "disposition": "planned",
+      "disposition": "already_covered",
       "acceptance": "- **Problem and technique:** range eligibility and input tickets cannot establish hits. Keep separate states for requested, dispatched, animation/projectile observed, damage candidate and causally attributable outcome. External [MapleController/Classic bot attack paths](combat.md) mostly demonstrate dispatch, underscoring the missing evidence rather than supplying a ready solution.\r\n- **Benefit, cost and integration:** more useful combat diagnostics and less false success; M\u2013L effort, potentially significant ROI/OCR work; medium\u2013high integration, observation-only first. Depends on target tracks, timestamps and isolated annotated combat clips.\r\n- **Risks/verification:** other players' damage, multi-target effects, despawn and projectile delay. Include explicit unknown outcomes and negative controls; never equate disappearing detections with kills. Confidence medium; final causal attribution may remain unavailable screenshot-only.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p6--monsters-and-combat"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Evidence ladder retained/tested; causal hits and kills remain unknown.",
+        "revisit": "Attributable labelled hits/misses with other-actor and disappearance negatives."
+      }
     },
     {
       "id": "B14",
@@ -1200,15 +1300,15 @@
         "p2",
         "p3"
       ],
-      "disposition": "partial",
+      "disposition": "partial_missing_inputs",
       "acceptance": "- **Problem and technique:** minimap scale/origin and native/source alignment have systematic uncertainty. Preserve [existing position research](../../position-evidence-research.md); compare quantized intervals against independent geometry labels and matching source builds. [Auto Maple/MS-Visionify minimap methods](navigation.md) illustrate why marker precision alone is insufficient.\r\n- **Benefit, cost and integration:** fewer false surface assignments; M effort, offline cost only initially, medium integration. Depends on compatible public assets and non-circular landmarks; do not consume held-out maps during tuning.\r\n- **Risks/verification:** mismatched clients, image-corner versus map-origin coordinates, nonunique portals. Validate at least three independent non-collinear anchors where available and report uncertainty coverage; incompatible maps remain excluded. Confidence high.",
       "evidence": [
         "implementation-evidence.md#p4--map-and-proof-audit"
       ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
       "deferral": {
-        "reason": "Zero compatible reserved-map bundles admitted; Southperry evidence is X-only.",
-        "revisit": "Compatible independently anchored map/build bundles admitted by alignment_corpus audit."
+        "reason": "Zero compatible reserved-map bundles admitted; Southperry independent X is not XY/contact truth.",
+        "revisit": "Compatible raw terrain/render/placement bundles and independent anchors pass audit."
       }
     },
     {
@@ -1225,11 +1325,16 @@
         "p4",
         "p5"
       ],
-      "disposition": "planned",
+      "disposition": "partial_missing_inputs",
       "acceptance": "- **Problem and technique:** \u201ctimeout\u201d can combine wrong localization, missed grip, infeasible trajectory or delayed input. Retain bounded phases and attach structured phase/progress evidence to failures. Sources: [Auto Maple class commands and MapleStoryAutoLevelUp route logic](navigation.md), compared with current `Navigator` and harness.\r\n- **Benefit, cost and integration:** smaller repair/retest scope; M effort, low logging overhead, medium integration. Depends on existing clips and physics evidence.\r\n- **Risks/verification:** inferred contact mislabelled as verified grip, synthetic success presented as native proof. Replay separate camera-loss, rope-miss, stale-feedback and edge-deadline scenarios; no increased retries or changed gate thresholds. Confidence high.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p7--navigation-evidence"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Taxonomy and synthetic harness pass; historical clip lacks decisions.jsonl.",
+        "revisit": "Complete saved action-aligned failure clip with independent observation/dispatch evidence."
+      }
     },
     {
       "id": "B16",
@@ -1252,8 +1357,8 @@
       ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
       "deferral": {
-        "reason": "Missing historical provenance cannot be reconstructed; automatic invalidation would discard user evidence. Auditor leaves historical authority unchanged.",
-        "revisit": "Record explicit provenance on future authorized traversal; design compatible legacy display before migrating runtime."
+        "reason": "All16 legacy moves lack historical source/control/physics context; cannot recreate it or invalidate user evidence casually.",
+        "revisit": "Provenance on future authorized traversals and compatible legacy migration design."
       }
     },
     {
@@ -1272,11 +1377,16 @@
         "p6",
         "p7"
       ],
-      "disposition": "planned",
+      "disposition": "deferred",
       "acceptance": "- **Problem and technique:** crowded-scene matching may delay player freshness. Runtime already skips monster work during navigation; extend only if #5 identifies a gap. Sources: [MapleStoryAuto async detection](monster-detection.md), [DXcam buffering](performance.md).\r\n- **Benefit, cost and integration:** potentially steadier localization; M\u2013L effort, uncertain CPU benefit and extra synchronization cost; medium\u2013high integration. Depends on #12, age limits, profiling and deterministic replay.\r\n- **Risks/verification:** stale combat targets, queue growth and nondeterministic state. Use bounded latest-work semantics and compare frame age/target freshness under overload. Never reuse stale targets merely to maintain display FPS. Confidence medium.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p8--conditional-changes"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Defer multi-rate runtime scheduling. Existing worker isolation and source generations remain; the new original-observation dispatch guard addresses a demonstrated age gap. Three positive real identity labels cannot bound quality loss from skipped perception.",
+        "revisit": "Frozen labelled corpus plus current stage profiles show a cadence change meets identity/recovery and end-to-end age limits."
+      }
     },
     {
       "id": "B18",
@@ -1294,11 +1404,16 @@
         "p6",
         "p7"
       ],
-      "disposition": "planned",
+      "disposition": "deferred",
       "acceptance": "- **Problem and technique:** if MSS capture dominates measured latency, compare [DXcam](https://github.com/ra1nty/DXcam) or Windows Graphics Capture patterns in [performance](performance.md) behind the existing capture interface.\r\n- **Benefit, cost and integration:** conditional capture reduction; M effort, backend/device-dependent CPU/GPU/memory cost, medium Windows-specific integration. Depends on #5; no dependency installation in this audit.\r\n- **Risks/verification:** window bounds, DPI, moved windows, stale frame duplication and color order. Preserve `Capture.window` pre/post validations and ownership; compare frame correctness and end-to-end age on identical conditions. Confidence low until bottleneck evidence exists.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p8--conditional-changes"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Defer capture-backend A/B. Historical capture p95 is about50ms versus perception p95 about205ms; replay cannot measure capture throughput, DPI/window mapping, distinct frames or focus validity. No backend installed or current capture run.",
+        "revisit": "An explicitly authorized input-free native comparison with identical window/DPI and frame-freshness checks; preserve MSS fallback and existing capture gates."
+      }
     },
     {
       "id": "B19",
@@ -1316,11 +1431,16 @@
         "p6",
         "p7"
       ],
-      "disposition": "planned",
+      "disposition": "deferred",
       "acceptance": "- **Problem and technique:** evaluate a small detector only if animation/partial-occlusion failures remain after simpler methods. Sources: [MapleStoryAuto and TinForge](monster-detection.md); use existing [Detector protocol](../../../src/maplebot/perception.py).\r\n- **Benefit, cost and integration:** possible appearance generalization; L effort, potentially high CPU/inference cost and optional GPU operational burden, high data/model maintenance. Depends on labelled positive/negative maps, license review of weights/assets and an inference budget.\r\n- **Risks/verification:** Artale-to-Classic domain mismatch, sprite/NPC confusion, dataset leakage and distribution obligations. Compare precision/recall by species and occlusion, tail latency and memory against templates on held-out scenes. CPU feasibility must be measured. Confidence low pending evidence.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p8--conditional-changes"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Defer learned monster detection. No independent Classic monster dataset, matched weights rights or measured template residual error sufficient to justify another runtime/backend.",
+        "revisit": "Licensed training/evaluation assets and weights; fixed split; CPU/GPU quality and latency comparison under identical scenes."
+      }
     },
     {
       "id": "B20",
@@ -1338,11 +1458,16 @@
         "p6",
         "p7"
       ],
-      "disposition": "planned",
+      "disposition": "targeted_contract_only",
       "acceptance": "- **Problem and technique:** if runtime orchestration becomes harder to reason about, extract a few cancel-aware action objects; [py_trees stop/terminate lifecycle](input-and-automation.md) is a reference. Do not install a behavior-tree framework merely to replace the current bounded state machine.\r\n- **Benefit, cost and integration:** conditional maintainability; M effort, minimal expected computational change, medium\u2013high lifecycle risk. Depends on a concrete complexity problem and existing scheduler outcomes.\r\n- **Risks/verification:** a second input owner, canceled actions dispatching late, failures swallowed by generic statuses. Preserve release/stop/expiry tests and demonstrate clearer ownership before adopting. Confidence low absent growth pressure.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p8--conditional-changes"
+      ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
-      "deferral": null
+      "deferral": {
+        "reason": "Retain existing pure policy, scheduler, input owner and small bounded sequences. The original-observation contract is a targeted correction; no behavior-tree/runtime rewrite.",
+        "revisit": "A concrete recurring cancellation/duplication defect warrants extracting one tested primitive with the same owner and release semantics."
+      }
     },
     {
       "id": "X01",
@@ -1358,11 +1483,16 @@
         "p3",
         "p5"
       ],
-      "disposition": "planned",
+      "disposition": "experimented_not_promoted",
       "acceptance": "Compare mixed/same-species overlaps and duplicate-template negatives; do not inflate target count.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p6--monsters-and-combat"
+      ],
       "risk": "See source; adoption conditional on evidence.",
-      "deferral": null
+      "deferral": {
+        "reason": "Species-aware suppression fixes overlap but creates duplicate species hypotheses in a confusion negative.",
+        "revisit": "Independent real overlap/class-confusion labels establish net gain."
+      }
     },
     {
       "id": "X02",
@@ -1378,11 +1508,16 @@
         "p3",
         "p5"
       ],
-      "disposition": "planned",
+      "disposition": "implemented_offline",
       "acceptance": "Range-boundary intervals, crossing identities and age expiry; preserve bounded hidden attacks without pursuit.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p6--monsters-and-combat"
+      ],
       "risk": "See source; adoption conditional on evidence.",
-      "deferral": null
+      "deferral": null,
+      "remainingAcceptance": [
+        "Applicable native load/behavior remains pending separate explicit batch authorization."
+      ]
     },
     {
       "id": "X03",
@@ -1398,11 +1533,16 @@
         "p3",
         "p5"
       ],
-      "disposition": "planned",
+      "disposition": "deferred",
       "acceptance": "Evaluate individual cues only with independent labels; no disappearance/dispatch equals hit. Unknown outcome remains valid.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p6--monsters-and-combat"
+      ],
       "risk": "See source; adoption conditional on evidence.",
-      "deferral": null
+      "deferral": {
+        "reason": "Pose/HP/damage/projectile/AOE causal labels absent; current range/facing/timing retained.",
+        "revisit": "Specific matched-client pose and attributable per-target temporal feedback datasets."
+      }
     },
     {
       "id": "X04",
@@ -1418,11 +1558,16 @@
         "p3",
         "p4"
       ],
-      "disposition": "planned",
+      "disposition": "existing_retained",
       "acceptance": "Distributed visible evidence, named identity, lookalike negatives and expiry; compare before adding searches/models.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p5--player-recovery"
+      ],
       "risk": "See source; adoption conditional on evidence.",
-      "deferral": null
+      "deferral": {
+        "reason": "Existing masks/fragments retained; stable independent head/torso/re-ID labels absent.",
+        "revisit": "Point/mask ablation improves independent partial-body identity cases."
+      }
     },
     {
       "id": "X05",
@@ -1438,11 +1583,16 @@
         "p2",
         "p3"
       ],
-      "disposition": "planned",
+      "disposition": "existing_retained",
       "acceptance": "Independent labelled scroll/marker cases; resets invalidate old basis; stitching stays diagnostic until validated.",
-      "evidence": [],
+      "evidence": [
+        "implementation-evidence.md#p4--map-and-proof-audit"
+      ],
       "risk": "See source; adoption conditional on evidence.",
-      "deferral": null
+      "deferral": {
+        "reason": "Existing shape/map/generation resets retained; new marker/stitching variants lack compatible independent evidence.",
+        "revisit": "Labelled marker variants and matching-build overlap bundles."
+      }
     },
     {
       "id": "X06",
@@ -1458,11 +1608,16 @@
         "p4",
         "p5"
       ],
-      "disposition": "planned",
+      "disposition": "existing_retained",
       "acceptance": "Action-aligned held-out landings; no unobserved grip/contact or geometry-as-proof; record unsupported move classes.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p7--navigation-evidence"
+      ],
       "risk": "See source; adoption conditional on evidence.",
-      "deferral": null
+      "deferral": {
+        "reason": "Existing harness/physics retained; only rise constrained, other dynamics unknown; no measured route-compression burden.",
+        "revisit": "Independent action-aligned flights or measured route burden with corridor/boundary parity."
+      }
     },
     {
       "id": "X07",
@@ -1483,7 +1638,10 @@
         "implementation-evidence.md#p2--independent-occlusion-baseline"
       ],
       "risk": "See source; adoption conditional on evidence.",
-      "deferral": null
+      "deferral": null,
+      "remainingAcceptance": [
+        "Seed corpus has zero resume requests and insufficient independent real identities for general accuracy; expand continuous independent labels before promotion."
+      ]
     },
     {
       "id": "X08",
@@ -1498,13 +1656,16 @@
       "dependsOn": [
         "p2"
       ],
-      "disposition": "partial",
+      "disposition": "partial_instrumentation",
       "acceptance": "Stop cancels queued/active keys; stale callbacks cannot affect new owner; keep input submission separate from visual effect.",
       "evidence": [
         "implementation-evidence.md#p3--recording-and-timing"
       ],
       "risk": "See source; adoption conditional on evidence.",
-      "deferral": null
+      "deferral": {
+        "reason": "Originating-observation contract and events added; cancellation-request time/native interruption tails remain unmeasured.",
+        "revisit": "Cancellation timestamp/dispatch correlation when an authorized diagnostic needs it."
+      }
     },
     {
       "id": "X09",
@@ -1522,11 +1683,16 @@
         "p6",
         "p7"
       ],
-      "disposition": "planned",
+      "disposition": "existing_retained",
       "acceptance": "Profile before changes; paired output/age/tail measurements; no aliasing or unbounded asynchronous work.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p8--conditional-changes"
+      ],
       "risk": "See source; adoption conditional on evidence.",
-      "deferral": null
+      "deferral": {
+        "reason": "Retain active-template cache, batched scoring, bounded preview workers and current thread count. Four cold detector reloads dominate the p2 run but do not represent warm native detection. Recorder non-frame backlog is observable and still unbounded; silently dropping decision evidence is not adopted.",
+        "revisit": "A measured candidate/copy/queue bottleneck and a defined loss/backpressure policy. Compare unchanged outputs and tails before cache/buffer/worker changes."
+      }
     },
     {
       "id": "X10",
@@ -1544,11 +1710,16 @@
         "p6",
         "p7"
       ],
-      "disposition": "planned",
+      "disposition": "deferred",
       "acceptance": "Named residual failure and comparable corpus required; calibration/layout gates retained; otherwise defer with revisit trigger.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p8--conditional-changes"
+      ],
       "risk": "See source; adoption conditional on evidence.",
-      "deferral": null
+      "deferral": {
+        "reason": "Reject blanket multi-scale/features/background/OCR replacement. Current fixed-client templates, camera translation with forward/backward checks and title OCR remain. Differencing/edges may propose motion/geometry, not identity/contact.",
+        "revisit": "A labelled scale/artwork/camera residual failure that current pipeline cannot handle, followed by a single-technique paired experiment."
+      }
     },
     {
       "id": "X11",
@@ -1566,9 +1737,11 @@
         "p6",
         "p7"
       ],
-      "disposition": "planned",
+      "disposition": "provenance_checked",
       "acceptance": "Check actual license/manifests plus three evidence audits before reuse; do not import conflicting dependencies or unlicensed code.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p8--conditional-changes"
+      ],
       "risk": "See source; adoption conditional on evidence.",
       "deferral": null
     },
@@ -1588,9 +1761,11 @@
         "p6",
         "p7"
       ],
-      "disposition": "planned",
+      "disposition": "reconciled",
       "acceptance": "Older numeric speed/YOLO claims remain unmeasured; findings use current source and separate native/offline evidence.",
-      "evidence": [],
+      "evidence": [
+        "implementation-decisions.md#p8--conditional-changes"
+      ],
       "risk": "See source; adoption conditional on evidence.",
       "deferral": null
     },
@@ -1616,7 +1791,8 @@
           "required": true,
           "status": "pending",
           "evidence": "go-here-115128 partial: HP min 90% over 38 s before navigation stop."
-        }
+        },
+        "implementation-decisions.md#remaining-completion-boundaries"
       ],
       "decisions": "PLAN ONLY. R=docs/research/maplestory-bot-ecosystem/; links relative to R. B01-B20=numbered improvement-backlog.md headings. Preserve dirty research/instructions, data/proofs; exclude pre-existing edits from commits. Retain gates/input owner. Per live batch: explicit go+operator; first failure release/clip/alarm/handback; no unchanged retry. Old timing estimates unverified. L01 approved: club0-65px; hidden attack<=1s,in place; wait/face approaching enemy; retarget>=20px nearer; potions HP65/MP50,farming50%; settle landing knockback on destination. Preserve these choices.",
       "history": "Read 16 reports, tracking_benchmark.py load/interpolate and related tests; no tests run. main@630d7ad. Historical combat: 144f31b/4e374fd/198cb8f; reported1412+ tests; go-here-115128 38s HPmin90%(prior56%/15s),6 waits/6 attacks, corridor stop; 198cb8f live-pending.",
@@ -1624,7 +1800,20 @@
       "deferral": {
         "reason": "Live batches not authorized.",
         "revisit": "Operator explicitly authorizes a bounded batch and is present; inspect existing failure and recheck gates."
-      }
+      },
+      "currentAuthorization": "Offline phases authorized; no live batch. Historical decisions preserved verbatim."
     }
-  ]
+  ],
+  "executionReview": {
+    "date": "2026-11-01",
+    "readyOfflineWorkComplete": true,
+    "remainingRequiredPhases": [
+      "p4",
+      "p7",
+      "p9"
+    ],
+    "promotionDependencies": "Original criteria/dependencies retained. Pure experiments and audits ran independently of missing real-map/clip inputs; no runtime localization/tracker promotion bypassed them.",
+    "evidenceIndex": "implementation-evidence.md",
+    "decisionIndex": "implementation-decisions.md"
+  }
 }

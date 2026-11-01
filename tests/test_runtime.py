@@ -67,6 +67,39 @@ def test_versioned_start_uses_published_readiness_before_mutating_mode(app):
         assert not app.controller.backend.events
 
 
+def test_input_observation_binds_capture_clock_and_source_without_locking_app(app):
+    captured = time.perf_counter()
+    app.processing_frame = {"sequence": 18, "capture_clock": captured,
+                            "source_generation": app.source_generation,
+                            "view_generation": app.view_generation}
+    with app.lock:
+        origin = app.controller.observation()
+    assert origin.capture_clock == captured and origin.deadline == captured + .5
+    assert origin.sequence == 18
+    app.processing_frame = {**app.processing_frame, "capture_clock": captured + .2,
+                            "sequence": 19}
+    assert app.controller.observation().sequence == 19
+    assert origin.sequence == 18 and origin.deadline == captured + .5
+    app.source_generation += 1
+    assert app.controller.observation().deadline < 0
+
+
+@pytest.mark.parametrize("mode", ["live", "navigation"])
+def test_gameplay_observation_provider_fails_closed_without_valid_frame(app, mode):
+    app.mode = mode
+    app.processing_frame = None
+    assert app.controller.observation().deadline < 0
+    for invalid in (None, float("nan"), "old frame"):
+        app.processing_frame = {"sequence": 1, "capture_clock": invalid}
+        assert app.controller.observation().deadline < 0
+
+
+def test_independent_manual_controller_without_processing_frame_keeps_contract(app):
+    app.mode = "capture"
+    app.processing_frame = None
+    assert app.controller.observation() is None
+
+
 def test_status_exposes_loaded_range_without_claiming_measurement(app):
     setup = app.snapshot()["attack_setup"]
     assert setup["minimum_px"] == app.config.agent.attack_min_range

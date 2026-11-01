@@ -66,3 +66,28 @@ No runtime association change is promoted. Eight one-transition examples do not 
 - No live batch, focus action, capture, engine restart, deployment, dependency installation or active configuration change was performed. The existing engine has not loaded the new recorder diagnostics; loading them remains part of a separately authorized restart/native batch.
 - L01 remains required and pending. The older 38-second partial result is historical evidence, not the requested supervised 60-second outcome.
 
+
+## Completed contract and experiment increment
+
+The causal observation gap described in the initial p3 audit is now closed for queued gameplay input. [KeyboardController](../../../src/maplebot/keyboard.py) stores immutable capture time/deadline, sequence and source/view generation on each plan and outcome. Before every key-down it rejects an expired original frame, invalid/expired current context, generation change or regressing sequence. A newer frame cannot renew an old action. Key-up/Stop remain unconditional; current-priority potion scheduling retains its existing checks. The runtime callback takes no application lock while the controller lock is held.
+
+Events now retain the originating observation, ticket and capture age. The timing reporter consumes this explicit causal metadata; it never substitutes a newer surrounding frame. Legacy logs still have unknown causal age. Release events may occur after a deadline and are excluded from key-down violations. Remaining unmeasured tails are explicitly retained. No new timing threshold or active setting was introduced.
+
+- [Final legacy timing report](../../../artifacts/research-roadmap/p3/timing-final.json): 271 historical frames; new causal ages correctly remain unavailable.
+- [Final proof audit](../../../artifacts/research-roadmap/p4/proof-audit-final.json): all four proof/area file hashes equal the earlier audit; 16 historical provenance records remain unknown despite current code changes.
+- [Pure recovery intentions](../../../artifacts/research-roadmap/p2/comparison-policy/recovery-intents.json): zero resume requests in the sparse/short seed sequences, therefore no claimed false-resume accuracy. Tests exercise supported, wrong, hidden and unknown resume-label scoring. This is pure policy replay, not runtime gate or native acceptance.
+- [Player experiments](../../../artifacts/research-roadmap/p5/player-experiments.json), [association/suppression](../../../artifacts/research-roadmap/p6/association-suppression.json) and [navigation](../../../artifacts/research-roadmap/p7/harness.json): decisions and explicit deferrals are recorded in [implementation-decisions.md](implementation-decisions.md).
+- [Grouped checks](../../../artifacts/dev-cycle/20261101-120512-1859100/result.json): 271 tests passed in 3.58s; initial lint failed on one test-name line length. [Corrected affected check](../../../artifacts/dev-cycle/20261101-120544-2731211/result.json): four tests and all affected lint paths passed. A subsequent hidden-visibility scoring case passed (five report tests in 0.28s); its long test name was shortened and Ruff passed. These were formatting failures, not ignored failures.
+- Final controller/runtime/nav/potion/scheduler/timing validation: 268 tests passed in 8.40s, reported by the owning subagent; Ruff/diff checks passed. This includes original-frame expiry during reaction delay, queue delay despite newer frames, invalid current context, sequence regression, source/view changes, chord expiry with release, unconditional key-up, potion priority and Stop. These checks use test backends, not game input.
+- X02 owner validation: 151 affected decision/enemy/replay checks passed; decision/combat evidence cases also passed in the grouped run. Current policy preserves the original club/combat choices while restricting uncertainty and known-ID switching.
+- Preservation/coverage validator: all33 IDs, all16 original reports, original agent instructions, source headings and code seams pass. The active config and frozen detector-source hashes are unchanged.
+- Tracking window: about38 minutes elapsed from the recorded task-start checkpoint to coverage validation; this excludes earlier startup/initial reads. The duration includes annotation, inspection, cold detector loads, experiments and bookkeeping. Individual test runtimes above are not a complete-workflow speed claim.
+
+## p10 — Coverage handoff
+
+Every B01–B20 and X01–X12 entry has evidence and an implementation, retained-system, experiment or explicit deferral disposition; L01 preserves the old outcome and decisions. Original phase criteria and original dependencies remain in JSON. Execution dependencies were narrowed only for independent constructed experiments and decision reviews; real localization promotion still requires p4 evidence, and native acceptance remains separate.
+
+Required remaining acceptance: p4 compatible independent reserved-map bundles; p7 complete action-aligned source footage; p9 explicit live batch authorization/operator presence. No ready evidence-supported runtime promotion is hidden behind these blockers. Candidate detector/tracker/calibration changes remain conditional on their per-ID labels and measurements.
+
+No engine was restarted or gameplay batch run. New runtime code is on disk, not claimed loaded in the existing engine. The project goal remains active.
+

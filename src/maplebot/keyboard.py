@@ -3,6 +3,7 @@
 import atexit
 import copy
 import ctypes
+import math
 import queue
 import threading
 import time
@@ -59,6 +60,15 @@ class DisabledInput:
 
 
 @dataclass(frozen=True)
+class InputObservation:
+    capture_clock: float
+    deadline: float
+    source_generation: int
+    view_generation: int
+    sequence: int
+
+
+@dataclass(frozen=True)
 class ActionOutcome:
     ticket: int
     generation: int
@@ -67,6 +77,7 @@ class ActionOutcome:
     submitted_at: float
     started_at: float | None
     finished_at: float
+    observation: InputObservation | None = None
 
 
 @dataclass(frozen=True)
@@ -78,6 +89,7 @@ class _QueuedPlan:
     submitted_at: float
     disable_after: bool = False
     preserve_movement: bool = False
+    observation: InputObservation | None = None
 
 
 PRIORITY_HP, PRIORITY_MP, PRIORITY_COMBAT = 1, 2, 5
@@ -154,6 +166,7 @@ class KeyboardController:
         replay: bool = False,
         timing: TimingConfig | None = None,
         on_stop: Callable[[str, str], None] | None = None,
+        observation: Callable[[], InputObservation | None] | None = None,
     ) -> None:
         for key in (
             config.left, config.right, config.attack, config.jump, config.up, config.down,
@@ -164,6 +177,7 @@ class KeyboardController:
         self.backend, self.config = backend, config
         self.safe, self.emergency, self.replay = safe, emergency, replay
         self.on_stop = on_stop
+        self.observation = observation
         self.enabled = False
         self.stopped = threading.Event()
         self.closed = threading.Event()
@@ -279,6 +293,7 @@ class KeyboardController:
                 item.submitted_at,
                 started_at,
                 time.perf_counter(),
+                item.observation,
             )
         )
 
@@ -312,7 +327,7 @@ class KeyboardController:
                 self.next_ticket += 1
                 item = _QueuedPlan(
                     ticket, self.generation, action.kind, schedule, time.perf_counter(),
-                    disable_after,
+                    disable_after, observation=self.observation() if self.observation else None,
                 )
                 self.queue.put_nowait((priority, ticket, item))
                 return ticket
@@ -362,7 +377,8 @@ class KeyboardController:
             ticket = self.next_ticket
             self.next_ticket += 1
             item = _QueuedPlan(ticket, self.generation, "navigation", schedule,
-                               time.perf_counter(), False, preserve_movement)
+                               time.perf_counter(), False, preserve_movement,
+                               self.observation() if self.observation else None)
             try:
                 self.queue.put_nowait((priority, ticket, item))
             except queue.Full:
@@ -532,6 +548,10 @@ class KeyboardController:
             "sequence": self.event_sequence,
             "history_id": self.history_id,
         }
+        if self.last_timing.get("observation") is not None:
+            observation = self.last_timing["observation"]
+            event.update(ticket=self.last_timing["ticket"], observation=dict(observation),
+                         capture_age_ms=(clock - observation["capture_clock"]) * 1000)
         self.last_timing["events"].append(event)
         self.event_history.append(event)
 
@@ -652,6 +672,28 @@ class KeyboardController:
                 if self.last_timing["outcome"] == "running":
                     self.last_timing["outcome"] = "interrupted"
 
+    def _observation_current(self, item: _QueuedPlan) -> bool:
+        """A later frame cannot renew a plan's originating observation deadline."""
+        original = item.observation
+        if original is None:
+            return True  # Standalone/manual callers retain their existing bounded contract.
+        current = self.observation() if self.observation else None
+        now = time.perf_counter()
+        if (current is None
+                or not math.isfinite(original.capture_clock)
+                or not math.isfinite(original.deadline)
+                or not original.capture_clock <= now <= original.deadline
+                or not math.isfinite(current.capture_clock)
+                or not math.isfinite(current.deadline)
+                or not current.capture_clock <= now <= current.deadline
+                or current.sequence < original.sequence
+                or (original.source_generation, original.view_generation)
+                != (current.source_generation, current.view_generation)):
+            self.stop("Originating observation expired or changed before key down",
+                      code="PLAYER_UNCERTAIN")
+            return False
+        return True
+
     def _execute_schedule(self, item: _QueuedPlan) -> str:
         schedule = item.schedule
         with self.lock:
@@ -659,13 +701,18 @@ class KeyboardController:
                 return f"{item.action} interrupted"
             if self._cancelled(item):
                 return f"{item.action} interrupted"
+            if not self._observation_current(item):
+                return f"{item.action} interrupted"
             if not item.preserve_movement:
                 self.release_all()
             if self.emergency() or not self.safe():
                 self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
                 return f"{item.action} interrupted"
             self.execution_started = time.perf_counter()
-            self.last_timing = {"schedule": asdict(schedule), "events": [], "outcome": "running"}
+            self.last_timing = {"schedule": asdict(schedule), "events": [], "outcome": "running",
+                                "ticket": item.ticket,
+                                "observation": asdict(item.observation)
+                                if item.observation is not None else None}
         last_down = float("-inf")
         try:
             for index, event in enumerate(schedule.events):
@@ -683,6 +730,8 @@ class KeyboardController:
                         self.stop("Focus/safety lost or emergency stop", code="FOCUS_LOSS")
                         return f"{item.action} interrupted"
                     if event.down:
+                        if not self._observation_current(item):
+                            return f"{item.action} interrupted"
                         up = next(
                             later
                             for later in schedule.events[index + 1 :]

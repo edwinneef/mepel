@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from tools.failure_report import classify, clip_summary, run, summarize
+from tools.failure_report import classify, clip_summary, navigation_diagnosis, run, summarize
 
 
 def saved_failure(tmp_path, reason="Click the actual game window before the countdown ends"):
@@ -104,3 +104,38 @@ def test_policy_replay_uses_saved_decisions_without_loading_detector(tmp_path, m
     report = run(path, tmp_path / "report", replay_policy=True)
     assert report["policy_replays"][0]["differences"] == 1
     assert report["policy_replays"][0]["comparison_only"] is True
+
+
+@pytest.mark.parametrize(("reason", "symptoms"), [
+    ("Rope grip not observed", ["rope_grip"]),
+    ("Navigation fused position is stale", ["observation_freshness", "identity_localization"]),
+    ("Departure not observed; retry budget exhausted", ["trajectory_corridor", "execution_budget"]),
+    ("Unexpected result", ["unknown"]),
+])
+def test_taxonomy_distinguishes_symptoms_without_guessing_input_or_physics(reason, symptoms):
+    diagnosis = navigation_diagnosis(reason, {})
+    assert diagnosis["symptoms"] == symptoms
+    assert diagnosis["causal_attribution"] == "unknown"
+    assert diagnosis["recorded_reason"] == reason
+    assert diagnosis["stage"] is None and diagnosis["input_state"] is None
+
+
+def test_taxonomy_retains_recorded_phase_refusal_and_contradictory_evidence():
+    state = {"navigation": {"stage": "grip", "edge": "rope-1",
+                            "feedback": {"age_ms": 700},
+                            "last_input_refusal": {"reason": "input deadline expired"}},
+             "input_state": {"last_ticket": {"status": "complete"}}}
+    diagnosis = navigation_diagnosis("Rope grip failed with stale feedback", state)
+    assert diagnosis["symptoms"] == ["observation_freshness", "rope_grip", "input_refusal"]
+    assert diagnosis["input_refusal"] == state["navigation"]["last_input_refusal"]
+    assert diagnosis["input_state"] == state["input_state"]
+    assert diagnosis["edge"] == "rope-1" and diagnosis["stage"] == "grip"
+    assert diagnosis["causal_attribution"] == "unknown"
+
+
+def test_route_handoff_is_navigation_context_without_asserting_displacement_cause():
+    reason = "Origin no longer matches the previewed route"
+    assert classify(reason)[0] == "navigation"
+    diagnosis = navigation_diagnosis(reason, {})
+    assert diagnosis["symptoms"] == ["map_context"]
+    assert diagnosis["causal_attribution"] == "unknown"
