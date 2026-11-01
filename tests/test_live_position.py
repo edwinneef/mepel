@@ -8,7 +8,7 @@ from test_minimap_reader import view
 from test_runtime import app  # noqa: F401 - pytest fixture
 
 from maplebot.geometry import Rect
-from maplebot.live_position import LivePosition
+from maplebot.live_position import LivePosition, detect_area
 from maplebot.map_filter import MapFilter
 from maplebot.perception import Detection, Observation
 from maplebot.profiles import AreaStore, validate_profile
@@ -227,6 +227,28 @@ def test_passive_calibration_supersedes_unverified_automatic_alignment(store, mo
         position.close()
 
 
+def save_area(store, area_id, name, seed):
+    store.save({
+        "schema_version": 2, "id": area_id, "name": name, "revision": 0,
+        "boundary": {"x": 0, "y": 0, "width": 1366, "height": 768},
+        "views": [store.capture_view(view(seed=seed))], "zones": [], "ropes": [], "links": [],
+        "platforms": [{"id": "floor", "start": {"x": 0, "y": 600},
+                       "end": {"x": 1366, "y": 600}}],
+    })
+
+
+def test_detect_area_picks_the_one_saved_map_matching_the_minimap(store):
+    other = "c" * 32
+    save_area(store, other, "Other floor", seed=7)
+    assert detect_area(store, view(((90, 20),))) == AREA
+    assert detect_area(store, view(((90, 20),), seed=7)) == other
+    with pytest.raises(ValueError, match="No saved map matches"):
+        detect_area(store, view(seed=99))
+    save_area(store, "d" * 32, "Twin floor", seed=7)
+    with pytest.raises(ValueError, match="Several saved maps match.*Other floor, Twin floor"):
+        detect_area(store, view(seed=7))
+
+
 def test_calibration_needs_enough_fresh_pairs(store):
     position = LivePosition(store, AREA)
     try:
@@ -347,3 +369,9 @@ def test_runtime_tracks_position_read_only_and_stops_cleanly(app, store):  # noq
     assert app._command("position_stop", {}) == {"tracking": False}
     assert app.position is None and not app.detector.taught_map
     assert app.snapshot()["position"] is None
+    app.image = None
+    with pytest.raises(ValueError, match="No current screenshot"):
+        app._command("position_start", {})
+    app.image = view(((60, 20),))
+    assert app._command("position_start", {})["area_id"] == AREA
+    app._command("position_stop", {})

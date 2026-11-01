@@ -18,8 +18,15 @@ class Farming:
         self.pet_recovery = settings.get("pet_recovery", True)
         if not isinstance(self.pet_recovery, bool):
             raise ValueError("farming.pet_recovery must be boolean")
+        # Supervised opt-in: rotation may try one unproven move to a neighbouring platform.
+        self.learn_moves = settings.get("learn_moves", False)
+        if not isinstance(self.learn_moves, bool):
+            raise ValueError("farming.learn_moves must be boolean")
+        if self.learn_moves and self.single_platform:
+            raise ValueError("farming.learn_moves needs platform rotation, not single_platform")
         self.settings = {"pet_recovery": self.pet_recovery, "no_consumables": self.no_consumables,
-                         "single_platform": self.single_platform}
+                         "single_platform": self.single_platform,
+                         "learn_moves": self.learn_moves}
         checkpoint = settings.get("checkpoint_seconds")
         if checkpoint is not None:
             if type(checkpoint) is not int or not 1 <= checkpoint <= 10:

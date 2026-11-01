@@ -10,7 +10,7 @@ from maplebot.geometry import Rect
 from maplebot.navigation import RouteMap
 from maplebot.navigation_executor import Feedback
 from maplebot.perception import Detection, Observation
-from maplebot.rotation import Rotation, routable, visible_by_surface
+from maplebot.rotation import Rotation, routable, unproven_neighbours, visible_by_surface
 
 app, controller = _app, _controller
 PLAYER = Detection("player", Rect(500, 300, 40, 60), .95)
@@ -157,3 +157,48 @@ def test_destinations_beyond_the_route_budget_are_never_chosen(app, monkeypatch)
     app._rotate(SEARCH, Observation(PLAYER, []), now)
     assert app._rotate(SEARCH, Observation(PLAYER, []), now + 1) is None
     assert app.mode == "live" and "No other routable platform" in app.rotation.reason
+
+
+def test_unproven_neighbours_are_one_move_platforms_outside_the_round_trip_map():
+    profile, evidence = fixture()
+    assert unproven_neighbours(RouteMap(profile, evidence, proven=set()), "floor") == {
+        "ledge": "up"}
+    assert unproven_neighbours(RouteMap(profile, evidence), "floor") == {}
+
+
+def test_a_clear_platform_tries_an_unproven_neighbour_without_routable_platforms():
+    rotation = Rotation(1)
+    explore = {"b": "a-to-b"}
+    assert rotation.step(0, searching=True, surface="a", platforms=["a"], visible={},
+                         explore=explore) is None
+    assert rotation.step(1, searching=True, surface="a", platforms=["a"], visible={},
+                         explore=explore) == "b"
+    assert "trying a new move to b" in rotation.reason
+
+
+def learning(app, enabled):
+    nav = preview(app)
+    profile, evidence = fixture()
+    nav.graph = RouteMap(profile, evidence, proven=set())
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (150, 400),
+                            "floor", True)
+    app.learning_moves = enabled
+    app.controller.enable()
+    return nav
+
+
+def test_learning_farm_tries_one_unproven_move_with_proven_only_replans(app):
+    nav = learning(app, True)
+    now = time.perf_counter()
+    assert app._rotate(SEARCH, Observation(PLAYER, []), now) is None
+    assert "trying a new move to ledge" in app._rotate(SEARCH, Observation(PLAYER, []), now + 1)
+    assert app.mode == "navigation" and nav.resume_combat
+    assert [edge.id for edge in nav.route.edges] == ["up"] and nav.agent.trusted_only
+
+
+def test_without_learning_an_unproven_move_is_never_tried(app):
+    nav = learning(app, False)
+    now = time.perf_counter()
+    app._rotate(SEARCH, Observation(PLAYER, []), now)
+    assert app._rotate(SEARCH, Observation(PLAYER, []), now + 1) is None
+    assert app.mode == "live" and nav.agent is None

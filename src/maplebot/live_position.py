@@ -59,6 +59,29 @@ def _percentiles(values: np.ndarray) -> dict:
             "max": float(values.max())}
 
 
+def detect_area(store: AreaStore, image: np.ndarray) -> str:
+    """The one saved area whose reference minimap matches this frame; refuse otherwise."""
+    matches = []
+    for item in store.list()["areas"]:
+        profile = store.load(item["id"])["profile"]
+        for view in profile["views"]:
+            body = store.frame(view["image"])
+            reference = cv2.imdecode(np.frombuffer(body or b"", np.uint8), cv2.IMREAD_COLOR)
+            try:
+                fix = AreaMinimap(reference, None).read(image) if reference is not None else None
+            except ValueError:
+                continue  # A reference without enough minimap terrain cannot identify a map.
+            if fix is not None and fix.canvas is not None:
+                matches.append((profile["id"], profile["name"]))
+                break
+    if not matches:
+        raise ValueError("No saved map matches the minimap; open the minimap or choose the map")
+    if len(matches) > 1:
+        raise ValueError("Several saved maps match the minimap: "
+                         + ", ".join(sorted(name for _, name in matches)) + "; choose one")
+    return matches[0][0]
+
+
 class LivePosition:
     """Position on one saved area; reloads its calibration when the operator saves one."""
 

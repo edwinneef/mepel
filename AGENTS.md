@@ -6,6 +6,10 @@ End each final reply about this project with one next-prompt direction, includin
 Suggestions are advisory. Invoke NEEF only when the user explicitly requests it; setup does not authorize automatic workflows or executing suggested prompts.
 <!-- neef:next-prompt:end -->
 
+## Research reference
+
+For source-backed bot/CV comparisons, read [the ecosystem research index](docs/research/maplestory-bot-ecosystem/README.md), then only the relevant topic. It includes pinned external source, current architecture, limitations and a ranked backlog; recommendations do not authorize implementation or gameplay.
+
 ## Default test loop
 
 Use the offline failure-to-retest workflow for bot changes. Runner options are in
@@ -33,6 +37,23 @@ Restart the debugger engine only with `tools/restart_engine.ps1` (`-EnableGamepl
 input-capable sessions). Never `Start-Process` `run.ps1` again for a restart: the previous
 `-NoExit` launcher window stays open after its engine stops, and repeated restarts left four
 terminals open on 2026-10-26. Tell the operator before restarting; it ends any active probe.
+
+## Local start for supervised tests
+
+Default to an operator-clicked local start control for future supervised gameplay
+batches. Finish preparation, affected offline checks and safe installation before
+handing over the control; chat response time must not determine the start time.
+The click starts only the displayed bounded batch, after fresh engine readiness,
+map, player and required enemy checks. Keep operator presence, explicit batch
+authorization, all safety gates, F8, first-failure stop, key release, saved clip
+and alarm requirements. Never automatically retry or acknowledge an alarm.
+Restore focus only through the engine's guarded focus_game command.
+
+The current Maple Floor Batch control targets only fh66 in Snail Hunting Ground III;
+it is not a general map launcher. The operator reported on 2026-11-01 that it did
+not work. Treat that as unresolved: inspect its failure and verify the actual
+click-to-start path before claiming it works or requesting another gameplay test.
+Offline tests and window startup alone do not establish successful local launch.
 
 ## Unattended testing
 

@@ -33,6 +33,21 @@ def routable(graph: RouteMap) -> list[str]:
     return [p["id"] for p in graph.profile["platforms"] if p["id"] not in graph.trusted_excluded]
 
 
+def unproven_neighbours(graph: RouteMap, surface: str) -> dict[str, str]:
+    """Platforms outside the round-trip map one unproven computed move away: target -> edge.
+
+    Only a supervised farming batch that opted in may try these; one failure stops it.
+    """
+    known, platforms = set(routable(graph)), {p["id"] for p in graph.profile["platforms"]}
+    found: dict[str, str] = {}
+    for edge in sorted(graph.edges.values(), key=lambda e: e.id):
+        if (edge.source == surface and edge.id not in graph.proven and edge.target != surface
+                and edge.target in platforms and edge.target not in known
+                and edge.target not in graph.excluded):
+            found.setdefault(edge.target, edge.id)
+    return found
+
+
 class Rotation:
     def __init__(self, clear_seconds: float) -> None:
         self.clear_seconds = clear_seconds
@@ -51,8 +66,13 @@ class Rotation:
 
     def step(self, now: float, *, searching: bool, surface: str | None,
              platforms: list[str], visible: dict[str, int],
-             edges: dict[str, int] | None = None) -> str | None:
-        """Return a destination after `clear_seconds` of searching on a known platform."""
+             edges: dict[str, int] | None = None,
+             explore: dict[str, str] | None = None) -> str | None:
+        """Return a destination after `clear_seconds` of searching on a known platform.
+
+        `explore` lists neighbours reachable by one unproven move; one is tried before
+        proven destinations, so a supervised batch grows the round-trip map.
+        """
         if not searching or surface not in platforms:
             self.clear_since = None
             self.reason = ("Platform unknown or outside the round-trip map; staying"
@@ -61,13 +81,20 @@ class Rotation:
         self.visited.setdefault(surface, now)
         if self.clear_since is None:
             self.clear_since = now
+        explore = explore or {}
         others = [key for key in platforms if key != surface]
-        if not others:
+        if not others and not explore:
             self.reason = "No other routable platform; staying"
             return None
         if now - self.clear_since < self.clear_seconds:
             self.reason = f"Platform clear for {now - self.clear_since:.1f}s"
             return None
+        if explore:
+            self.destination = max(sorted(explore), key=lambda key: (
+                visible.get(key, 0), -self.visited.get(key, float("-inf"))))
+            self.visited[surface], self.clear_since = now, None
+            self.reason = f"Platform clear; trying a new move to {self.destination}"
+            return self.destination
         # Most visible monsters, then the platform left longest ago (never first), then the
         # shortest route.
         edges = edges or {}

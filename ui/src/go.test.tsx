@@ -27,6 +27,12 @@ it('tracks the chosen map before listing destinations, sending no movement', asy
   expect(command.mock.calls.map(([name]) => name)).not.toContain('nav_go');
 });
 
+it('tracks the map detected from the minimap when none is chosen', async () => {
+  const command = setup({ navigation: { ...navigation, map: null } });
+  fireEvent.click(screen.getByRole('button', { name: 'Track map' }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith('position_start', {}));
+});
+
 it('goes from the current platform in one click and shows a refusal inline', async () => {
   const command = vi.fn().mockRejectedValue(new Error('Waiting for fresh fused position on the previewed origin'));
   setup({ navigation, position: { area_id: 'area', kind: 'platform', surface_id: 'p3', reason: 'On P3', input_sent: false } }, command);

@@ -22,6 +22,7 @@ export function App({ client }: { client: EngineClient }) {
   const [feedSeconds, setFeedSeconds] = useState('');
   const [farmHp, setFarmHp] = useState(50);
   const [farmMp, setFarmMp] = useState(50);
+  const [learnMoves, setLearnMoves] = useState(false);
   const [supervised, setSupervised] = useState(false);
   const [routeCurrent, setRouteCurrent] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -59,7 +60,7 @@ export function App({ client }: { client: EngineClient }) {
       setSupervised(false); // A started route consumes the opt-in; a refused start keeps it.
       return result;
     }
-    return client.command(runMode === 'preview' ? 'dry_run' : 'arm', runMode === 'farming' ? { farming: { session_minutes: farmMinutes, feed_seconds: Number(feedSeconds), hp_threshold: farmHp, mp_threshold: farmMp } } : {});
+    return client.command(runMode === 'preview' ? 'dry_run' : 'arm', runMode === 'farming' ? { farming: { session_minutes: farmMinutes, feed_seconds: Number(feedSeconds), hp_threshold: farmHp, mp_threshold: farmMp, learn_moves: learnMoves } } : {});
   });
   const stop = (name: 'stop' | 'pause') => act(async () => {
     await client.command(name);
@@ -95,6 +96,7 @@ export function App({ client }: { client: EngineClient }) {
       <label>Feed every (seconds) <input type="number" min="1" max="3600" value={feedSeconds} placeholder="Required" onChange={e => setFeedSeconds(e.target.value)} /></label>
       <label>Pet HP trigger % <input type="number" min="1" max="95" value={farmHp} onChange={e => setFarmHp(Number(e.target.value))} /></label>
       <label>Pet MP trigger % <input type="number" min="1" max="95" value={farmMp} onChange={e => setFarmMp(Number(e.target.value))} /></label>
+      <label title="When a platform is clear, try one unproven move to a neighbouring platform. A success is saved as a proof; any failed move stops the batch."><input type="checkbox" checked={learnMoves} onChange={e => setLearnMoves(e.target.checked)} /> Learn new platform moves (I'm supervising)</label>
       <span>Pet supplies both potions. Stops after 5 seconds below a trigger. Feeding timing needs verification; Home sends food without confirming consumption.</span>
     </section>}
     <nav className="workspace-nav" aria-label="Workspace tools">

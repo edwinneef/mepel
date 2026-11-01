@@ -36,11 +36,11 @@ export function GoBar({ snapshot: s, client, disabled, act, availableAreas, sele
     return <section className="go-bar" aria-label="Go to">
       <strong>Go to</strong>
       <select aria-label="Map to track" value={mapId} disabled={disabled} onChange={event => setMapId(event.target.value)}>
-        <option value="">Choose the map you are on…</option>
+        <option value="">Detect from the minimap</option>
         {(availableAreas ?? maps).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>
-      <button disabled={disabled || !mapId} onClick={() => void send(() => client.command('position_start', { area_id: mapId }))}>Track map</button>
-      <span className={`go-status ${refusal ? 'warning-copy' : ''}`} role="status">{refusal || 'Track the map you are on to list destinations. No keys are sent.'}</span>
+      <button disabled={disabled} onClick={() => void send(() => client.command('position_start', mapId ? { area_id: mapId } : {}))}>Track map</button>
+      <span className={`go-status ${refusal ? 'warning-copy' : ''}`} role="status">{refusal || 'Track the map you are on to list destinations; without a choice it is detected from the minimap. No keys are sent.'}</span>
     </section>;
   }
   const status = nav?.active

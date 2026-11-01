@@ -167,6 +167,15 @@ def test_single_platform_flag_is_explicit_boolean(value):
         Farming({"single_platform": value})
 
 
+def test_learn_moves_is_an_explicit_boolean_that_needs_rotation():
+    assert Farming({"learn_moves": True}).settings["learn_moves"] is True
+    assert Farming({}).learn_moves is False
+    with pytest.raises(ValueError, match="learn_moves must be boolean"):
+        Farming({"learn_moves": "yes"})
+    with pytest.raises(ValueError, match="needs platform rotation"):
+        Farming({"learn_moves": True, "single_platform": True})
+
+
 def test_single_platform_arms_without_routes_preserving_health_stops(app):
     from maplebot.runtime import REQUIRED_PROBES
 

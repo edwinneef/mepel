@@ -41,7 +41,7 @@ from .keyboard import (
     KeyboardController,
     Win32Input,
 )
-from .live_position import STALE_SECONDS, LivePosition
+from .live_position import STALE_SECONDS, LivePosition, detect_area
 from .navigation_runtime import NavigationRuntime
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
 from .pose_collection import PoseCollection
@@ -51,7 +51,7 @@ from .probe_store import ProbeStore
 from .profiles import AreaStore
 from .reacquisition import Reacquisition
 from .recorder import SessionRecorder
-from .rotation import Rotation, routable, visible_by_surface
+from .rotation import Rotation, routable, unproven_neighbours, visible_by_surface
 from .scheduler import SUSTAIN, Arbiter
 from .windows import Window, Windows
 
@@ -272,6 +272,7 @@ class Application:
         self.farming: Farming | None = None
         self.rotation = Rotation(config.agent.clear_seconds)
         self.rotating = False
+        self.learning_moves = False
         self.monster_search = True
         self.shown_platform: tuple[str, str, float] | None = None
 
@@ -1343,7 +1344,8 @@ class Application:
                        for r in ("hp", "mp")):
                     raise ValueError("Potion thresholds must cover farming recovery thresholds")
             self._prepare_rotation((not farming.single_platform) if farming else
-                                   payload.get("rotate") is True)
+                                   payload.get("rotate") is True,
+                                   learn=bool(farming and farming.learn_moves))
             with self.stop_lock:
                 if self.area_editing:
                     raise ValueError("Finish area editing before starting preview decisions")
@@ -1388,7 +1390,8 @@ class Application:
                        for r in ("hp", "mp")):
                     raise ValueError("Potion thresholds must cover farming recovery thresholds")
             self._prepare_rotation((not farming.single_platform) if farming else
-                                   payload.get("rotate") is True)
+                                   payload.get("rotate") is True,
+                                   learn=bool(farming and farming.learn_moves))
             with self.stop_lock:
                 if self.alarm.snapshot()["active"]:
                     raise ValueError("Acknowledge the active alarm before arming combat")
@@ -1539,16 +1542,23 @@ class Application:
             "frame": [image.shape[1], image.shape[0]],
         }
 
-    def _prepare_rotation(self, enabled: bool) -> None:
-        """Opt-in platform rotation needs a tracked map with two round-trip platforms."""
-        self.rotating = False
+    def _prepare_rotation(self, enabled: bool, *, learn: bool = False) -> None:
+        """Opt-in platform rotation needs a tracked map with two round-trip platforms.
+
+        With `learn`, a supervised farming batch may instead start with unproven moves.
+        """
+        self.rotating = self.learning_moves = False
         self.rotation.reset("Rotation off" if not enabled else "Waiting for a clear platform")
         if not enabled:
             return
         self.navigation.refresh()
-        if len(routable(self.navigation.graph)) < 2:
+        graph = self.navigation.graph
+        if learn:
+            if not graph.edges:
+                raise ValueError("Learning moves needs computed moves between platforms")
+        elif len(routable(graph)) < 2:
             raise ValueError("Rotation needs two platforms with recorded round-trip routes")
-        self.rotating = True
+        self.rotating, self.learning_moves = True, learn
 
     def _rotate(self, decision: Decision, observation, now: float) -> str | None:
         """After the clear time with no same-platform target, hand combat to navigation."""
@@ -1574,24 +1584,31 @@ class Application:
                 except ValueError:
                     pass  # Beyond the route budget from here; never chosen.
             platforms = [key for key in platforms if key in edges or key == f.surface]
+        explore = (unproven_neighbours(nav.graph, f.surface)
+                   if self.learning_moves and known and decision.state == "SEARCH" else {})
         target = self.rotation.step(
             now, searching=decision.state == "SEARCH", surface=f.surface if known else None,
-            platforms=platforms, visible=visible, edges=edges,
+            platforms=platforms, visible=visible, edges=edges, explore=explore,
         )
         if target is None:
             return None
         name = nav.graph.nodes[target].get("name", target)
+        trying = target in explore
         if self.mode == "dry_run":
-            return f"dry run: platform clear; would move to {name}"
+            return (f"dry run: platform clear; would try a new move to {name}" if trying
+                    else f"dry run: platform clear; would move to {name}")
         for ticket, lane in tuple(self.arbiter.in_flight.items()):
             if lane == "combat":
                 self.controller.cancel_ticket(ticket)
-        blocker = nav.handoff(target, now)
+        blocker = nav.handoff(target, now, explore=trying)
         if blocker:
             self._stop("POLICY_STOP", blocker)
             return blocker
-        self.combat_evidence.record("decision", f"rotate to {target}", action="navigation")
-        return f"Platform clear; moving to {name}"
+        self.combat_evidence.record(
+            "decision", f"{'try new move' if trying else 'rotate'} to {target}",
+            action="navigation")
+        return (f"Platform clear; trying a new move to {name}" if trying
+                else f"Platform clear; moving to {name}")
 
     def resume_combat(self, surface: str, now: float) -> None:
         """Navigation settled on the rotation destination; fight there."""
@@ -1699,12 +1716,17 @@ class Application:
         if self.area_editing:
             raise ValueError("Finish area editing before tracking the live position")
         if name == "position_start":
+            area_id = payload.get("area_id")
+            if area_id is None:  # No map chosen: identify the saved area from the minimap.
+                if self.image is None:
+                    raise ValueError("No current screenshot to detect the map from")
+                area_id = detect_area(self.areas, self.image)
             if self.position is not None:
-                if (self.position.profile["id"] == payload.get("area_id")
+                if (self.position.profile["id"] == area_id
                         and payload.get("map_id") in (None, self.position.map_id)):
                     return {"tracking": True, "area_id": self.position.profile["id"],
                             "calibrated": self.position.tracker is not None}
-            position = LivePosition(self.areas, payload.get("area_id"),
+            position = LivePosition(self.areas, area_id,
                                     capture_only=self.capture_only, map_id=payload.get("map_id"),
                                     player_threshold=self.config.perception.confidence)
             if self.position is not None:

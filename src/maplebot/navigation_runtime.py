@@ -242,16 +242,21 @@ class NavigationRuntime:
         self.reason = "Focus the game; navigation countdown is bounded and cancelable"
         return self.snapshot()
 
-    def handoff(self, target: str, now: float) -> str | None:
+    def handoff(self, target: str, now: float, *, explore: bool = False) -> str | None:
         """Armed combat found its platform clear: route on without a new countdown.
 
-        Returns why the move was refused; the caller stops safely instead of retrying.
+        With `explore`, the route is one unproven move to a neighbour; replans still use
+        proven moves only. Returns why the move was refused; the caller stops safely
+        instead of retrying.
         """
         f = self.feedback
         if not self.graph or not f or not f.surface:
             return "Rotation: current platform unknown"
         try:
-            self.route = self.graph.plan(f.surface, target, trusted_only=True, origin_feet=f.feet)
+            self.route = (self.graph.plan(f.surface, target, max_edges=1, origin_feet=f.feet)
+                          if explore else
+                          self.graph.plan(f.surface, target, trusted_only=True,
+                                          origin_feet=f.feet))
         except ValueError as error:
             return f"Rotation: {error}"
         blocker = self.blocker()

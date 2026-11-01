@@ -1,10 +1,12 @@
+import time
 from copy import deepcopy
 
 from tools.prepared_floor_check import AREA, floor_blocker
 
 
 def ready():
-    return {"mode": "capture", "alarm": {"active": False}, "focused": True,
+    return {"captured_at": time.time(), "mode": "capture",
+            "alarm": {"active": False}, "focused": True,
             "input_state": {"held_keys": [], "active": False, "queued": False},
             "position": {"area_id": AREA, "surface_id": "fh66"},
             "readiness": {"combat": {"ready": True}}}
@@ -66,4 +68,54 @@ def test_focus_is_restored_even_when_cached_status_claims_focused():
 
     api = Api()
     assert restore_focus(api)["focused"]
+    assert api.calls == ["focus_game"]
+
+
+def test_focus_waits_through_stale_unfocused_capture_without_refocusing():
+    from tools.prepared_floor_check import restore_focus
+
+    class Api:
+        calls = 0
+        reads = 0
+
+        def command(self, name, payload):
+            self.calls += 1
+            return {"focused": True}
+
+        def status(self):
+            self.reads += 1
+            s = ready()
+            s["captured_at"] = 9 if self.reads < 4 else 11
+            s["focused"] = self.reads >= 4
+            return s
+
+    api = Api()
+    sleeps = []
+    assert restore_focus(api, wall_clock=lambda: 10, sleep=sleeps.append)["focused"]
+    assert api.calls == 1
+    assert len(sleeps) == 2
+
+
+def test_focus_timeout_does_not_arm_or_retry_focus():
+    import pytest
+
+    from tools.prepared_floor_check import restore_focus
+
+    class Api:
+        calls = []
+
+        def status(self):
+            s = ready()
+            s["captured_at"] = 9
+            return s
+
+        def command(self, name, payload):
+            self.calls.append(name)
+            return {"focused": True}
+
+    api = Api()
+    ticks = iter([0, 0, 3])
+    with pytest.raises(RuntimeError, match="No fresh focused capture"):
+        restore_focus(api, clock=lambda: next(ticks), wall_clock=lambda: 10,
+                      sleep=lambda _: None)
     assert api.calls == ["focus_game"]

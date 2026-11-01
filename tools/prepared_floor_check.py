@@ -29,7 +29,7 @@ def floor_blocker(status):
     return None
 
 
-def restore_focus(api):
+def restore_focus(api, *, clock=time.monotonic, wall_clock=time.time, sleep=time.sleep):
     status = api.status()
     if status.get("mode") != "capture":
         raise RuntimeError("Bot must be Off before restoring focus")
@@ -39,7 +39,20 @@ def restore_focus(api):
     # Cached capture status can still say focused just after the operator clicks the GUI.
     if not api.command("focus_game", {"click_fallback": True}).get("focused"):
         raise RuntimeError("Guarded focus failed; no retry")
-    return api.status()
+    focused_at = wall_clock()
+    deadline = clock() + 2
+    while clock() < deadline:
+        fresh = api.status()
+        if fresh.get("session_id") != status.get("session_id"):
+            raise RuntimeError("Engine session changed during focus handoff")
+        if fresh.get("mode") != "capture" or (fresh.get("alarm") or {}).get("active"):
+            raise RuntimeError("Engine no longer ready during focus handoff")
+        # The focus command verifies the native window, but status is capture-backed.
+        # Wait for a capture taken AFTER focus, never overwrite the reported flag.
+        if fresh.get("captured_at", 0) > focused_at and fresh.get("focused"):
+            return fresh
+        sleep(.025)
+    raise RuntimeError("No fresh focused capture within 2 seconds; no batch started")
 
 
 def main():
