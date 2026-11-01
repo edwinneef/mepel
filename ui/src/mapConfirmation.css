@@ -1,0 +1,8 @@
+.map-confirmation { display: grid; gap: 10px; margin: 12px 0; }
+.map-confirmation h3, .map-confirmation p { margin: 0; }
+.map-confirmation p { font-size: 12px; line-height: 1.6; }
+.map-confirmation-picture { position: relative; overflow: hidden; border: 1px solid #46566a; border-radius: 6px; }
+.map-confirmation-picture img { display: block; width: 100%; height: auto; }
+.map-confirmation-picture svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.map-confirmation-picture .position-marker { stroke: #ffe27a; stroke-width: 3; fill: #ffe27a30; }
+.map-confirmation-picture .position-canvas { stroke: #b5c9df; }

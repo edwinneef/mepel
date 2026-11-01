@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { LivePosition, Snapshot, TaughtGeometry } from './contracts';
 import type { EngineClient } from './client';
+import type { ViewImage } from './useViewport';
+import { MapConfirmation } from './MapConfirmation';
 
 type Act = (operation: () => Promise<unknown>) => Promise<void>;
 interface PanelProps {
   snapshot: Snapshot; client: EngineClient; act: Act; disabled: boolean;
   areas: { id: string; name: string; revision: number }[]; refreshAreas: () => Promise<void>;
+  image?: ViewImage | null;
 }
 
 export function positionLabel(position: LivePosition): string {
@@ -55,38 +58,32 @@ export function MapSketch({ geometry, feet }: { geometry: TaughtGeometry; feet?:
   </svg>;
 }
 
-export function PositionPanel({ snapshot: s, client, act, disabled, areas }: PanelProps) {
+export function PositionPanel({ snapshot: s, client, act, disabled, areas, image }: PanelProps) {
   const [chosenArea, setChosenArea] = useState('');
+  const [choosing, setChoosing] = useState(false);
   const position = s.position;
   const calibration = position?.calibration;
   const calibrating = Boolean(calibration?.active);
   const automatic = position?.map_alignment?.mode === 'automatic';
-  const mapId = chosenArea || position?.area_id || '';
+  const mapId = chosenArea || (!choosing && position?.area_id) || '';
   const command = (action: string, payload: Record<string, unknown> = {}) => act(() => client.command(action, payload));
-  let title = 'Choose a map';
-  let instruction = 'Pick a saved map to track. Tracking sends no game keys.';
-  if (position) {
-    title = position.calibrated ? 'Tracking this map' : 'Walk calibration needed';
-    instruction = position.calibrated ? positionLabel(position) : 'Start walk calibration, then walk left and right on one floor so the minimap can be matched to the map.';
-  }
-  if (calibrating) {
-    title = 'Learning how the map scrolls';
-    instruction = `Walk left and right on one floor · ${calibration?.pairs ?? 0} samples (${calibration?.rejected ?? 0} rejected). Finish once you have covered the floor; no game keys are sent.`;
-  }
-  if (automatic && position?.map_alignment) {
-    const alignment = position.map_alignment;
-    title = alignment.state === 'aligning' ? 'Aligning map'
-      : alignment.precision_verified && position.kind === 'platform' ? 'Ready' : 'Position uncertain';
-    instruction = `${alignment.reason}. Estimated uncertainty: ±${alignment.uncertainty_px.toFixed(1)} px. No walking calibration is needed.`;
-  }
+  useEffect(() => { setChosenArea(''); setChoosing(false); }, [s.session_id, position?.area_id]);
   return <section className="teaching-panel" aria-label="Map setup">
     <div className="teaching-summary">
-      <span className="eyebrow">{position?.area_name ?? 'Map setup'}</span><h3>{title}</h3><p>{instruction}</p>
+      {position && !choosing ? <MapConfirmation snapshot={s} image={image} disabled={disabled}
+        overlay={<PositionOverlay position={position} showText={false} />}
+        revision={areas.find(area => area.id === position.area_id)?.revision ?? position.teaching?.map_revision ?? 0}
+        onWrongMap={() => { setChosenArea(''); setChoosing(true); }} /> : <>
+      <h3>Choose a map</h3><p>Pick the map you are on. Tracking sends no game keys.</p>
       <label>Saved map<select aria-label="Saved map" value={mapId} onChange={event => setChosenArea(event.target.value)}><option value="">Choose a map…</option>{areas.map(area => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
       <div className="button-grid">
-        <button className="primary" disabled={disabled || !mapId} onClick={() => void command('position_start', { area_id: mapId })}>{position ? 'Switch / reconnect map' : 'Track selected map'}</button>
-        <button disabled={disabled || !position} onClick={() => void command('position_stop')}>Stop tracking</button>
+        <button className="primary" disabled={disabled || !mapId} onClick={() => void act(async () => {
+          await client.command('position_start', { area_id: mapId }); setChoosing(false);
+        })}>Track selected map</button>
+        {position && <button disabled={disabled} onClick={() => setChoosing(false)}>Back to map check</button>}
       </div>
+      </>}
+      <button disabled={disabled || !position} onClick={() => void command('position_stop')}>Stop tracking</button>
       {s.capture_only && position?.supplement?.available && <div className="saved-map-note">
         <button aria-pressed={position.supplement.enabled}
           disabled={disabled || calibrating || s.mode !== 'capture' || Boolean(s.area_editing)}
@@ -95,18 +92,16 @@ export function PositionPanel({ snapshot: s, client, act, disabled, areas }: Pan
         <p>Session only · provisional screenshot coverage. The saved map and movement routes stay unchanged.</p>
       </div>}
     </div>
+    <details className="teaching-options"><summary>Map details</summary>
     <p className="saved-map-note">Platforms, ropes and moves come from public map data. Save a new map once with a reference view (Advanced: draw by hand), then stop the engine and run <code>maplebot import-map "&lt;map name&gt;"</code> and start the engine again.</p>
-    {automatic ? <div className="saved-map-note" role="status">
+    {automatic ? <div className="saved-map-note">
       <p>Automatic alignment · gameplay remains locked until position precision is verified.</p>
       <p>Observing normal movement · {position?.movement_learning?.samples ?? 0} samples.
         Movement settings remain unchanged while the model is unverified.</p>
-    </div> : <details className="teaching-options" open={calibrating || undefined}><summary>Walk calibration</summary>
-      <p>{s.health?.reason ?? position?.reason ?? 'Track a map to see position status.'}</p>
-      <p>{calibration?.saved ? `${calibration.saved.pairs} saved calibration samples` : 'This map has no walk calibration yet.'}</p>
-      <div className="button-grid">{calibrating ? <>
-        <button disabled={disabled} onClick={() => void command('walk_calibration_finish')}>Finish calibration</button>
+    </div> : <p>{position ? 'Waiting for passive alignment. Saved map data is preserved.' : 'Track a map to see position status.'}</p>}
+    {calibrating && <div className="button-grid">
         <button disabled={disabled} onClick={() => void command('walk_calibration_cancel')}>Cancel calibration</button>
-      </> : <button disabled={disabled || !position} onClick={() => void command('walk_calibration_begin')}>{calibration?.saved ? 'Recalibrate' : 'Start walk calibration'}</button>}</div>
-    </details>}
+      </div>}
+    </details>
   </section>;
 }

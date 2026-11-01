@@ -225,7 +225,7 @@ export function OverlayApp({ client, dashboard }: { client: OverlayClient; dashb
           onPreview={() => setAction({ name: 'nav_start', label: 'Previewed navigation route', payload: { opt_in: false } })}
           onSupervised={value => { setSupervised(value); setAction(previous => previous.name === 'nav_start'
             ? { ...previous, payload: { opt_in: value } } : previous); }} />
-        <PositionPanel {...toolProps} areas={areas} refreshAreas={refreshAreas} />
+        <PositionPanel {...toolProps} image={view.frozen ? null : view.image} areas={areas} refreshAreas={refreshAreas} />
       </>}
       {tab === 'Diagnostics' && toolProps && <DiagnosticsTool {...toolProps} />}
       <footer>{!dashboard && <button onClick={() => void act(() => client.command('stop'))}>Stop · F8</button>}
