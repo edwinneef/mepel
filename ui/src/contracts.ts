@@ -50,6 +50,8 @@ export interface PotionStatus {
 export interface Residual { p50: number; p95: number; max: number }
 export interface WalkCalibration {
   active: boolean; pairs: number; rejected: number;
+  /** Pairs collected while you walk an uncalibrated map with input idle. */
+  passive?: { pairs: number; rejected: number; reason: string };
   saved: { residual_px: Record<'x' | 'y', Residual>; pairs: number; captured_at: number } | null;
 }
 export interface TaughtGeometry {

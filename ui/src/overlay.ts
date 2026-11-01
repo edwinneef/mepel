@@ -34,6 +34,20 @@ export function isRunning(s: Snapshot | null): boolean {
     || (s.mode !== 'capture' && s.mode !== 'probe_confirm')
     || s.autopotter.enabled));
 }
+/** Passive walk-calibration progress for the game overlay, or null when nothing is learning. */
+export function positionLearning(position: Snapshot['position'], now: number): string | null {
+  const calibration = position?.calibration;
+  if (!calibration) return null;
+  const passive = calibration.passive;
+  if (!calibration.saved && !calibration.active && passive && passive.reason !== 'Off') {
+    return `Learning position · ${passive.reason}`;
+  }
+  if (calibration.saved && now - calibration.saved.captured_at * 1000 <= 10_000) {
+    return `Position learned · ${calibration.saved.pairs} pairs`;
+  }
+  return null;
+}
+
 export function freshDetections(s: Pick<Snapshot, 'frame'> | null | undefined, connected: boolean, now: number): boolean {
   return Boolean(connected && s?.frame.available && s.frame.captured_at != null
     && now - s.frame.captured_at * 1000 >= 0 && now - s.frame.captured_at * 1000 <= 1500);

@@ -39,6 +39,29 @@ it('shows detection outlines and attack range without native settings or HUD', a
   expect(screen.getByLabelText('Detection boxes').querySelectorAll('rect')).toHaveLength(2);
 });
 
+it('shows passive position learning progress over the focused game only', async () => {
+  const calibration = { active: false, pairs: 0, rejected: 0, saved: null,
+    passive: { pairs: 12, rejected: 0, reason: 'Collecting pairs while you walk (12/20)' } };
+  const current = snapshot({ position: { area_id: 'area', kind: 'unknown', reason: 'Walk calibration needed',
+    input_sent: false, calibration } });
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
+    if (url === '/api/v1/status') return json(current);
+    if (url === '/api/v1/drawings') return json(null);
+    return json({ areas: [] });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  let listener: (event: OverlayEvent) => void = () => {};
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
+    subscribe: callback => { listener = callback; return () => {}; } };
+  render(<OverlayApp client={new OverlayClient('token', fetcher)} outlinesOnly />);
+  act(() => listener({ type: 'game-bounds', value: { x: 0, y: 0, width: 1024, height: 768, visible: false } }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledWith('/api/v1/status', expect.anything()));
+  expect(screen.queryByLabelText('Position learning')).toBeNull();
+  act(() => listener({ type: 'game-bounds', value: { x: 0, y: 0, width: 1024, height: 768, visible: true } }));
+  await waitFor(() => expect(screen.getByLabelText('Position learning').textContent)
+    .toBe('Learning position · Collecting pairs while you walk (12/20)'));
+});
+
 it('keeps dashboard drawings paired with the displayed analyzed picture while newer frames load', async () => {
   vi.stubGlobal('Image', class { src = ''; decode = async () => {}; });
   let imageNumber = 0;

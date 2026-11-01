@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { OverlayClient, freshDetections, isRunning } from './overlay';
+import { OverlayClient, freshDetections, isRunning, positionLearning } from './overlay';
 import type { OverlayAction } from './overlay';
 import type { AreaProfile, Rect } from './contracts';
 import { LiveDetectionBoxes } from './LiveDetectionBoxes';
@@ -160,7 +160,10 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     <LiveDetectionBoxes drawing={packet} />
     {attackRange && <AttackRangeOverlay player={packet.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
   </>;
+  const learning = positionLearning(s?.position, Math.max(now, Date.now()));
   if (outlinesOnly && !dashboard) return <div className="native-overlay">
+    {learning && gameBounds?.visible && <div className="overlay-learning" aria-label="Position learning"
+      style={{ left: game.x + game.width / 2, top: game.y + 8 }}>{learning}</div>}
     {layers && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
       viewBox={`0 0 ${drawing.frame.width} ${drawing.frame.height}`} preserveAspectRatio="none" aria-label="Live detections">
