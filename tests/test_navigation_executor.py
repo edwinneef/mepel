@@ -222,6 +222,31 @@ def test_leaving_the_corridor_onto_another_surface_still_fails():
     assert nav.stage == "stopped" and "corridor" in nav.reason
 
 
+def test_lost_destination_evidence_releases_instead_of_steering_to_landing():
+    nav, f = setup()
+    takeoff(nav, f)
+    landing = replace(f, feet=(280, 300), surface="ledge")
+    nav.step(replace(landing, now=1))
+    motion = nav.step(replace(landing, feet=(310, 286), surface=None, now=1.2))
+    assert motion.release and not motion.holds and motion.horizontal is None
+    assert nav.completed == 0 and nav.settle_since is None
+    for now in (1.4, 1.6):
+        nav.step(replace(landing, now=now))
+        assert nav.completed == 0
+    assert nav.step(replace(landing, now=1.8)).release
+    assert nav.stage == "arrived"
+
+
+def test_lost_destination_evidence_does_not_relax_corridor_or_deadline():
+    for feet, now, reason in [((360, 300), 1.2, "corridor"),
+                              ((310, 286), 8.7, "deadline")]:
+        nav, f = setup()
+        takeoff(nav, f)
+        nav.step(replace(f, feet=(280, 300), surface="ledge", now=1))
+        motion = nav.step(replace(f, feet=feet, surface=None, now=now))
+        assert motion.release and nav.stage == "stopped" and reason in nav.reason
+
+
 @pytest.mark.parametrize(("launch", "landing", "heights", "direction"), [
     (342.1, 312.1, (438.76, 360.02, 328.52, 312.77), "up"),
     (312.1, 342.1, (250, 296.35, 328.52, 344.27), "down"),

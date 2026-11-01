@@ -357,6 +357,13 @@ class Navigator:
                 return Motion(release=True)
             return self.stop("Fell back to the launch platform; retry budget exhausted")
         self.settle_since, self.last_feet, self.rope_start = None, f.feet, None
+        if self.departed and not target_rope and self.settle_surface == edge.target:
+            # A destination was observed, then its contact evidence disappeared (for
+            # example during knockback). Do not steer back to the flight waypoint.
+            # Freshness, corridor and edge deadlines above still apply; reacquiring
+            # the destination must start a new continuous settling interval.
+            self.reason = "Destination evidence lost; keys released while reacquiring"
+            return Motion(release=True)
         if not self.departed and f.now - self.takeoff_at >= 1:
             if f.surface == edge.source and self.retries < 1:
                 self.retries += 1
