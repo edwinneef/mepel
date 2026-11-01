@@ -27,6 +27,7 @@ def test_joint_matching_places_candidates_but_preserves_collision_uncertainty():
 def test_parallel_ladders_do_not_make_vertical_position_observable():
     result = GeometryAnchors(source()).locate(features()[:2], (350, 400), (40, 200))
     assert result["state"] == "uncertain" and result["xy"] is None
+    assert result["candidate_x"] == 40
 
 
 def test_repeated_arrangements_and_conflicting_world_sources_refuse():

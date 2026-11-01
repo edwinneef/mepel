@@ -109,7 +109,7 @@ def assess(contract, results):
                   + r["label_uncertainty_px"] for r in accepted]
         false_ready = sum(r.get("predicted_xy") is not None and r.get("observable") is False
                           for r in labelled)
-        coverage = len(accepted) / len(observable) if observable else 0
+        coverage = len(accepted) / len(observable) if observable else None
         p95 = float(np.percentile(errors, 95)) if errors else None
         passed = bool(observable and coverage >= criteria["minimum_observable_scene_coverage"]
                       and p95 is not None and p95 <= criteria["p95_error_px"] and not false_ready)

@@ -202,6 +202,13 @@ class LivePosition:
                     image, (player.box.center[0], player.box.feet),
                     self.tracker.transform.to_area(*fix.dot), now,
                     (observation_context, identity), shift, actors)
+                x = anchor.get("candidate_x")
+                if location.kind == "platform" and x is not None:
+                    platform = next(p for p in self.platforms if p.id == location.surface_id)
+                    if platform.left <= x <= platform.right:
+                        anchor = {**anchor, "candidate_xy": [x, platform.y_at(x)],
+                                  "uncertainty_xy": [anchor["uncertainty_x"], 12],
+                                  "contact_verified": False}
             else:
                 self.geometry_tracking.reset()
             alignment_status = {

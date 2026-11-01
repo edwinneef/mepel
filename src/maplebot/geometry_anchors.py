@@ -79,6 +79,12 @@ class GeometryAnchors:
                 pairs[axis].append((offset, i, key, feature.uncertainty))
         x_groups = [independent(g) for g in cluster(pairs["x"][:512], 4)]
         y_groups = [independent(g) for g in cluster(pairs["y"][:512], 4)]
+        ranked_x = sorted(x_groups, key=lambda group: -len(group))
+        x_only = {}
+        if ranked_x and (len(ranked_x) == 1 or len(ranked_x[0]) > len(ranked_x[1])):
+            dx = float(np.median([p[0] for p in ranked_x[0]]))
+            x_only = {"candidate_x": screen[0] - dx,
+                      "uncertainty_x": max(p[3] for p in ranked_x[0])}
         proposals = []
         for xs in x_groups[:32]:
             for ys in y_groups[:32]:
@@ -93,18 +99,19 @@ class GeometryAnchors:
                                   "uncertainty": [max(p[3] for p in xs), max(p[3] for p in ys)]})
         proposals.sort(key=lambda p: -p["support"])
         if not proposals:
-            return {"state": "uncertain", "xy": None,
+            return {"state": "uncertain", "xy": None, **x_only,
                     "reason": "Need independent horizontal and vertical scene constraints",
                     "candidates": len(features)}
         best = proposals[0]
         if any(p["support"] == best["support"]
                and max(abs(a - b) for a, b in zip(p["offset"], best["offset"], strict=True)) > 4
                for p in proposals[1:]):
-            return {"state": "uncertain", "xy": None, "reason": "Competing geometry matches",
+            return {"state": "uncertain", "xy": None, **x_only,
+                    "reason": "Competing geometry matches",
                     "hypotheses": len(proposals)}
         candidate = [screen[i] - best["offset"][i] for i in (0, 1)]
         precise = max(best["uncertainty"]) <= 4
-        return {"state": "candidate", "candidate_xy": candidate,
+        return {"state": "candidate", "candidate_xy": candidate, **x_only,
                 "xy": candidate if precise else None, "uncertainty_xy": best["uncertainty"],
                 "support": best["support"], "hypotheses": len(proposals),
                 "reason": "Geometric agreement; collision/true-feet offsets unverified",
