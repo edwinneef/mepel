@@ -46,7 +46,7 @@ def build(root, cache, output):
     receipt = {"schema": 1, "commit": COMMIT, "licenses": licenses,
                "usage": "Local diagnostic only; dependencies not redistributed",
                "extractor_sources": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                                     for p in (project, project.with_name("Program.cs"))},
+                                     for p in [project, *sorted(project.parent.glob("*.cs"))]},
                "files": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                          for p in sorted(output.iterdir()) if p.suffix in (".dll", ".json")}}
     (output / "parser-receipt.json").write_text(json.dumps(receipt, sort_keys=True, indent=2)

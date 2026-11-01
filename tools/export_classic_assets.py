@@ -119,8 +119,8 @@ def parser_files(extractor):
     if receipt.get("commit") != PARSER_COMMIT or receipt.get("schema") != 1:
         raise ValueError("Parser identity mismatch")
     sources = PROJECT / "tools/classic_asset_extractor"
-    expected_sources = {name: digest(sources / name)
-                        for name in ("Program.cs", "ClassicAssetExtractor.csproj")}
+    expected_sources = {path.name: digest(path) for path in
+                        [sources / "ClassicAssetExtractor.csproj", *sorted(sources.glob("*.cs"))]}
     if receipt.get("extractor_sources") != expected_sources:
         raise ValueError("Extractor source changed; rebuild before exporting")
     pins = receipt.get("files", {})

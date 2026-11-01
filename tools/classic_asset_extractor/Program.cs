@@ -118,6 +118,8 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 3 && args[0] == "--artwork-indexes")
+                return ArtworkIndex.Run(args[1], args[2]);
             if (args.Length != 3 || args[1] != "60")
                 throw new InvalidDataException("Expected copied root, map ID 60, new output directory");
             var root = Path.GetFullPath(args[0]);

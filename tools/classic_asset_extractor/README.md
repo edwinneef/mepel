@@ -60,3 +60,10 @@ alignment-corpus requirements, alter gameplay gates or authorize capture/live te
 Southperry artwork placement records are also retained in `raw.json` for dependency
 tracing. See `docs/southperry-render-dependencies.md` for the exact referenced images
 and the missing physical-archive indexes; these records do not contain the artwork.
+
+An explicit `--artwork-indexes MAP_ROOT NEW_REPORT.json` diagnostic may read installed
+artwork indexes when separately authorized. It is restricted to `Tile`, `Obj`, `Back`
+and their `_Canvas` directories, uses BMS/779 conventions, and never parses image
+properties or decodes pixels. It does not change the copied-only export path. See the
+installed-index section of `docs/southperry-render-dependencies.md` for observed filenames
+and the remaining bitmap-link uncertainty.

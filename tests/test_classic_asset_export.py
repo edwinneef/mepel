@@ -180,15 +180,18 @@ def parser_fixture(tmp_path):
     pins = {p.name: exporter.digest(p) for p in parser.iterdir()}
     write_json(parser / "parser-receipt.json", {"schema": 1, "commit": exporter.PARSER_COMMIT,
                                               "extractor_sources": {
-                                                  name: exporter.digest(exporter.PROJECT
-                                                      / "tools/classic_asset_extractor" / name)
-                                                  for name in ("Program.cs",
-                                                               "ClassicAssetExtractor.csproj")},
+                                                  path.name: exporter.digest(path) for path in [
+                                                      exporter.PROJECT / "tools"
+                                                      / "classic_asset_extractor"
+                                                      / "ClassicAssetExtractor.csproj",
+                                                      *sorted((exporter.PROJECT / "tools"
+                                                          / "classic_asset_extractor")
+                                                          .glob("*.cs"))]},
                                               "files": pins})
     return parser / "ClassicAssetExtractor.dll"
 
 
-@pytest.mark.parametrize("fault", ["binary", "commit", "extra"])
+@pytest.mark.parametrize("fault", ["binary", "commit", "extra", "source"])
 def test_parser_identity_is_pinned(tmp_path, fault):
     parser = parser_fixture(tmp_path)
     assert exporter.parser_files(parser)["commit"] == exporter.PARSER_COMMIT
@@ -198,7 +201,10 @@ def test_parser_identity_is_pinned(tmp_path, fault):
         (parser.parent / "extra.dll").write_bytes(b"injected")
     else:
         receipt = json.loads((parser.parent / "parser-receipt.json").read_text())
-        receipt["commit"] = "different"
+        if fault == "source":
+            receipt["extractor_sources"]["ArtworkIndex.cs"] = "0" * 64
+        else:
+            receipt["commit"] = "different"
         write_json(parser.parent / "parser-receipt.json", receipt)
     with pytest.raises(ValueError):
         exporter.parser_files(parser)

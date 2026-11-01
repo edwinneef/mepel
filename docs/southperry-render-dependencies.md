@@ -60,3 +60,56 @@ entry and placement, source hashes and copied archives. Source bundle:
 The report does not admit a new corpus map, render a full map, establish native build
 identity or independent world positions, unlock input, or resolve the six reserve
 bundles and 105 unidentified recording rows.
+
+## Installed artwork indexes checked, 2026-11-01
+
+The operator subsequently authorized installed artwork **index/header reads only**.
+The following physical files are now confirmed under
+`C:\Nexon\Library\maplestorycw\appdata\Data\Map`:
+
+- `Tile\Tile_000.wz` (1,332,173 bytes): `tile_whiteMarble.img`.
+- `Obj\Obj_000.wz` (16,290,735 bytes): all five required object image records.
+- `Back\Back_000.wz` (19,886,518 bytes): both required background image records.
+
+Their eight Southperry image entries were found without parsing image properties.
+The three associated category `.ini` files each declare `LastWzIndex|0`.
+This resolves the main container filenames; none has been copied or decoded yet.
+
+These associated bitmap containers also exist and each has a `_Canvas.ini` declaring
+`LastWzIndex|0`:
+
+- `Obj\_Canvas\_Canvas_000.wz` (61,310,435 bytes): its directory contains
+  `obj_acc1.img`, `obj_connect.img` and `obj_signboard.img`.
+- `Tile\_Canvas\_Canvas_000.wz` (200,748 bytes): no directory entry named
+  `tile_whiteMarble.img`.
+- `Back\_Canvas\_Canvas_000.wz` (18,819,698 bytes): no directory entries named
+  `back_grassySoil.img` or `back_portTown.img`.
+
+The last two facts do not prove the containers unnecessary. Artwork may be inline or
+link to differently named shared records. Even matching names in the object bitmap
+container do not prove which Southperry property uses them. **The complete required
+bitmap file list remains unverified** until the referenced artwork properties and their
+links are traced. That exceeds the current indexes-only authorization.
+
+Evidence: `artifacts/southperry-installed-artwork-indexes.json`; repeated index report
+is byte-identical. Reads used pinned MapleLib BMS/779 archive conventions, never native
+build identification, executable/key discovery, `ParseImage`, or pixel decoding.
+No `Map/Map` archive or reserved-map image was opened in this index run. File size and
+modification timestamp stayed unchanged during each read. Whole-archive SHA-256 values
+were not computed because this operation was limited to indexes/headers.
+
+The opt-in diagnostic command is separate from copied-asset export:
+
+```powershell
+dotnet artifacts\classic-assets-parser-indexes-pinned\ClassicAssetExtractor.dll --artwork-indexes C:\Nexon\Library\maplestorycw\appdata\Data\Map artifacts\southperry-installed-artwork-indexes-new.json
+```
+
+It reads only the fixed `Tile`, `Obj`, `Back` categories and their `_Canvas` indexes;
+it does not perform a whole-installation search. The output must be new. All C# sources
+are now included in parser build/source receipts. Run details:
+`artifacts/southperry-installed-index-verification.md`.
+
+Recommended next action: copy the **three confirmed main archives** and their category
+index metadata to a new folder with SHA-256 receipts, then inspect only the eight
+referenced Southperry artwork entries offline. That will identify which bitmap archive
+copies are actually necessary before copying the larger bitmap containers.
