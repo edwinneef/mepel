@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -62,6 +63,16 @@ def test_landmark_truth_is_independent_of_minimap_estimate(tmp_path, monkeypatch
     assert [s["landmark_world_x"] for s in report["samples"]] == [150, 155, 160]
     assert [s["raw_error_px"] for s in report["samples"]] == [10, 5, 0]
     assert report["native_acceptance"] is False and report["input_sent"] is False
+    monkeypatch.setattr("tools.validate_position_landmarks.SceneAnchor.load", lambda *_:
+                        SimpleNamespace(record={"world_x": 108, "name": "test"}))
+    with pytest.raises(ValueError, match="separate recording"):
+        validate(tmp_path, annotations, tmp_path / "unused-source", scene_anchor=True)
+    evaluation = tmp_path / "evaluation"
+    evaluation.mkdir()
+    (evaluation / "decisions.jsonl").write_text("\n".join(map(json.dumps, rows)))
+    with pytest.raises(ValueError, match="overlap"):
+        validate(evaluation, annotations, tmp_path / "unused-source",
+                 reference_recording=tmp_path, scene_anchor=True)
     labels["landmarks"][0]["world_x"] = 999
     annotations.write_text(json.dumps(labels))
     with pytest.raises(ValueError, match="absent"):

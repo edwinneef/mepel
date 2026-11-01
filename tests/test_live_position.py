@@ -77,6 +77,8 @@ def test_automatic_tracking_observes_without_walk_samples_or_precision_claim(sto
     monkeypatch.setattr("maplebot.public_map.cached", lambda *args: ({"miniMap": {}}, "a" * 64))
     monkeypatch.setattr("maplebot.public_map.picture", lambda *_: None)
     monkeypatch.setattr("maplebot.live_position.align", lambda *args: alignment)
+    monkeypatch.setattr("maplebot.live_position.SceneAnchor.load", lambda *_: SimpleNamespace(
+        locate_x=lambda *_: {"x": 498, "uncertainty_px": 2, "vertical_verified": False}))
     position = LivePosition(store, AREA)
     try:
         for i in range(4):
@@ -84,6 +86,8 @@ def test_automatic_tracking_observes_without_walk_samples_or_precision_claim(sto
         assert position.samples is None and position.calibration is None
         assert result["map_alignment"]["mode"] == "automatic"
         assert result["map_alignment"]["precision_verified"] is False
+        assert result["map_alignment"]["horizontal_anchor"]["x"] == 498
+        assert result["feet"][0] == 498
         assert result["kind"] == "unknown" and result["surface_id"] is None
         assert result["input_sent"] is False and result["feet"] is not None
         assert result["movement_learning"]["parameters"] == {}

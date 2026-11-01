@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "Southperry upper ladder shaft",
+  "world_x": 405,
+  "local_x": 27,
+  "uncertainty_px": 2,
+  "capture_width": 1366,
+  "capture_height": 768,
+  "foreground_hsv": [
+    [
+      8,
+      45,
+      25
+    ],
+    [
+      38,
+      255,
+      235
+    ]
+  ],
+  "provider": "meowdb-classic",
+  "source_sha256": "75f76d923b5d96fb48642eada0e528f6ecfd3a54975b5ee8526ac4c3323290b4",
+  "image": "southperry-ladder.png",
+  "training_recording": "session-1793490065143737300-clip",
+  "training_reference": "00000108.png",
+  "training_reference_sha256": "1d994440dbb0a1f8c33254b9515e89e3a7da5f6ff2dcb1170ff26a97ed5252a0",
+  "template_sha256": "dd04a1bb17a7e6bd9cd4370bcbdc998b42e775aaeceab571080db037518d119f",
+  "scope": "X anchor only; developer-labelled client landmark, no operator calibration or route proof"
+}

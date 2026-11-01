@@ -28,6 +28,7 @@ from .minimap_reader import AreaMinimap, MinimapFix
 from .motion_learning import PassiveMovement
 from .perception import Detection, Observation
 from .profiles import AreaStore
+from .scene_anchors import SceneAnchor
 
 STALE_SECONDS = 0.5
 MAX_PAIRS = 400
@@ -113,6 +114,7 @@ class LivePosition:
         self.platforms = platforms(profile)
         self.calibration = calibration
         self.automatic = automatic
+        self.scene_anchor = SceneAnchor.load(public) if automatic else None
         self.interval = PositionInterval()
         self.interval_identity = None
         self.learning = PassiveMovement(self.store.directory / "movement-estimates" /
@@ -192,10 +194,17 @@ class LivePosition:
                 feet, uncertainty = refined
             else:
                 feet = location.reference_feet
+            anchor = None
+            if self.scene_anchor and refined and _fresh(player):
+                coarse_x = self.tracker.transform.to_area(*fix.dot)[0]
+                anchor = self.scene_anchor.locate_x(image, player.box.center[0], coarse_x)
+                if anchor:
+                    feet = (anchor["x"], feet[1])
             alignment_status = {
                 "mode": "automatic", "state": "uncertain" if feet else "aligning",
                 "uncertainty_px": uncertainty, "precision_verified": False,
                 "observed_surface": location.surface_id,
+                "horizontal_anchor": anchor,
                 "reason": "Automatic map aligned; absolute position precision awaits validation",
             }
             movement = self.learning.observe(
