@@ -29,15 +29,29 @@ def floor_blocker(status):
     return None
 
 
+def restore_focus(api):
+    status = api.status()
+    if status.get("mode") != "capture":
+        raise RuntimeError("Bot must be Off before restoring focus")
+    state = status.get("input_state") or {}
+    if state.get("held_keys") != [] or state.get("active") or state.get("queued"):
+        raise RuntimeError("Input must be released and idle")
+    if not status.get("focused"):
+        if not api.command("focus_game", {"click_fallback": True}).get("focused"):
+            raise RuntimeError("Guarded focus failed; no retry")
+    return api.status()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true", required=True)
-    parser.parse_args()
+    parser.add_argument("--focus", action="store_true")
+    args = parser.parse_args()
     started = time.monotonic()
     api = Debugger()
     output = Path("artifacts/farming-checks") / ("prepared-floor-" + str(time.time_ns()))
     # Imports and output selection precede the final fresh check. Never wait for mobs.
-    status = api.status()
+    status = restore_focus(api) if args.focus else api.status()
     if problem := floor_blocker(status):
         print(json.dumps({"blocked": problem, "input_sent": False}), flush=True)
         return 1
