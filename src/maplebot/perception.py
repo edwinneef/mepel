@@ -325,6 +325,7 @@ class TemplateDetector:
         self.enemy_tracker = EnemyTracker(self.config)
         self.enemy_context = None
         self.enemy_geometry_ready = False
+        self.enemy_geometry_retry_at = float("-inf")
         geometry_path = self.directory / "enemy-occlusion.json"
         self.enemy_geometry = (json.loads(geometry_path.read_text("utf-8"))
                                if geometry_path.exists() else {})
@@ -1114,10 +1115,11 @@ class TemplateDetector:
         if context != self.enemy_context:
             self.enemy_tracker.clear()
             self.enemy_geometry_ready = False
+            self.enemy_geometry_retry_at = float("-inf")
             self.enemy_context = context
         if search_enemies and not paused:
             self.enemy_tracker.prepare(now, shift, response)
-            self._configure_enemy_geometry(image, response)
+            self._configure_enemy_geometry(image, response, now)
             partials = partial_enemies(image, templates, self.enemy_tracker, monsters)
             monsters = self.enemy_tracker.update(monsters, now, partials)
         else:
@@ -1146,7 +1148,8 @@ class TemplateDetector:
             "since_confirmed": round(now - self.track[1], 3) if self.track else None,
         }
 
-    def _configure_enemy_geometry(self, image: Image, response: float) -> None:
+    def _configure_enemy_geometry(self, image: Image, response: float,
+                                  now: float | None = None) -> None:
         """Bind saved rectangles to scenery using a screenshot, never a gameplay coordinate."""
         tracker = self.enemy_tracker
         if response < .6:
@@ -1154,9 +1157,15 @@ class TemplateDetector:
             self.enemy_geometry_ready = False
         if self.enemy_geometry_ready:
             return
+        now = time.monotonic() if now is None else now
+        if now < self.enemy_geometry_retry_at:
+            return
         entry = self.enemy_geometry.get(self.catalog_info["active_map"])
         if not entry:
             return
+        # Failed optional reference alignment must not consume every frame's freshness
+        # budget. Regions remain unavailable until a later attempt establishes geometry.
+        self.enemy_geometry_retry_at = now + 1.0
         reference_path = (self.directory / entry["reference"]).resolve()
         if not reference_path.is_relative_to(self.directory.resolve()):
             raise ValueError("Enemy occlusion reference must be inside templates directory")
