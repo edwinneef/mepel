@@ -124,6 +124,6 @@ Coverage/handoff audit. Depends on: p8.
 
 ## Current execution handoff
 
-[Evidence](implementation-evidence.md) and [decisions/remaining acceptance](implementation-decisions.md) continue the original reports. Ready offline work is checked; p4 needs compatible independent map bundles, p7 needs a complete action-aligned clip, and p9 needs separate explicit batch authorization. Each promotion retains its evidence prerequisites. Original acceptance above is intact; JSON preserves original dependencies and explains independent experiment execution.
+[Evidence](implementation-evidence.md) and [decisions/remaining acceptance](implementation-decisions.md) continue the original reports. Ready offline work is checked; p4 needs compatible independent map bundles, p7 now has a complete successful-route clip but still needs failure-class and independent held-out landing evidence, and p9 needs separate explicit batch authorization. Each promotion retains its evidence prerequisites. Original acceptance above is intact; JSON preserves original dependencies and explains independent experiment execution.
 
 Validate with: .venv/Scripts/python.exe -m tools.validate_research_register. Never renumber IDs or turn deferred/unknown evidence into success.

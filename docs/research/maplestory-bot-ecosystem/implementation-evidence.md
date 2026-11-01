@@ -91,3 +91,21 @@ Required remaining acceptance: p4 compatible independent reserved-map bundles; p
 
 No engine was restarted or gameplay batch run. New runtime code is on disk, not claimed loaded in the existing engine. The project goal remains active.
 
+
+## 2026-11-01 update: successful real navigation replay
+
+This supersedes earlier handoff statements about missing successful-route footage and unloaded code. The historical failure clip remains incomplete.
+
+The authorized single-route batch loaded f20bde2, 016c100 and 6747f9a. [Run result](../../../artifacts/navigation-checks/20261101-134004/result.json): fh175 to fh169 arrived in 8.09 seconds. Final image inspected; Stop confirmed capture mode, disabled input, no held keys, no active/queued input. Restart/setup overhead is separate; no combat outcome tested.
+
+[Clip](../../../data/recordings/session-1793536812861464100-clip): 117 records, all referenced frames present. [Replay](../../../artifacts/navigation-checks/20261101-134004/replay.json): 27 Navigator steps, zero differences. Each comparison restores recorded pre-step state and checks proposed motion and resulting state. It excludes runtime adapter gates, cross-step continuity and OS delivery. Dispatch history is separate from observed effect; source recordings remain unchanged.
+
+| Original p7 requirement | Supported now | Remaining gap |
+| --- | --- | --- |
+| Action-aligned replay | Real feedback, pre/post state and proposals match for one successful route. | Dispatch-to-observed-effect attribution is not established. |
+| Localization/grip/trajectory/input failure discrimination | Taxonomy and ten constructed harness cases. | No independently labelled real failures of these classes in this successful clip. |
+| No false arrival or extra retries | Observed destination, normal Stop and matching step decisions. | One success does not bound false arrivals or cover real failure/retry paths. |
+| Held-out landings/contact | New recording collected after implementation. | Independent geometry/contact labels and a declared evaluation split are absent. |
+| Proposed/simulated/proven separate; physics unknowns explicit | Existing distinctions retained. | No new physical parameters or contact proof claimed. |
+
+P7 remains partial. P4 needs compatible independent reserved-map data; p9 needs its original combat outcome. Inventory existing recordings for compatible evidence before requesting more live work. Do not deliberately induce gameplay failures to fill the table. Every future live batch requires fresh explicit authorization.

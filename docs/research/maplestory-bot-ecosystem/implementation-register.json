@@ -905,7 +905,7 @@
       "realGeometryRequires": [
         "p4"
       ],
-      "verification": "Taxonomy/10 synthetic scenarios done; real held-out replay incomplete because source clip lacks decisions.jsonl."
+      "verification": "20261101-134004: one real route arrived in 8.09s; 27 recorded Navigator steps replay with zero differences. Failure-class discrimination and independent held-out landing evidence remain incomplete. See implementation-evidence.md."
     },
     {
       "id": "p8",
@@ -1332,7 +1332,7 @@
       ],
       "risk": "Retain uncertainty and existing gates; see linked source and acceptance.",
       "deferral": {
-        "reason": "Taxonomy and synthetic harness pass; historical clip lacks decisions.jsonl.",
+        "reason": "Taxonomy and synthetic harness pass; fresh successful route has 27 matching replay steps. Real failure-class evidence remains missing; historical failure clip still lacks decisions.jsonl.",
         "revisit": "Complete saved action-aligned failure clip with independent observation/dispatch evidence."
       }
     },
