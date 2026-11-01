@@ -268,3 +268,35 @@ def test_rotation_connectivity_does_not_use_unproven_edges_or_loop_as_destinatio
     assert "No proven rotation route" in rotation_blocker(status)
     graph["edges"][-1]["proven"] = True
     assert rotation_blocker(status) is None
+
+
+def test_existing_evidence_directory_rejected_before_commands(tmp_path):
+    api = Api()
+    output = tmp_path / "existing"
+    output.mkdir()
+    (output / "result.json").write_text("preserve")
+    with pytest.raises(FileExistsError):
+        run(api, output, area="island")
+    assert api.calls == []
+    assert (output / "result.json").read_text() == "preserve"
+
+
+def test_enemy_acceptance_does_not_start_without_fresh_enemy(tmp_path):
+    api = Api()
+    with pytest.raises(RuntimeError, match="No fresh same-platform enemy"):
+        run(api, tmp_path / "run", area="island", require_enemy=True)
+    assert api.calls == []
+
+
+def test_enemy_ready_snapshot_is_followed_by_arm(tmp_path):
+    class EnemyApi(Api):
+        def status(self):
+            sample = super().status()
+            sample["player"]["box"] = {"y": 100, "height": 40}
+            sample["monsters"] = [{"confidence": 1, "box": {"y": 110, "height": 30}}]
+            return sample
+
+    api = EnemyApi()
+    run(api, tmp_path / "run", area="island", require_enemy=True)
+    assert api.calls[0][0] == "arm"
+    assert api.calls[-1][0] == "stop"

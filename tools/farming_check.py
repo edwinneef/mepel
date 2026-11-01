@@ -57,7 +57,8 @@ def rotation_blocker(status: dict) -> str | None:
     return "No proven rotation route from this platform; move to a connected combat platform"
 
 def run(api, output: Path, *, area: str, single_platform=False, session_minutes=15,
-        checkpoint_seconds=None, consumables=False, clock=time.monotonic, sleep=time.sleep):
+        checkpoint_seconds=None, consumables=False, require_enemy=False,
+        clock=time.monotonic, sleep=time.sleep):
     if type(session_minutes) is not int or not 1 <= session_minutes <= 120:
         raise ValueError("session_minutes must be an integer between 1 and 120")
     if checkpoint_seconds is not None and (
@@ -65,6 +66,8 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
         raise ValueError("checkpoint_seconds must be an integer between 1 and 10")
     if consumables and checkpoint_seconds is not None:
         raise ValueError("Checkpoints run without consumables")
+    # Reserve evidence storage before reading readiness or sending any commands.
+    output.mkdir(parents=True, exist_ok=False)
     before = api.status()
     if checkpoint_seconds is not None:
         if not before.get("farming_checkpoint_available"):
@@ -88,6 +91,14 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
         raise RuntimeError("Player not freshly recognized; no farming started")
     if not single_platform and (problem := rotation_blocker(before)):
         raise RuntimeError("No farming started: " + problem)
+    if require_enemy:
+        box = player.get("box") or {}
+        feet = box.get("y", 0) + box.get("height", 0)
+        if not box or not any(
+                not monster.get("tracked") and monster.get("confidence", 0) >= .9
+                and abs(monster["box"]["y"] + monster["box"]["height"] - feet) <= 18
+                for monster in before.get("monsters", [])):
+            raise RuntimeError("No fresh same-platform enemy; no farming started")
     settings = {"session_minutes": session_minutes, "pet_recovery": False,
                 "no_consumables": not consumables}
     if single_platform:
@@ -188,7 +199,6 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
             result["full_session_passed"] = False
         result["combat_progress"] = combat_progress(result["samples"])
         result["seconds"] = clock() - started
-        output.mkdir(parents=True, exist_ok=False)
         (output / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         if result["outcome"] == "failure":
             # Diagnostics run only after Stop/release, never while the character is exposed.
@@ -206,6 +216,8 @@ def main():
     parser.add_argument("--area", required=True, help="Verified taught area ID")
     parser.add_argument("--single-platform", action="store_true",
                         help="Clear continuous floor only; no route rotation")
+    parser.add_argument("--require-enemy", action="store_true",
+                        help="Require a fresh same-platform enemy immediately before starting")
     parser.add_argument("--session-minutes", type=int, default=15)
     parser.add_argument("--consumables", action="store_true",
                         help="Sustain HP/MP with the verified potion keys instead of stopping")
@@ -216,7 +228,7 @@ def main():
     output = Path("artifacts/farming-checks") / time.strftime("%Y%m%d-%H%M%S")
     result = run(Debugger(), output, area=args.area, single_platform=args.single_platform,
                  session_minutes=args.session_minutes, checkpoint_seconds=args.checkpoint_seconds,
-                 consumables=args.consumables)
+                 consumables=args.consumables, require_enemy=args.require_enemy)
     print(json.dumps({"result": str(output / "result.json"), "error": result["error"],
                       "stop_error": result["stop_error"], "outcome": result["outcome"]}))
     if result["outcome"] not in {"functional_success", "checkpoint_success"}:
