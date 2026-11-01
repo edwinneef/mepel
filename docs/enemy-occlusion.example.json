@@ -1,0 +1,7 @@
+{
+  "Snail Hunting Ground III": {
+    "reference": "enemy-occlusion/snail-ground-iii.png",
+    "regions": [[442, 545, 215, 52]],
+    "platforms": [[103, 578, 442, 578], [657, 578, 1365, 578]]
+  }
+}

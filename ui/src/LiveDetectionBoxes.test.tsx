@@ -1,10 +1,22 @@
 import { expect, it } from 'vitest';
-import { predictBoxes, projectDisplayBoxes } from './LiveDetectionBoxes';
+import { render } from '@testing-library/react';
+import { EnemyTrackDiagnostics, predictBoxes, projectDisplayBoxes } from './LiveDetectionBoxes';
 import type { Detection } from './contracts';
 
 const monster = (x: number, template = 'catalog:Pig:stand-0'): Detection => ({
   kind: 'monster', template, confidence: 1, tracked: false,
   box: { x, y: 100, width: 40, height: 40 },
+});
+
+it('draws uncertain enemy estimates separately from visible sprite bounds', () => {
+  const { container, getByText } = render(<svg><EnemyTrackDiagnostics tracks={[{
+    track_id: 'enemy:7', enemy_type: 'catalog:Snail', state: 'occluded',
+    predicted_position: [120, 140], ground_position: [120, 140], visible_bounds: null,
+    confidence: .6, uncertainty: [40, 8], last_seen: 1, observed: false,
+  }]} /></svg>);
+  expect(getByText(/enemy:7.*occluded.*60%.*prediction only/)).toBeTruthy();
+  expect(container.querySelector('ellipse')?.getAttribute('rx')).toBe('40');
+  expect(container.querySelector('rect')).toBeNull();
 });
 
 it('compensates capture delay across animation frames without mutating engine observations', () => {

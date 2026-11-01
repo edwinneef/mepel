@@ -34,6 +34,35 @@ def drawing(frame_id, captured_at, monsters, player=None, target=None):
             "monsters": monsters, "target": target, "position": None}
 
 
+def test_recognition_ids_survive_display_and_hidden_diagnostics_remove_old_boxes():
+    tracks = DisplayTracks()
+    image = scene([((300, 300), 1)])
+    known = {**monster(300, 300), "track_id": "enemy:17"}
+    tracks.anchor(drawing("a", 1, [known]), image)
+    assert tracks.items(1)[1][0]["track_id"] == "enemy:17"
+    tracks.update(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), 1.1)
+    hidden = drawing("b", 1.1, [])
+    hidden["enemy_tracks"] = [{"track_id": "enemy:17", "state": "occluded"}]
+    tracks.anchor(hidden, image)
+    assert tracks.items(1.1)[1] == []
+
+
+def test_enemy_diagnostics_follow_camera_without_becoming_fresh_evidence():
+    from maplebot.display_loop import project_enemy_diagnostics
+
+    image = np.random.default_rng(92).integers(0, 255, (300, 500, 3), dtype=np.uint8)
+    shifted = cv2.warpAffine(image, np.float32([[1, 0, -15], [0, 1, 4]]), (500, 300))
+    packet = drawing("a", 1, [])
+    packet["enemy_tracks"] = [{"track_id": "enemy:1", "state": "occluded",
+                               "predicted_position": [100, 150], "ground_position": [100, 150],
+                               "visible_bounds": None, "observed": True}]
+    moved = project_enemy_diagnostics(packet, image, shifted, 1.1)
+    np.testing.assert_allclose(moved[0]["ground_position"], (85, 154), atol=1)
+    assert not moved[0]["observed"]
+    assert packet["enemy_tracks"][0]["observed"]  # Source packet remains image-paired.
+    assert project_enemy_diagnostics(packet, image, shifted, 1.6) == []
+
+
 def test_boxes_follow_image_motion_between_recognition_results_with_stable_ids():
     tracks = DisplayTracks()
     first = scene([((300, 300), 1), ((700, 320), 2)])

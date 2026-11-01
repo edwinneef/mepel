@@ -1728,7 +1728,8 @@ class Application:
                     "sequence": status["sequence"], "captured_at": status["captured_at"],
                     "width": status["width"], "height": status["height"], "available": True,
                 },
-                **{key: status.get(key) for key in ("player", "monsters", "target", "position")},
+                **{key: status.get(key) for key in (
+                    "player", "monsters", "target", "position", "enemy_tracks")},
             }
             self.display_anchor = (self.live_detections, image) if image is not None else None
 
@@ -1769,6 +1770,7 @@ class Application:
         captured_at = time.time() if captured_at is None else captured_at
         fix = self.position.read_map(image) if self.position is not None else None
         self.detector.taught_map = bool(fix and fix.canvas)
+        self.detector.enemy_source = (self.session_id, self.source_generation)
         self.detector.strip = (self.navigation.search_strip(image.shape[1])
                                if self.mode in {"navigation", "navigation_wait"} else None)
         # Navigation/probes prioritize position freshness; idle view keeps enemy outlines.
@@ -2164,6 +2166,7 @@ class Application:
             "autopotter": potter,
             "potion_evidence_safe": potion_evidence_safe,
             "catalog": self.detector.catalog_info,
+            "enemy_tracks": [asdict(item) for item in getattr(observation, "enemy_tracks", [])],
             "position": position,
             "failures": observation.failures,
             "camera_shift": observation.camera_shift,

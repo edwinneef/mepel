@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
+from .camera_motion import feature_translation
 from .capture import Calibration, Capture, Image
 from .display_terrain import DisplayTerrain
 from .geometry import Rect
@@ -168,6 +169,8 @@ class DisplayTracks:
                 continue
             if kind == "player":
                 key = "player"
+            elif item.get("track_id"):
+                key = item["track_id"]
             elif index in assigned:
                 key = assigned[index]
             else:
@@ -210,8 +213,11 @@ class DisplayTracks:
 
         # A single recognition miss keeps a visible track (and its ID) until its lifetime
         # ends, unless another track now covers the same place.
+        hidden = {item["track_id"] for item in drawing.get("enemy_tracks") or []
+                  if item["state"] != "visible"}
         for key, old in self.tracks.items():
-            if key in tracks or self.time is None or self.time - old.seen > self.VISIBLE:
+            if (key in tracks or key in hidden or self.time is None
+                    or self.time - old.seen > self.VISIBLE):
                 continue
             ox, oy = center(old)
             if all(np.hypot(ox - x, oy - y) >= max(old.template.shape) / 2
@@ -352,6 +358,7 @@ class DisplayLoop:
         self.tracks.update(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), captured_at)
         self.tracks.anchor(drawing, anchor_image)
         player, monsters, target = self.tracks.items(captured_at)
+        enemy_tracks = project_enemy_diagnostics(drawing, anchor_image, image, captured_at)
         finished = time.perf_counter()
         self.sequence += 1
         return {
@@ -363,9 +370,35 @@ class DisplayLoop:
             },
             "display": True,
             "player": player, "monsters": monsters, "target": target,
+            "enemy_tracks": enemy_tracks,
             "position": drawing.get("position"), "terrain": terrain,
             "anchor": {"id": frame["id"], "captured_at": frame["captured_at"]},
             "timing": {"capture_ms": round((captured - began) * 1000, 2),
                        "terrain_ms": round((aligned_at - captured) * 1000, 2),
                        "tracks_ms": round((finished - aligned_at) * 1000, 2)},
         }
+
+
+def project_enemy_diagnostics(drawing, anchor, image, now):
+    """Move diagnostic markers with verified scenery, without renewing their evidence age."""
+    tracks = drawing.get("enemy_tracks") or []
+    age = now - drawing["frame"]["captured_at"]
+    if not tracks or not 0 <= age <= .5:
+        return []
+    shift, confidence = feature_translation(cv2.cvtColor(anchor, cv2.COLOR_BGR2GRAY),
+                                             cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
+    if confidence < .6:
+        return []
+    dx, dy = shift
+    projected = []
+    for track in tracks:
+        moved = dict(track)
+        for name in ("predicted_position", "ground_position"):
+            x, y = track[name]
+            moved[name] = (x + dx, y + dy)
+        bounds = track.get("visible_bounds")
+        if bounds:
+            moved["visible_bounds"] = {**bounds, "x": bounds["x"] + dx, "y": bounds["y"] + dy}
+        moved["observed"] = False
+        projected.append(moved)
+    return projected

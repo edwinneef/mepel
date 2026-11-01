@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Detection, LiveDetections } from './contracts';
+import type { Detection, EnemyTrack, LiveDetections } from './contracts';
 
 const identity = (d: Detection) => d.template.startsWith('catalog:')
   ? d.template.slice(0, d.template.lastIndexOf(':')) : d.template;
@@ -85,5 +85,23 @@ export function LiveDetectionBoxes({ drawing }: { drawing: LiveDetections }) {
       ? item.track_id === drawing.target.track_id
       : observed[i].template === drawing.target?.template && distance(observed[i], drawing.target!) < 1)
       ?? drawing.target, 'Target', '#ff6b89')}
+    {age >= 0 && age <= 500 && <EnemyTrackDiagnostics tracks={drawing.enemy_tracks ?? []} />}
   </g>;
+}
+
+export function EnemyTrackDiagnostics({ tracks }: { tracks: EnemyTrack[] }) {
+  return <g aria-label="Enemy tracking diagnostics">{tracks.map(track => {
+    const [x, y] = track.predicted_position;
+    const [ux, uy] = track.uncertainty;
+    const color = track.state === 'visible' ? '#ffbd72' : '#aab9ca';
+    return <g key={track.track_id} stroke={color}>
+      <ellipse cx={x} cy={y} rx={ux} ry={uy} fill="none" strokeDasharray="4 3" />
+      <path d={`M${x - 4} ${y}h8 M${x} ${y - 4}v8`} />
+      {track.visible_bounds && <rect {...track.visible_bounds} fill="none" strokeDasharray="2 2" />}
+      <text x={x + 6} y={y + 17} fill={color} stroke="#091019" strokeWidth="3"
+        paintOrder="stroke" fontSize="11">{track.track_id} · {track.state} · {Math.round(track.confidence * 100)}%
+        {` · (${Math.round(x)}, ${Math.round(y)}) ±${Math.round(ux)},${Math.round(uy)}`}
+        {track.observed ? ' · pixels observed' : ' · prediction only'}</text>
+    </g>;
+  })}</g>;
 }

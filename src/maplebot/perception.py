@@ -17,6 +17,7 @@ import numpy as np
 
 from .capture import Image
 from .config import PerceptionConfig
+from .enemy_tracking import EnemyTrack, EnemyTracker, partial_enemies
 from .geometry import Rect
 from .map_filter import MapFilter
 from .reacquisition import ConfirmedSprites
@@ -33,6 +34,8 @@ class Detection:
     tracked: bool = False
     # A recent full-name/sprite agreement; never supplied by positional tracking.
     identity: str | None = None
+    track_id: str | None = None
+    visible_bounds: Rect | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,7 @@ class Observation:
     failures: list[str] = field(default_factory=list)
     camera_shift: tuple[float, float] = (0, 0)
     camera_confidence: float = 0
+    enemy_tracks: list[EnemyTrack] = field(default_factory=list)
 
 
 def masked_score(observed: np.ndarray, observed_gray: np.ndarray, reference: np.ndarray,
@@ -266,6 +270,7 @@ class CameraTracker:
 class TemplateDetector:
     def __init__(self, directory: Path, config: PerceptionConfig) -> None:
         self.directory, self.config = directory, config
+        self.enemy_source = None
         self.templates: list[Template] = []
         self.nametags: list[NameTag] = []
         # Sprites snapshotted from frames where the tag confirmed the player; memory only.
@@ -304,6 +309,12 @@ class TemplateDetector:
         self.reload()
 
     def reload(self) -> None:
+        self.enemy_tracker = EnemyTracker(self.config)
+        self.enemy_context = None
+        self.enemy_geometry_ready = False
+        geometry_path = self.directory / "enemy-occlusion.json"
+        self.enemy_geometry = (json.loads(geometry_path.read_text("utf-8"))
+                               if geometry_path.exists() else {})
         self.confirmed_sprites = ConfirmedSprites()
         if hasattr(self, "map_filter"):
             self.map_filter.close()
@@ -1024,6 +1035,7 @@ class TemplateDetector:
         self.catalog_info["catalog_paused"] = paused
         self.catalog_info["active_variants"] = len(templates)
         self._predict(*camera.result())
+        search_enemies = monsters
         player, monsters, failures, tag_confidence = self._observe_window(
             image, now, templates, floor, player_only=not monsters
         )
@@ -1034,7 +1046,54 @@ class TemplateDetector:
         if player and not player.tracked and tag_confidence >= REFRESH_TAG_CONFIDENCE:
             self._refresh_sprite(image, player, monsters, now)
         shift, response = camera.result()
-        return Observation(player, monsters, failures, shift, response)
+        context = (self.enemy_source, self.catalog_info["active_map"], image.shape,
+                   search_enemies, paused)
+        if context != self.enemy_context:
+            self.enemy_tracker.clear()
+            self.enemy_geometry_ready = False
+            self.enemy_context = context
+        if search_enemies and not paused:
+            self.enemy_tracker.prepare(now, shift, response)
+            self._configure_enemy_geometry(image, response)
+            partials = partial_enemies(image, templates, self.enemy_tracker, monsters)
+            monsters = self.enemy_tracker.update(monsters, now, partials)
+        else:
+            self.enemy_tracker.clear()
+        return Observation(player, monsters, failures, shift, response,
+                           self.enemy_tracker.snapshot())
+
+    def _configure_enemy_geometry(self, image: Image, response: float) -> None:
+        """Bind saved rectangles to scenery using a screenshot, never a gameplay coordinate."""
+        tracker = self.enemy_tracker
+        if response < .6:
+            tracker.regions, tracker.platforms = (), ()
+            self.enemy_geometry_ready = False
+        if self.enemy_geometry_ready:
+            return
+        entry = self.enemy_geometry.get(self.catalog_info["active_map"])
+        if not entry:
+            return
+        reference_path = (self.directory / entry["reference"]).resolve()
+        if not reference_path.is_relative_to(self.directory.resolve()):
+            raise ValueError("Enemy occlusion reference must be inside templates directory")
+        reference = cv2.imread(str(reference_path), cv2.IMREAD_COLOR)
+        if reference is None or reference.shape != image.shape:
+            return
+        camera = CameraTracker()
+        camera.update(reference)
+        shift, confidence = camera.update(image)
+        if confidence < .6:
+            return  # No trustworthy projection: ordinary short lost-track retention only.
+        regions = entry.get("regions", [])
+        if any(len(box) != 4 or not all(isinstance(v, int) for v in box) for box in regions):
+            raise ValueError("Enemy occlusion regions require integer [x, y, width, height]")
+        tracker.regions = tuple(Rect(*box) for box in regions)
+        tracker.platforms = tuple(tuple(segment) for segment in entry.get("platforms", []))
+        if any(len(p) != 4 or not all(np.isfinite(v) for v in p) or p[2] <= p[0]
+               for p in tracker.platforms):
+            raise ValueError("Enemy platforms require finite [x1, y1, x2, y2], x1 < x2")
+        tracker.translate_geometry(*shift)
+        self.enemy_geometry_ready = True
 
     def _predict(self, shift: tuple[float, float], response: float) -> None:
         """Move the last box to where the player should appear in this frame."""
@@ -1475,4 +1534,13 @@ def annotate(
             1,
             cv2.LINE_AA,
         )
+    for track in observation.enemy_tracks:
+        x, y = map(round, track.predicted_position)
+        ux, uy = map(round, track.uncertainty)
+        color = (100, 170, 245) if track.state == "visible" else (180, 170, 130)
+        cv2.ellipse(output, (x, y), (ux, uy), 0, 0, 360, color, 1)
+        cv2.drawMarker(output, (x, y), color, cv2.MARKER_CROSS, 8, 1)
+        cv2.putText(output, f"{track.track_id} {track.state} {track.confidence:.2f} "
+                    f"+/-{ux},{uy}" + (" predicted" if not track.observed else ""),
+                    (x + 5, max(15, y + 16)), cv2.FONT_HERSHEY_SIMPLEX, .35, color, 1)
     return output

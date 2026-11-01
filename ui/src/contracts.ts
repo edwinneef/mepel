@@ -4,7 +4,14 @@ import type { PotionEvidence } from './potionEvidence';
 export interface Rect { x: number; y: number; width: number; height: number }
 export interface Detection {
   kind: string; box: Rect; confidence: number; template: string; tracked: boolean;
-  track_id?: string;
+  track_id?: string | null;
+}
+export interface EnemyTrack {
+  track_id: string; enemy_type: string;
+  state: 'visible' | 'partially_occluded' | 'occluded' | 'lost';
+  predicted_position: [number, number]; ground_position: [number, number];
+  visible_bounds: Rect | null; confidence: number; uncertainty: [number, number];
+  last_seen: number; observed: boolean;
 }
 export interface Frame {
   id: string | null; source_id: string; sequence: number | null; captured_at: number | null;
@@ -73,12 +80,14 @@ export interface TeachingSession {
 }
 export interface WindowInfo { hwnd: number; title: string; client: Rect; focused: boolean; dpi: number }
 export interface LiveDetections {
+  enemy_tracks?: EnemyTrack[];
   frame: Frame; player: Detection | null; monsters?: Detection[] | null;
   target?: Detection | null; position?: LivePosition | null;
   display?: boolean;
   terrain?: LivePosition & { alignment: { valid: boolean; [key: string]: unknown } } | null;
 }
 export interface Snapshot {
+  enemy_tracks?: EnemyTrack[];
   schema_version: 1; session_id: string; instance_id: string; command_epoch: number;
   mode: string; state: string; reason: string; capture_only: boolean; calibrating: boolean;
   frame: Frame; preview_frame?: Frame; readiness: { preview: Gate; combat: Gate; potions: Gate; [activity: string]: Gate };

@@ -33,6 +33,14 @@ class PerceptionConfig:
     track_max_seconds: float = 5.0
     roi_width: int = 700
     roi_height: int = 420
+    enemy_occlusion_seconds: float = 4.0
+    enemy_lost_seconds: float = 0.5
+
+    def __post_init__(self) -> None:
+        for name in ("enemy_occlusion_seconds", "enemy_lost_seconds"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or not .1 <= value <= 10:
+                raise ValueError(f"perception.{name} must be between 0.1 and 10 seconds")
 
 
 @dataclass(frozen=True)
