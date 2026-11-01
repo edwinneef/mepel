@@ -44,6 +44,7 @@ attack_seconds = 0.06
 verify_seconds = 0.45
 max_attack_attempts = 6
 # Skill attack while MP is at or above high; basic attack below low or when MP is unreadable.
+use_skill = false
 skill_low_mp = 20.0
 skill_high_mp = 40.0
 # Platform rotation: after this many seconds without a same-platform target, move on.
@@ -52,7 +53,7 @@ clear_seconds = 4.0
 [input]
 left = "left"
 right = "right"
-attack = "space"
+attack = "ctrl"
 jump = "alt"
 up = "up"
 down = "down"

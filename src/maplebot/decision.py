@@ -279,7 +279,7 @@ class Agent:
 
     def _attack_kind(self, mp: float | None) -> str:
         """Skill above the high MP mark, basic below the low mark; unreadable MP is basic."""
-        if mp is None:
+        if not self.config.use_skill or mp is None:
             self.skill_ready = False
         elif mp < self.config.skill_low_mp:
             self.skill_ready = False

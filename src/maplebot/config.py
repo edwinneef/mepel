@@ -44,6 +44,7 @@ class AgentConfig:
     attack_seconds: float = 0.06
     verify_seconds: float = 0.45
     max_attack_attempts: int = 6
+    use_skill: bool = True
     skill_low_mp: float = 20.0
     skill_high_mp: float = 40.0
     range_profile: str = "custom"

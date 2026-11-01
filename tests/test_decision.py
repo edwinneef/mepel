@@ -301,6 +301,14 @@ def test_skill_attack_needs_high_mp_and_unreadable_mp_uses_basic():
     assert attack_with(agent, 30.0, 20).action.kind == "attack"
 
 
+@pytest.mark.parametrize("mp", [None, 0, 30, 80, 100])
+def test_basic_only_mode_never_selects_skill_even_with_high_mp(mp):
+    agent = Agent(AgentConfig(use_skill=False))
+    agent.skill_ready = True
+    assert attack_with(agent, mp, 0).action.kind == "attack"
+    assert not agent.skill_ready
+
+
 def test_skill_attack_has_mp_hysteresis_between_marks():
     agent = Agent(AgentConfig())
     assert [agent._attack_kind(mp) for mp in (30.0, 80.0, 30.0, 10.0, 30.0, 40.0)] == [
