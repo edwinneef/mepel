@@ -59,6 +59,7 @@ def _clipped_offset(captured: np.ndarray, image: np.ndarray) -> tuple[float, flo
     if min(captured.shape[:2]) < size:
         raise ValueError("Captured minimap has too little visible terrain")
     target = captured.astype(np.float32)
+    source = image[..., :3].astype(np.float32)
     for y in range(0, image.shape[0] - size + 1, size // 2):
         for x in range(0, image.shape[1] - size + 1, size // 2):
             patch = image[y:y + size, x:x + size]
@@ -72,7 +73,16 @@ def _clipped_offset(captured: np.ndarray, image: np.ndarray) -> tuple[float, flo
             _, best, _, (mx, my) = cv2.minMaxLoc(scores)
             scores[max(0, my - size // 2):my + size // 2 + 1,
                    max(0, mx - size // 2):mx + size // 2 + 1] = -1
-            if best >= .90 and best - float(scores.max()) >= .05:
+            if best < .90 or best - float(scores.max()) < .05:
+                continue
+            # Repeated terrain: a patch that also looks like another place in the public
+            # picture cannot say which of those places it is, so it is not a landmark.
+            itself = cv2.matchTemplate(source, patch[..., :3].astype(np.float32),
+                                       cv2.TM_CCOEFF_NORMED, mask=cv2.merge([mask] * 3))
+            itself = np.clip(np.nan_to_num(itself, nan=-1, posinf=-1, neginf=-1), -1, 1)
+            itself[max(0, y - size // 2):y + size // 2 + 1,
+                   max(0, x - size // 2):x + size // 2 + 1] = -1
+            if best - float(itself.max()) >= .05:
                 matches.append((mx - x, my - y, x, y))
     if not matches:
         raise ValueError("Clipped minimap has no unique public terrain landmarks")
@@ -92,7 +102,11 @@ def _clipped_offset(captured: np.ndarray, image: np.ndarray) -> tuple[float, flo
         if all(abs(row[2] - old[2]) >= size or abs(row[3] - old[3]) >= size
                for old in separate):
             separate.append(row)
-    if len(separate) < 3 or np.ptp([row[2] for row in separate]) < 40:
+    # Straight-line spread: a tall, narrow (or vertically clipped) map spreads its
+    # landmarks diagonally; any map spread 40 px horizontally still qualifies.
+    spread = max((float(np.hypot(a[2] - b[2], a[3] - b[3]))
+                  for a in separate for b in separate), default=0.0)
+    if len(separate) < 3 or spread < 40:
         raise ValueError("Clipped minimap needs three separate, spread-out terrain landmarks")
     return offset
 

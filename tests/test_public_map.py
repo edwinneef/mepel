@@ -87,6 +87,20 @@ def test_clipped_look_alike_outside_the_visible_canvas_is_ignored():
     assert picture_offset(captured, image) == (-110, -20)
 
 
+def test_a_landmark_repeated_elsewhere_in_the_public_picture_is_not_counted():
+    image, captured = clipped_picture()
+    # A visible copy of another visible landmark would place the map 60 px off.
+    image[42:56, 210:224] = image[28:42, 147:161]  # both on the 7 px landmark grid
+    assert picture_offset(captured, image) == (-110, -20)
+
+
+def test_a_tall_narrow_clipped_map_registers_from_vertically_spread_landmarks():
+    image = np.random.default_rng(7).integers(20, 240, (200, 60, 4), dtype=np.uint8)
+    image[..., 3] = 255
+    captured = image[50:150, 15:45, :3].copy()  # only 30 px wide: no horizontal spread
+    assert picture_offset(captured, image) == (-15, -50)
+
+
 def test_world_transform_follows_minimap_math():
     walk = {"scale_x": 16, "offset_x": 10, "scale_y": 15, "offset_y": -5}
     minimap = {"centerX": 32, "centerY": 160, "magnification": 4}
