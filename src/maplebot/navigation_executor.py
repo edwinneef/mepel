@@ -290,7 +290,11 @@ class Navigator:
             if edge.kind in {"jump", "drop"}:
                 holds.append(KeyHold("jump", min(.06, self.pulse), MIN_CHORD_LEAD_SECONDS))
             return Motion(tuple(holds))
-        if distance(f.feet, edge.trace) > 64:
+        target_rope = edge.target in {p["id"] for p in self.graph.profile["ropes"]}
+        # A knockback along the destination platform after leaving the source is not a route
+        # departure: keys are released while the landing settles there.
+        landed = self.departed and not target_rope and f.surface == edge.target
+        if distance(f.feet, edge.trace) > 64 and not landed:
             return self.stop("Movement departed the recorded corridor")
         if edge.kind in {"jump", "drop"}:
             # Coasting past the launch point on the source platform is not a takeoff; only
@@ -299,7 +303,6 @@ class Navigator:
                               or f.surface not in (edge.source, None))
         else:
             self.departed |= (math.dist(f.feet, edge.launch) >= 12 or f.surface != edge.source)
-        target_rope = edge.target in {p["id"] for p in self.graph.profile["ropes"]}
         on_target = (f.surface == edge.target if not target_rope
                      else self.graph.on_surface(edge.target, f.feet)
                      and abs(f.feet[1] - edge.launch[1]) >= 16

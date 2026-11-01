@@ -201,6 +201,27 @@ def test_stationary_landing_restarts_settling_after_marker_only_gap():
     assert nav.stage == "arrived" and motion.release
 
 
+def test_knockback_along_the_destination_platform_settles_instead_of_failing():
+    nav, f = setup()
+    takeoff(nav, f)
+    landing = replace(f, feet=(280, 300), surface="ledge")
+    nav.step(replace(landing, now=1))
+    knocked = replace(landing, feet=(360, 296))  # a monster hit pushed it 80 px along the ledge
+    for now in (1.2, 1.4, 1.6):
+        motion = nav.step(replace(knocked, now=now))
+        assert motion.release and nav.stage != "stopped"
+    nav.step(replace(knocked, now=1.8))
+    assert nav.stage == "arrived"
+
+
+def test_leaving_the_corridor_onto_another_surface_still_fails():
+    nav, f = setup()
+    takeoff(nav, f)
+    nav.step(replace(f, feet=(280, 300), surface="ledge", now=1))
+    nav.step(replace(f, feet=(420, 400), surface="floor", now=1.2))
+    assert nav.stage == "stopped" and "corridor" in nav.reason
+
+
 @pytest.mark.parametrize(("launch", "landing", "heights", "direction"), [
     (342.1, 312.1, (438.76, 360.02, 328.52, 312.77), "up"),
     (312.1, 342.1, (250, 296.35, 328.52, 344.27), "down"),
