@@ -3,6 +3,7 @@
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
@@ -83,6 +84,12 @@ class FrameEncoder:
         self.worker.join(timeout=timeout)
 
     def _run(self) -> None:
+        # One helper encodes the paired annotation; both results settle before the
+        # next packet starts. Compression and the one-pending-packet bound stay fixed.
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="annotation-encoder") as pool:
+            self._encode(pool)
+
+    def _encode(self, pool: ThreadPoolExecutor) -> None:
         while True:
             with self.condition:
                 while self.pending is None and not self.closed:
@@ -94,8 +101,12 @@ class FrameEncoder:
             assert packet is not None
             began = time.perf_counter()
             try:
-                raw_ok, raw = cv2.imencode(".png", packet.raw)
-                annotated_ok, annotated = cv2.imencode(".png", packet.annotated)
+                pending = pool.submit(cv2.imencode, ".png", packet.annotated)
+                try:
+                    raw_ok, raw = cv2.imencode(".png", packet.raw)
+                finally:
+                    # Also join on raw failure, so failed frames cannot queue helpers.
+                    annotated_ok, annotated = pending.result()
                 if not raw_ok or not annotated_ok:
                     raise RuntimeError("Could not encode screenshot")
                 elapsed = (time.perf_counter() - began) * 1000

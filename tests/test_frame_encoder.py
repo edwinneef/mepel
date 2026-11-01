@@ -1,5 +1,6 @@
 import threading
 
+import cv2
 import numpy as np
 
 from maplebot.frame_encoder import FrameEncoder, FramePacket
@@ -49,3 +50,23 @@ def test_encoder_reports_a_worker_failure_to_bounded_flush():
         assert result["failure"]
     finally:
         encoder.close()
+
+
+def test_parallel_encoding_keeps_exact_bytes_and_packet_pairing():
+    rng = np.random.default_rng(19)
+    raw = rng.integers(0, 256, (64, 64, 3), dtype=np.uint8)
+    annotated = raw.copy()
+    annotated[10:20] = 0
+    item = FramePacket(1, "one", raw, annotated, {"frame": 1}, 1.0)
+    received = []
+    encoder = FrameEncoder(lambda *args: received.append(args))
+    try:
+        encoder.publish(item)
+        assert encoder.flush_through(1, 2)["complete"]
+    finally:
+        encoder.close()
+    assert not encoder.worker.is_alive()
+    assert len(received) == 1
+    assert received[0][0] is item
+    assert received[0][1] == cv2.imencode(".png", raw)[1].tobytes()
+    assert received[0][2] == cv2.imencode(".png", annotated)[1].tobytes()
