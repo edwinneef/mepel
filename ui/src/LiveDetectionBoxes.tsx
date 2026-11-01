@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Detection, EnemyTrack, LiveDetections } from './contracts';
+import type { Detection, EnemyTrack, LiveDetections, PlayerTracking } from './contracts';
 
 const identity = (d: Detection) => d.template.startsWith('catalog:')
   ? d.template.slice(0, d.template.lastIndexOf(':')) : d.template;
@@ -86,6 +86,8 @@ export function LiveDetectionBoxes({ drawing }: { drawing: LiveDetections }) {
       : observed[i].template === drawing.target?.template && distance(observed[i], drawing.target!) < 1)
       ?? drawing.target, 'Target', '#ff6b89')}
     {age >= 0 && age <= 500 && <EnemyTrackDiagnostics tracks={drawing.enemy_tracks ?? []} />}
+    {age >= 0 && age <= 500 && drawing.player_tracking
+      && <PlayerTrackDiagnostics tracking={drawing.player_tracking} />}
   </g>;
 }
 
@@ -104,4 +106,21 @@ export function EnemyTrackDiagnostics({ tracks }: { tracks: EnemyTrack[] }) {
         {track.observed ? ' Â· pixels observed' : ' Â· prediction only'}</text>
     </g>;
   })}</g>;
+}
+
+// Player track debug: search window, predicted box and state. Display only.
+export function PlayerTrackDiagnostics({ tracking }: { tracking: PlayerTracking }) {
+  const { search, predicted, observed, state } = tracking;
+  const color = state === 'confirmed' ? '#81edbb' : state === 'lost' ? '#ff6b89' : '#aab9ca';
+  const anchor = observed ?? predicted;
+  return <g aria-label="Player tracking diagnostics" fill="none">
+    {search && <rect {...search} stroke="#6f8bb3" strokeDasharray="6 4" strokeWidth="1"
+      vectorEffect="non-scaling-stroke" />}
+    {predicted && <rect {...predicted} stroke={color} strokeDasharray="3 3" strokeWidth="1"
+      vectorEffect="non-scaling-stroke" />}
+    {anchor && <text x={anchor.x} y={anchor.y + anchor.height + 16} fill={color} stroke="#091019"
+      strokeWidth="3" paintOrder="stroke" fontSize="11">track · {state} · {Math.round(tracking.confidence * 100)}%
+      {tracking.since_confirmed != null && ` · ${tracking.since_confirmed.toFixed(1)}s since confirmed`}
+      {tracking.identity ? '' : ' · identity unconfirmed'}</text>}
+  </g>;
 }

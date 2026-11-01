@@ -13,19 +13,48 @@ app = _app
 ME, OTHER = "nametag:me", "nametag:other"
 
 
-def test_sprite_association_needs_a_recent_name_and_independent_spatial_agreement():
+def test_track_identity_needs_a_recent_name_and_spatial_continuity():
     identities = ConfirmedSprites()
     box = Rect(100, 100, 44, 64)
     assert identities.resolve("pose", box, 0, 80) is None
     identities.observe(ME, "pose", box, 0)
     assert identities.resolve("pose", box, .5, 80) == ME
-    assert identities.resolve("unknown", box, .5, 80) is None
-    assert identities.resolve("pose", box.translated(100, 0), .5, 80) is None
-    assert identities.resolve("pose", box, RECOVERY_SECONDS, 80) is None
+    assert identities.resolve("climb", box, .6, 80) == ME  # an unseen pose continues the track
+    assert identities.resolve("pose", box.translated(100, 0), .7, 80) is None
+    assert identities.resolve("pose", box, .7 + RECOVERY_SECONDS, 80) is None
     assert identities.resolve("pose", box, -.1, 80) is None
-    identities.observe(ME, None, box, 1.8)  # Fresh name alone renews its identity evidence.
-    assert identities.resolve("pose", box, 2.2, 80) == ME
-    assert identities.resolve("unknown", box, 2.2, 80) is None
+    identities.observe(ME, None, box, 4.8)  # Fresh name alone renews its identity evidence.
+    assert identities.resolve("climb", box, 5.2, 80) == ME
+
+
+def test_sprite_seen_with_another_name_never_continues_the_track():
+    identities = ConfirmedSprites()
+    box = Rect(100, 100, 44, 64)
+    identities.observe(OTHER, "theirs", box.translated(300, 0), 0)
+    identities.observe(ME, "pose", box, .1)
+    assert identities.resolve("theirs", box, .2, 80) is None
+    assert identities.resolve("pose", box, .3, 80) == ME
+
+
+def test_chain_follows_camera_scrolling():
+    identities = ConfirmedSprites()
+    box = Rect(100, 100, 44, 64)
+    identities.observe(ME, "pose", box, 0)
+    identities.translate(0, 120)  # the camera scrolled down after a climb
+    assert identities.resolve("pose", box.translated(0, 120), .3, 80) == ME
+    assert identities.resolve("pose", box, .4, 80) is None
+
+
+def test_continuous_nearby_sprite_frames_carry_the_name_while_the_tag_is_hidden():
+    identities = ConfirmedSprites()
+    box = Rect(100, 100, 44, 64)
+    identities.observe(ME, "pose", box, 0)
+    for step in range(1, 13):  # 3.6 s of tag-hidden frames, each near the previous one
+        box = box.translated(0, 4)
+        assert identities.resolve("pose", box, step * .3, 80) == ME
+    # A gap without any fresh evidence still expires, and a jump still breaks the chain.
+    assert identities.resolve("pose", box, 3.6 + RECOVERY_SECONDS, 80) is None
+    assert identities.resolve("pose", box.translated(100, 0), 3.7, 80) is None
 
 
 def test_sprite_shared_by_different_names_is_never_an_identity_alias():
@@ -162,3 +191,34 @@ def test_focus_loss_during_recovery_stops_input(app, monkeypatch):
     frame["player"] = player()
     process(app)
     assert app.mode == "capture" and not app.controller.enabled and len(calls) == 1
+
+
+def test_weak_nearby_frames_keep_the_name_chain_through_foreground_cover():
+    identities = ConfirmedSprites()
+    box = Rect(100, 100, 44, 64)
+    identities.observe(ME, "pose", box, 0)
+    for step in range(1, 11):  # 3 s behind a log: tracked frames only, each near the last
+        box = box.translated(-6, 0)
+        identities.follow(box, step * .3, 80)
+    assert identities.resolve("pose", box, 3.2, 80) == ME
+    identities.follow(box.translated(200, 0), 3.3, 80)  # a far frame never moves the chain
+    assert identities.resolve("pose", box.translated(200, 0), 3.4, 80) is None
+    assert identities.resolve("pose", box, 3.2 + RECOVERY_SECONDS, 80) is None
+
+
+def test_continuity_allowance_grows_with_elapsed_time_not_one_frame_jumps():
+    identities = ConfirmedSprites()
+    box = Rect(100, 100, 44, 64)
+    identities.observe(ME, "pose", box, 0)
+    # A look-alike 73 px away one frame later is too far to be the same, stationary player.
+    assert identities.resolve("pose", box.translated(73, 0), .22, 80) is None
+    assert identities.resolve("pose", box.translated(20, 0), .22, 80) == ME
+
+
+def test_a_sprite_the_named_track_did_not_carry_pauses_instead_of_hijacking():
+    r = Reacquisition()
+    assert r.step(ME, 0).state == "ok"
+    assert r.step("look-alike-sprite", .3).state == "pause"  # no carried name: maybe another
+    assert r.step("look-alike-sprite", .6).state == "wait"
+    assert r.step(ME, .9).state == "wait"
+    assert r.step(ME, 1.1).state == "resume"

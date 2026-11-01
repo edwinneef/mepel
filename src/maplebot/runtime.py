@@ -29,7 +29,7 @@ from .contracts import (
 )
 from .decision import Action, Agent, Decision, PolicyInput
 from .display_loop import DisplayLoop, DisplaySource
-from .farming import Farming
+from .farming import CHECKPOINT_STOP, Farming
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
 from .keyboard import KEYS, DisabledInput, InputBackend, KeyboardController, Win32Input
@@ -214,6 +214,13 @@ class Application:
         self.stop_lock = threading.RLock()
         self.worker_lock = threading.RLock()
         self.stop_record: StopRecord | None = None
+        self.input_refusal: dict | None = None
+        self.refused_window: dict | None = None
+        self.processing_frame: dict | None = None
+        self.code_revision = {name: hashlib.sha256(
+            Path(__file__).with_name(name).read_bytes()).hexdigest()
+                              for name in ("runtime.py", "perception.py", "enemy_tracking.py",
+                                           "farming.py", "keyboard.py", "windows.py")}
         self.alarm = AlarmManager()
         self.commands: queue.Queue[tuple[str, dict, Future]] = queue.Queue()
         self.closed = threading.Event()
@@ -442,6 +449,10 @@ class Application:
                 **self.status,
                 "schema_version": 1,
                 "session_id": self.session_id,
+                "code_revision": self.code_revision,
+                "farming_checkpoint_available": True,
+                "input_state": self.controller.state_snapshot(),
+                "input_refusal": self.input_refusal,
                 "command_epoch": self.command_epoch,
                 "mode": self.mode,
                 "calibrating": self.calibrating,
@@ -827,6 +838,10 @@ class Application:
 
     def _input_safe(self) -> bool:
         reason = self._input_block_reason()
+        if reason:
+            self.input_refusal = {"reason": reason, "observed_clock": time.perf_counter(),
+                                  "processing": self.processing_frame,
+                                  "window": self.refused_window}
         if reason and self.mode == "navigation":
             # Keep the actual controller callback's refusal even if a fresh frame arrives
             # before its stop callback. Rechecking then can erase the cause of the stop.
@@ -837,6 +852,9 @@ class Application:
         if overlay := getattr(self, "overlay", None):
             if reason := overlay.block_reason():
                 return reason
+        if farm := self.farming:
+            if reason := farm.checkpoint_reason(time.perf_counter()):
+                return reason
         if self.mode == "navigation":
             if reason := self.navigation.feedback_block_reason():
                 return reason
@@ -844,6 +862,7 @@ class Application:
             return reason
         window = self.windows.get(self.hwnd)
         if not window.focused:
+            self.refused_window = asdict(window)
             return "Click the actual game window before the countdown ends"
         region = self.calibration.crop.translated(window.client.x, window.client.y)
         if not self.windows.unobscured(window.hwnd, region):
@@ -879,12 +898,17 @@ class Application:
         if code == "FOCUS_LOSS":
             # The watchdog only sees a failed gate; name which one failed.
             try:
-                detail = (self.navigation.last_input_refusal
-                          if self.mode == "navigation" else None) or self._input_block_reason()
+                detail = ((self.input_refusal or {}).get("reason")
+                          or (self.navigation.last_input_refusal
+                              if self.mode == "navigation" else None)
+                          or self._input_block_reason())
             except Exception as error:
                 detail = str(error)
             if detail:
-                if self.mode == "navigation" and detail == "Player recognition recovery timed out":
+                if detail == CHECKPOINT_STOP:
+                    code, message = "FARMING_STOP", detail
+                elif (self.mode == "navigation"
+                      and detail == "Player recognition recovery timed out"):
                     code, message = "PLAYER_UNCERTAIN", detail
                 else:
                     message = f"{message}: {detail}"
@@ -1027,6 +1051,7 @@ class Application:
         return self.safe_stop(code, message)
 
     def _clear_stop_banner(self) -> None:
+        self.input_refusal, self.refused_window = None, None
         with self.stop_lock:
             self.stop_record = None
             with self.lock:
@@ -1492,11 +1517,16 @@ class Application:
             self.config.perception.confidence,
         ) if known and f.feet else {}
         platforms = routable(nav.graph) if known else []
+        if (known and decision.state == "SEARCH" and f.surface not in platforms
+                and f.surface not in nav.graph.excluded
+                and any(p["id"] == f.surface for p in nav.graph.profile["platforms"])):
+            # A clear platform without a proven way back is still left over proven moves.
+            platforms = [*platforms, f.surface]
         edges = {}
         if decision.state == "SEARCH" and f.surface in platforms:
             for key in platforms:
                 try:
-                    edges[key] = len(nav.graph.plan(f.surface, key).edges)
+                    edges[key] = len(nav.graph.plan(f.surface, key, trusted_only=True).edges)
                 except ValueError:
                     pass  # Beyond the route budget from here; never chosen.
             platforms = [key for key in platforms if key in edges or key == f.surface]
@@ -1729,7 +1759,8 @@ class Application:
                     "width": status["width"], "height": status["height"], "available": True,
                 },
                 **{key: status.get(key) for key in (
-                    "player", "monsters", "target", "position", "enemy_tracks")},
+                    "player", "monsters", "target", "position", "enemy_tracks",
+                    "player_tracking")},
             }
             self.display_anchor = (self.live_detections, image) if image is not None else None
 
@@ -1767,8 +1798,11 @@ class Application:
         *, captured_at: float | None = None,
     ) -> tuple[Image, dict]:
         policy_now = now if policy_now is None else policy_now
+        self.processing_frame = {"sequence": self.sequence, "capture_clock": now, "stage": "map"}
+        map_began = time.perf_counter()
         captured_at = time.time() if captured_at is None else captured_at
         fix = self.position.read_map(image) if self.position is not None else None
+        map_ms = (time.perf_counter() - map_began) * 1000
         self.detector.taught_map = bool(fix and fix.canvas)
         self.detector.enemy_source = (self.session_id, self.source_generation)
         self.detector.strip = (self.navigation.search_strip(image.shape[1])
@@ -1779,6 +1813,7 @@ class Application:
         self.monster_search = not (
             movement_probe or self.mode in {"navigation", "navigation_wait"})
         perception_began = time.perf_counter()
+        self.processing_frame = {**self.processing_frame, "stage": "perception"}
         observation = self.detector.detect(image, now, monsters=self.monster_search)
         perception_ms = (time.perf_counter() - perception_began) * 1000
         evidence = summarize({
@@ -1793,6 +1828,8 @@ class Application:
             "note": "Observation at collection, not proof of the keypress frame or a hit",
         })
         position = None
+        position_began = time.perf_counter()
+        self.processing_frame = {**self.processing_frame, "stage": "position"}
         if self.position is not None and fix is not None:
             try:
                 position = self.position.update(image, fix, observation, now,
@@ -1810,6 +1847,8 @@ class Application:
                 position = {"kind": "unknown", "reason": f"Position unavailable: {error}",
                             "captured_at": captured_at, "input_sent": False}
         self.navigation.observe(fix, observation, position, now)
+        position_ms = (time.perf_counter() - position_began) * 1000
+        self.processing_frame = {**self.processing_frame, "stage": "policy"}
         if (
             self.calibration
             and not self.calibration.capture_verified
@@ -2167,6 +2206,7 @@ class Application:
             "potion_evidence_safe": potion_evidence_safe,
             "catalog": self.detector.catalog_info,
             "enemy_tracks": [asdict(item) for item in getattr(observation, "enemy_tracks", [])],
+            "player_tracking": getattr(observation, "player_tracking", None),
             "position": position,
             "failures": observation.failures,
             "camera_shift": observation.camera_shift,
@@ -2176,7 +2216,9 @@ class Application:
             "decision": asdict(decision),
             "action_outcome": policy_input.last_outcome,
             "stage_timing": {
+                "map_ms": round(map_ms, 3),
                 "perception_ms": round(perception_ms, 3),
+                "position_ms": round(position_ms, 3),
                 "policy_ms": round(policy_ms, 3),
                 "annotation_ms": round(annotation_ms, 3),
             },
@@ -2186,6 +2228,7 @@ class Application:
         capture: Capture | None = None
         move_failures = 0
         previous = time.perf_counter()
+        previous_capture = None
         try:
             capture = Capture(self.windows)
             while not self.closed.is_set():
@@ -2232,12 +2275,16 @@ class Application:
                         "recording": self.recorder.active,
                     }
                     status["stage_timing"] = {
+                        "capture_interval_ms": round(1000 * (capture_began - previous_capture), 3)
+                        if previous_capture is not None else None,
                         "capture_ms": round(1000 * (capture_finished - capture_began), 3),
                         **result["stage_timing"],
                     }
+                    previous_capture = capture_began
                     previous = end
                     self._publish_detections(status, image)
                     publish_began = time.perf_counter()
+                    self.processing_frame = {**(self.processing_frame or {}), "stage": "publish"}
                     packet = FramePacket(
                         self.sequence,
                         f"{self.sequence:08d}",

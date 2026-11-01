@@ -235,8 +235,9 @@ class RouteMap:
     def plan(self, origin: str, target: str, *, max_edges: int = 8,
              trusted_only: bool = False, origin_feet: tuple | None = None) -> Route:
         excluded = self.trusted_excluded if trusted_only else self.excluded
-        for key in (origin, target):
-            if key not in self.nodes or key in excluded:
+        # A trusted route may leave a one-way origin, but only over proven moves.
+        for key, barred in ((origin, self.excluded), (target, excluded)):
+            if key not in self.nodes or key in barred:
                 raise ValueError("Origin or target is outside the reachable round-trip map"
                                  + (" over proven moves" if trusted_only else ""))
         if not 1 <= max_edges <= 8:

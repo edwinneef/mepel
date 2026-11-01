@@ -5,14 +5,21 @@ from dataclasses import dataclass
 
 from .geometry import Rect
 
-# Same bounds as navigation's recognition recovery.
-RECOVERY_SECONDS = 2.0
+# Same bounds as navigation's recognition recovery. Input stays released throughout; this
+# only bounds how long a brief occlusion may pause before control is handed back.
+RECOVERY_SECONDS = 4.0
 RESUME_MATCHES = 2
+# Continuity allowance: base distance plus the furthest a player plausibly moves per second.
+CHAIN_RADIUS, CHAIN_SPEED = 24, 160
 RESUME_SPACING = 0.15
 
 
 class ConfirmedSprites:
-    """Session-only sprite/name associations learned from independently agreeing pixels."""
+    """The confirmed name carried by one continuous player track.
+
+    A name tag starts or renews the chain. Each later player frame continues it only when it
+    lies near the previous one, within RECOVERY_SECONDS; sprites seen with another name never do.
+    """
 
     def __init__(self) -> None:
         self.names: dict[str, str | None] = {}
@@ -26,14 +33,37 @@ class ConfirmedSprites:
                 self.names[sprite] = identity
         self.last = (identity, box, now)
 
+    @staticmethod
+    def _near(box: Rect, previous: Rect, elapsed: float, max_distance: float) -> bool:
+        reach = min(max_distance, CHAIN_RADIUS + CHAIN_SPEED * elapsed)
+        return 0 <= elapsed < RECOVERY_SECONDS and math.dist(box.center, previous.center) <= reach
+
+    def follow(self, box: Rect, now: float, max_distance: float) -> None:
+        """Weaker player frames next to the last named position keep its chain alive."""
+        if self.last is None or not math.isfinite(now):
+            return
+        identity, named_box, named_at = self.last
+        if self._near(box, named_box, now - named_at, max_distance):
+            self.last = (identity, box, now)
+
+    def translate(self, dx: float, dy: float) -> None:
+        """Keep the chain on screen coordinates while the camera scrolls."""
+        if self.last is not None:
+            identity, box, at = self.last
+            self.last = (identity, box.translated(round(dx), round(dy)), at)
+
     def resolve(self, sprite: str, box: Rect, now: float, max_distance: float) -> str | None:
         if self.last is None:
             return None
         identity, named_box, named_at = self.last
-        if (self.names.get(sprite) != identity or not math.isfinite(now)
-                or not 0 <= now - named_at < RECOVERY_SECONDS
-                or math.dist(box.center, named_box.center) > max_distance):
+        # A pose never seen beside the tag (a climb or attack frame) continues the track; a
+        # sprite also seen with another name cannot tell the two players apart.
+        if (self.names.get(sprite, identity) != identity or not math.isfinite(now)
+                or not self._near(box, named_box, now - named_at, max_distance)):
             return None
+        # A continuous chain of nearby confirmed sprite frames carries the name, so a
+        # hidden name tag does not expire the identity while the same sprite stays in view.
+        self.last = (identity, box, now)
         return identity
 
 
@@ -68,6 +98,9 @@ class Reacquisition:
         return self.started is not None
 
     def step(self, identity: str | None, now: float) -> Step:
+        if (identity is not None and self.identity and self.identity.startswith("nametag:")
+                and not identity.startswith("nametag:")):
+            identity = None  # A sprite the named track did not carry may be another player.
         if self.started is None:
             if identity is None:
                 if self.identity is None:

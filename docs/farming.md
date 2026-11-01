@@ -1,5 +1,40 @@
 # Farming with pet potions
 
+## Short diagnostic checkpoint
+
+Keep the character on a recognized safe rope while the operator waits and the
+engine is prepared. A platform is required for combat, not for handing control
+to the bot. For the known SHG III `rope5` staging point, include the existing guarded
+navigation descent to `fh66` in the explicitly authorized batch. Preview and pass
+normal navigation gates first; descend only once the engine, overlay, map and
+combat checks are ready, then proceed directly to the checkpoint. Do not ask the
+operator to wait exposed on the floor. A different or unrecognized rope is not
+automatically accepted, and a failed movement still ends the batch.
+
+Read HP/MP while still at safe staging and apply the existing no-consumables
+health policy before descent or arming. Start the bounded acceptance run with
+healthy resources; a health stop is expected when the resource crosses its limit.
+The checker refuses already-low or unreadable health before arm and records recent
+readings in failure reports. This does not replace or relax the live health gates.
+
+After explicit supervised-batch authorization, use the existing runner with
+`--checkpoint-seconds 10 --session-minutes 1`. All normal gates and no-consumables
+settings apply. Add `--single-platform` only when testing an explicitly verified
+continuous floor; the original rotating acceptance still omits that flag.
+
+The updated engine must advertise checkpoint support before the checker arms.
+The engine watchdog enforces the checkpoint deadline even if capture stalls;
+the checker also bounds countdown/setup waiting. A checkpoint needs a completed
+attack, stable engine/source identity, and confirmed Off/disabled/released input.
+It reports `checkpoint_success`, never `functional_success` or a full-session pass.
+The planned farming-limit stop sounds the existing alarm; acknowledge that completed
+checkpoint through the normal operator control before another authorized run.
+Failure reports are generated after Stop and include the original refusal stage,
+foreground owner when available, release state and source hashes.
+
+Source hashes are sampled when the engine application starts. They identify that
+session's source files; they are not hit evidence or permission to start input.
+
 ## First milestone: one platform, no consumables
 
 The engine accepts `arm` with `farming: {single_platform: true,

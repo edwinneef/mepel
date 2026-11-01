@@ -29,6 +29,13 @@ const stop = () => post('stop', {}).catch(() => {});
 const send = (type, value) => { if (win && !win.isDestroyed()) win.webContents.send('overlay-event', { type, value }); };
 const heartbeat = open => post('overlay', { owner, panel: open,
   hwnd: Number(win.getNativeWindowHandle().readBigUInt64LE()) });
+function keepAboveGame() {
+  // Win32 show/click-through transitions can clear WS_EX_TOPMOST while Electron
+  // still caches true. Force the native transition without activating the window.
+  win.moveTop();
+  win.setAlwaysOnTop(false);
+  win.setAlwaysOnTop(true);
+}
 async function settings(open) {
   if (open) return; // The native window is outlines only; settings stay in the dashboard.
   if (transition || !win || win.isDestroyed()) return;
@@ -41,8 +48,7 @@ async function settings(open) {
     win.setFocusable(open);
     if (open) { win.show(); win.focus(); } else { win.blur(); win.showInactive(); }
     // Click-through/show transitions can clear the native topmost flag on Windows.
-    win.setAlwaysOnTop(true);
-    win.moveTop();
+    keepAboveGame();
     send('panel', open);
   } catch (error) { send('error', error.message); }
   finally { transition = false; }
@@ -78,10 +84,9 @@ async function poll() {
       send('game-bounds', { x: bounds.x - desktop.x, y: bounds.y - desktop.y,
         width: bounds.width, height: bounds.height, visible: Boolean(status.focused || panel) });
     } else send('game-bounds', null);
-    if (!panel) {
+    if (!panel && !win.isVisible()) {
       win.showInactive();
-      win.setAlwaysOnTop(true);
-      win.moveTop();
+      keepAboveGame();
     }
   } catch (error) {
     send('error', error.message);
@@ -111,8 +116,7 @@ else app.whenReady().then(async () => {
     ipcMain.on('overlay-mouse', (event, interactive) => {
       if (own(event) && typeof interactive === 'boolean') {
         win.setIgnoreMouseEvents(true, { forward: true });
-        win.setAlwaysOnTop(true);
-        win.moveTop();
+        keepAboveGame();
       }
     });
     ipcMain.handle('overlay-settings', (event, open) => own(event) && settings(Boolean(open)));

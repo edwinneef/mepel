@@ -1,12 +1,16 @@
 import json
+import time
 
 import pytest
 from test_runtime import app as _app
 
+from maplebot.decision import Action, Decision, State
+from maplebot.geometry import Rect
 from maplebot.move_proofs import MoveProofs
 from maplebot.navigation import RouteMap, map_hash
-from maplebot.navigation_executor import Navigator
-from maplebot.rotation import routable
+from maplebot.navigation_executor import Feedback, Navigator
+from maplebot.perception import Detection, Observation
+from maplebot.rotation import Rotation, routable
 
 app = _app
 
@@ -35,6 +39,30 @@ def test_computed_moves_route_under_supervision_and_rotation_needs_proofs():
     assert routable(proven) == ["floor", "ledge"]
     assert proven.plan("floor", "ledge", trusted_only=True).edges[0].evidence == "proven"
     assert "m_floor_ledge" not in RouteMap.computed(imported(), failed={"m_floor_ledge"}).edges
+
+
+def test_trusted_route_leaves_a_one_way_platform_over_proven_moves_only():
+    graph = RouteMap.computed(imported(), {"m_ledge_floor"})
+    assert routable(graph) == ["floor"]
+    route = graph.plan("ledge", "floor", trusted_only=True)
+    assert [e.id for e in route.edges] == ["m_ledge_floor"]
+    with pytest.raises(ValueError, match="proven moves"):
+        graph.plan("floor", "ledge", trusted_only=True)
+
+
+def test_clear_one_way_platform_rotates_to_a_routable_platform(app):
+    nav = app.navigation
+    nav.graph = RouteMap.computed(imported(), {"m_ledge_floor"})
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (300, 340), "ledge", True)
+    app.probed.update({"left", "right", "jump", "down"})
+    app.mode, app.rotating, app.rotation = "live", True, Rotation(1)
+    app.controller.enable()
+    search = Decision(State.SEARCH, Action(), "Waiting for a fresh confident same-platform target")
+    observation = Observation(Detection("player", Rect(500, 300, 40, 60), .95), [])
+    now = time.perf_counter()
+    assert app._rotate(search, observation, now) is None
+    assert "moving to floor" in app._rotate(search, observation, now + 1)
+    assert (nav.route.origin, nav.route.target) == ("ledge", "floor")
 
 
 def test_proofs_survive_restart_and_reset_when_the_map_changes(tmp_path):

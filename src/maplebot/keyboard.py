@@ -561,6 +561,11 @@ class KeyboardController:
                                   "history_dropped": self.event_sequence - len(self.event_history),
                                   "history_last_sequence": self.event_sequence})
 
+    def state_snapshot(self) -> dict:
+        with self.lock:
+            return {"enabled": self.enabled, "held_keys": sorted(self.held),
+                    "active": self.active is not None, "queued": not self.queue.empty()}
+
     def execute(self, action: Action) -> str:
         submitted = self.submit(action)
         if not isinstance(submitted, int):

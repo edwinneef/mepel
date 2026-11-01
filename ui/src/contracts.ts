@@ -13,6 +13,11 @@ export interface EnemyTrack {
   visible_bounds: Rect | null; confidence: number; uncertainty: [number, number];
   last_seen: number; observed: boolean;
 }
+export interface PlayerTracking {
+  state: 'confirmed' | 'tracked' | 'coasting' | 'lost';
+  predicted: Rect | null; observed: Rect | null; search: Rect | null;
+  confidence: number; identity: string | null; since_confirmed: number | null;
+}
 export interface Frame {
   id: string | null; source_id: string; sequence: number | null; captured_at: number | null;
   age_ms: number | null; width: number; height: number; available: boolean;
@@ -81,6 +86,7 @@ export interface TeachingSession {
 export interface WindowInfo { hwnd: number; title: string; client: Rect; focused: boolean; dpi: number }
 export interface LiveDetections {
   enemy_tracks?: EnemyTrack[];
+  player_tracking?: PlayerTracking | null;
   frame: Frame; player: Detection | null; monsters?: Detection[] | null;
   target?: Detection | null; position?: LivePosition | null;
   display?: boolean;
@@ -88,6 +94,7 @@ export interface LiveDetections {
 }
 export interface Snapshot {
   enemy_tracks?: EnemyTrack[];
+  player_tracking?: PlayerTracking | null;
   schema_version: 1; session_id: string; instance_id: string; command_epoch: number;
   mode: string; state: string; reason: string; capture_only: boolean; calibrating: boolean;
   frame: Frame; preview_frame?: Frame; readiness: { preview: Gate; combat: Gate; potions: Gate; [activity: string]: Gate };

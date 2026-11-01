@@ -1,5 +1,6 @@
 import pytest
 
+from maplebot.reacquisition import RECOVERY_SECONDS
 from tools.recognition_eval import (
     Label,
     build_labels,
@@ -76,12 +77,13 @@ def test_recovery_times_out_at_the_recorded_stop_and_judges_the_cover():
     frames = [frame(0), frame(.5, None, "player"), frame(1.0, ME, "player"),
               frame(1.5, None, "player")]
     assert simulate_recovery(frames)["events"][0]["result"] == "unfinished"
-    stopped = simulate_recovery(frames, ended=2.6)
+    ended = .5 + RECOVERY_SECONDS + .1
+    stopped = simulate_recovery(frames, ended=ended)
     assert stopped["stopped"]
     assert stopped["events"][-1] == {"result": "stopped", "reason": "timeout", "frame": "0.5",
-                                     "seconds": 2.1, "justified": True}
+                                     "seconds": RECOVERY_SECONDS + .1, "justified": True}
     frames[3]["occlusion"] = "none"
-    assert not simulate_recovery(frames, ended=2.6)["events"][-1]["justified"]
+    assert not simulate_recovery(frames, ended=ended)["events"][-1]["justified"]
 
 
 def test_recovery_stops_when_another_name_tag_appears():

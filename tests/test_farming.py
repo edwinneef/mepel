@@ -3,7 +3,7 @@ from test_runtime import app as _app
 from test_runtime import potion_app as _potion_app
 
 from maplebot.decision import Action
-from maplebot.farming import Farming
+from maplebot.farming import CHECKPOINT_STOP, Farming
 
 app = _app
 potion_app = _potion_app
@@ -39,6 +39,23 @@ def test_stop_conditions():
     assert "possible death" in farm.check(11, readings(hp=0), True)
     assert "unavailable" in farm.check(11, readings(), False)
     assert "unreadable" in farm.check(11, {}, True)
+
+
+@pytest.mark.parametrize("seconds", [True, 0, 11, 1.5, float("nan")])
+def test_checkpoint_rejects_invalid_bound(seconds):
+    with pytest.raises(ValueError, match="checkpoint_seconds"):
+        Farming({"checkpoint_seconds": seconds, "no_consumables": True,
+                 "pet_recovery": False})
+
+
+def test_checkpoint_is_explicit_no_consumables_and_does_not_replace_session_limit():
+    with pytest.raises(ValueError, match="no consumables"):
+        Farming({"checkpoint_seconds": 10})
+    farm = Farming({"checkpoint_seconds": 10, "no_consumables": True, "pet_recovery": False})
+    farm.start(100)
+    assert farm.checkpoint_reason(109.999) is None
+    assert farm.check(110, readings(), True) == CHECKPOINT_STOP
+    assert farm.settings["session_minutes"] == 15
 
 
 @pytest.mark.parametrize("resource", ["hp", "mp"])

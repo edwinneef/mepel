@@ -2,13 +2,14 @@
 
 import hashlib
 import json
+import math
 import os
 import time
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from functools import cached_property
-from itertools import pairwise
+from itertools import combinations, pairwise
 from pathlib import Path
 from typing import Protocol
 
@@ -20,7 +21,7 @@ from .config import PerceptionConfig
 from .enemy_tracking import EnemyTrack, EnemyTracker, partial_enemies
 from .geometry import Rect
 from .map_filter import MapFilter
-from .reacquisition import ConfirmedSprites
+from .reacquisition import RECOVERY_SECONDS, ConfirmedSprites
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,8 @@ class Observation:
     camera_shift: tuple[float, float] = (0, 0)
     camera_confidence: float = 0
     enemy_tracks: list[EnemyTrack] = field(default_factory=list)
+    # Display/diagnostic snapshot of the player track; decisions never read it.
+    player_tracking: dict | None = None
 
 
 def masked_score(observed: np.ndarray, observed_gray: np.ndarray, reference: np.ndarray,
@@ -193,6 +196,8 @@ TRACK_RADIUS, TRACK_SPEED, TRACK_MAX_RADIUS = 12, 240, 80
 # this much of the player's own per-frame world motion; otherwise it stays where it was.
 PREDICTION_RESPONSE = 0.35
 PREDICTION_MAX_STEP = 40
+FULL_SCAN_EVERY = 4
+LOOKALIKE_SEPARATION = 30
 
 
 def nametag_parts(image: Image) -> tuple[Image, int, tuple[int, int]]:
@@ -357,7 +362,8 @@ class TemplateDetector:
             self.load_nametag(path) for path in sorted((self.directory / "nametag").glob("*.png"))
         ]
         self.fresh.clear()
-        self.track = None
+        self.track, self.misses, self.search_window = None, 0, None
+        self.lookalike_at = float("-inf")
         self.world_step, self.predicted, self.track_tag = (0.0, 0.0), None, None
         self.previous_monsters = ()
         self.camera = CameraTracker()
@@ -996,6 +1002,11 @@ class TemplateDetector:
         now: float | None = None,
     ) -> tuple[Detection | None, float, bool]:
         player = players[0] if players and players[0].confidence >= self.config.confidence else None
+        confident = [item.box.center for item in players
+                     if not item.tracked and item.confidence >= self.config.confidence]
+        if now is not None and any(math.dist(a, b) >= LOOKALIKE_SEPARATION
+                                   for a, b in combinations(confident, 2)):
+            self.lookalike_at = now  # A second identical-looking player is in view.
         if player and len(players) > 1:
             if player.confidence - players[1].confidence < self.config.player_margin:
                 player = None
@@ -1035,6 +1046,7 @@ class TemplateDetector:
         self.catalog_info["catalog_paused"] = paused
         self.catalog_info["active_variants"] = len(templates)
         self._predict(*camera.result())
+        predicted = self.track[0] if self.track else None
         search_enemies = monsters
         player, monsters, failures, tag_confidence = self._observe_window(
             image, now, templates, floor, player_only=not monsters
@@ -1060,7 +1072,28 @@ class TemplateDetector:
         else:
             self.enemy_tracker.clear()
         return Observation(player, monsters, failures, shift, response,
-                           self.enemy_tracker.snapshot())
+                           self.enemy_tracker.snapshot(),
+                           self._tracking_snapshot(player, predicted, now))
+
+    def _tracking_snapshot(self, player: Detection | None, predicted: Rect | None,
+                           now: float) -> dict:
+        """State, predicted/observed boxes and search window for the debug overlay."""
+        if player is not None:
+            state = "tracked" if player.tracked else "confirmed"
+        else:
+            state = "coasting" if self.track is not None else "lost"
+        named = player and (player.identity or (
+            player.template.removesuffix(":tag-only")
+            if player.template.startswith("nametag:") else None))
+        return {
+            "state": state,
+            "predicted": asdict(predicted) if predicted else None,
+            "observed": asdict(player.box) if player else None,
+            "search": asdict(self.search_window) if self.search_window else None,
+            "confidence": round(float(player.confidence), 3) if player else 0.0,
+            "identity": named or None,
+            "since_confirmed": round(now - self.track[1], 3) if self.track else None,
+        }
 
     def _configure_enemy_geometry(self, image: Image, response: float) -> None:
         """Bind saved rectangles to scenery using a screenshot, never a gameplay coordinate."""
@@ -1105,6 +1138,7 @@ class TemplateDetector:
             return
         box, confirmed, seen = self.track
         self.predicted = (box, shift)
+        self.confirmed_sprites.translate(*shift)
         self.track = (box.translated(self.world_step[0] + shift[0],
                                      self.world_step[1] + shift[1]), confirmed, seen)
 
@@ -1181,8 +1215,17 @@ class TemplateDetector:
         assert saved is not None
         found = self._observe_in(image, window, now, templates, floor)
         if found[0] is not None:
+            self.misses = 0
             return found
         self.track = saved
+        if not player_only and now - saved[1] <= self.config.track_max_seconds:
+            # Keys are released while the player is unconfirmed, so it stays near the
+            # prediction; scan the whole frame only on every FULL_SCAN_EVERY-th miss.
+            self.misses += 1
+            if self.misses % FULL_SCAN_EVERY:
+                found[2].append("Player not found near its prediction; full scan deferred")
+                return found
+            return self._observe_full(image, now, templates, floor)
         if player_only and now - saved[1] <= self.config.track_seconds:
             # Shortly after a confirmed frame the player is near the prediction. Searching
             # the whole frame here takes about five times longer, which can push a recovery
@@ -1205,7 +1248,7 @@ class TemplateDetector:
         local = (saved[0].translated(-window.x, -window.y), saved[1], saved[2])
         self.track = local
         crop = image[window.y : window.y + window.height, window.x : window.x + window.width]
-        self.origin = (window.x, window.y)
+        self.origin, self.search_window = (window.x, window.y), window
         # Player templates need only the movement-sized area around the track.
         self.player_area = self._player_area(local[0], crop)
         player, monsters, failures, tag_confidence = self._observe(crop, now, templates, floor)
@@ -1224,11 +1267,13 @@ class TemplateDetector:
         self, image: Image, now: float, templates: list[Template], floor: float
     ) -> tuple[Detection | None, list[Detection], list[str], float]:
         """The whole frame, or only the strip the minimap marker leaves possible."""
+        self.search_window = None
         if self.strip is None:
             return self._observe(image, now, templates, floor)
         x0, x1 = max(0, self.strip[0]), min(image.shape[1], self.strip[1])
         if x1 - x0 <= 0:
             return self._observe(image, now, templates, floor)
+        self.search_window = Rect(x0, 0, x1 - x0, image.shape[0])
         if self.track is not None:
             box, confirmed, seen = self.track
             self.track = (box.translated(-x0, 0), confirmed, seen)
@@ -1288,6 +1333,11 @@ class TemplateDetector:
                 self.track_tag = player.template.split(":")[1]
         else:
             player = self._follow(gray, players, now, failures)
+        if (player is not None and now is not None and player.identity is None
+                and not player.template.startswith("nametag:")):
+            # Tracked or weak sprite frames under foreground cover carry the name onward.
+            self.confirmed_sprites.follow(
+                player.box.translated(*self.origin), now, TRACK_MAX_RADIUS)
         if player is None:
             failures.append("Player detection missing or below confidence threshold")
         # With this frame's player known, rescore monsters it or other monsters partly cover.
@@ -1358,8 +1408,14 @@ class TemplateDetector:
             return None
         last, confirmed, seen = self.track
         elapsed = now - confirmed
-        if now - seen > self.config.track_seconds or elapsed > self.config.track_max_seconds:
+        if elapsed > self.config.track_max_seconds:
             self.track = None
+            return None
+        if now - seen > self.config.track_seconds:
+            # Coasting: the search window stays on the prediction, but weaker evidence is
+            # refused after the gap; only a confident match restarts the track.
+            self.world_step = (0.0, 0.0)  # Recovery releases keys, so the player stops.
+            failures.append("Player coasting at its predicted position; no fresh evidence")
             return None
         radius = min(TRACK_MAX_RADIUS, TRACK_RADIUS + TRACK_SPEED * (now - seen))
         near = [
@@ -1450,7 +1506,9 @@ class TemplateDetector:
                             and not partial):
             if sprite:
                 failures.append("Name tag not found; located by player sprite")
-                if (now is not None and not sprite.tracked
+                if (now is not None and now - self.lookalike_at < RECOVERY_SECONDS):
+                    failures.append("Look-alike player nearby; name tag required for identity")
+                elif (now is not None and not sprite.tracked
                         and sprite.confidence >= self.config.confidence):
                     identity = self.confirmed_sprites.resolve(
                         sprite.template, sprite.box.translated(*self.origin), now, TRACK_MAX_RADIUS)

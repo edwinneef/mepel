@@ -2,6 +2,8 @@
 
 import math
 
+CHECKPOINT_STOP = "Farming checkpoint limit reached; full session unproven"
+
 
 class Farming:
     def __init__(self, settings: dict) -> None:
@@ -18,6 +20,13 @@ class Farming:
             raise ValueError("farming.pet_recovery must be boolean")
         self.settings = {"pet_recovery": self.pet_recovery, "no_consumables": self.no_consumables,
                          "single_platform": self.single_platform}
+        checkpoint = settings.get("checkpoint_seconds")
+        if checkpoint is not None:
+            if type(checkpoint) is not int or not 1 <= checkpoint <= 10:
+                raise ValueError("farming.checkpoint_seconds must be an integer between 1 and 10")
+            if not self.no_consumables or self.pet_recovery:
+                raise ValueError("Farming checkpoints require no consumables and no pet recovery")
+            self.settings["checkpoint_seconds"] = checkpoint
         for name, default, lower, upper in (
             ("session_minutes", 15, 1, 120),
             ("hp_threshold", 50, 1, 95),
@@ -48,6 +57,8 @@ class Farming:
     def check(self, now: float, readings: dict, safe: bool) -> str | None:
         if self.started is None:
             return None
+        if reason := self.checkpoint_reason(now):
+            return reason
         if now - self.started >= self.settings["session_minutes"] * 60:
             return "Farming session limit reached; restart manually"
         if not safe:
@@ -71,6 +82,12 @@ class Farming:
                     return f"{resource.upper()} recovery failed; check pet and potions"
             else:
                 self.low_since.pop(resource, None)
+        return None
+
+    def checkpoint_reason(self, now: float) -> str | None:
+        seconds = self.settings.get("checkpoint_seconds")
+        if seconds is not None and self.started is not None and now - self.started >= seconds:
+            return CHECKPOINT_STOP
         return None
 
     def progress(self, now: float, *, active: bool) -> str | None:

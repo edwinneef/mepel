@@ -863,8 +863,60 @@ def test_capture_stage_timing_excludes_encoder_png_work(app, monkeypatch):
     })())
     monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
     _, status = app._process(app.image, 10.0, 0.0)
-    assert set(status["stage_timing"]) == {"perception_ms", "policy_ms", "annotation_ms"}
+    assert set(status["stage_timing"]) == {
+        "map_ms", "perception_ms", "position_ms", "policy_ms", "annotation_ms"}
     assert "png_encode_ms" not in status["stage_timing"]
+
+
+def test_refusal_keeps_original_foreground_owner_before_a_fresh_frame(app):
+    app.mode = "live"
+    app.processing_frame = {"sequence": 99, "capture_clock": 10, "stage": "perception"}
+    app.windows.window = replace(app.windows.window, focused=False,
+                                 foreground={"hwnd": 42, "title": "other", "pid": 5})
+    assert not app._input_safe()
+    refused = app.input_refusal
+    app.windows.window = replace(app.windows.window, focused=True)
+    app.processing_frame = {"sequence": 100, "capture_clock": 11, "stage": "policy"}
+    app._controller_stop("FOCUS_LOSS", "Safety gate lost")
+    assert "actual game window" in app.stop_record.message
+    assert app.input_refusal == refused
+    assert refused["processing"]["sequence"] == 99
+    assert refused["window"]["foreground"]["pid"] == 5
+    assert app.snapshot()["input_state"]["held_keys"] == []
+
+
+def test_checkpoint_watchdog_deadline_releases_and_is_not_reported_as_focus_loss(app, monkeypatch):
+    from maplebot.farming import CHECKPOINT_STOP, Farming
+
+    app.farming = Farming({"checkpoint_seconds": 1, "no_consumables": True,
+                           "pet_recovery": False})
+    app.farming.start(time.perf_counter() - 2)
+    app.mode = "live"
+    assert not app._input_safe()
+    app._controller_stop("FOCUS_LOSS", "Safety gate lost")
+    assert app.stop_record.code == "FARMING_STOP"
+    assert app.stop_record.message == CHECKPOINT_STOP
+    assert not app.controller.enabled and not app.controller.held
+    assert app.alarm.snapshot()["active"]
+
+
+def test_checkpoint_watchdog_releases_while_capture_is_not_running(app):
+    from maplebot.farming import Farming
+
+    app.farming = Farming({"checkpoint_seconds": 1, "no_consumables": True,
+                           "pet_recovery": False})
+    app.farming.start(time.perf_counter())
+    app.mode = "live"
+    app.controller.enable()
+    with app.controller.lock:
+        app.controller.held["ctrl"] = time.perf_counter() + 10
+    app.farming.started = time.perf_counter() - 2
+    deadline = time.perf_counter() + 1
+    while app.stop_record is None and time.perf_counter() < deadline:
+        time.sleep(.005)
+    assert app.stop_record is not None
+    assert app.stop_record.code == "FARMING_STOP"
+    assert not app.controller.held and not app.controller.enabled
 
 
 def test_teaching_name_tag_records_other_copies_as_decoys(app):

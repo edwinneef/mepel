@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from maplebot.farming import CHECKPOINT_STOP
 from tools.farming_check import combat_progress, run
 
 
@@ -14,7 +15,9 @@ class Api:
     def status(self):
         return {"session_id": "s", "mode": "live" if self.running else "capture",
                 "focused": True, "position": {"area_id": "island"},
-                "navigation": {"map": {"nodes": []}}, "player": {"confidence": 1}}
+                "navigation": {"map": {"nodes": []}}, "player": {"confidence": 1},
+                "autopotter": {"readings": {r: {"percent": 80, "confidence": 1}
+                                           for r in ("hp", "mp")}}}
 
     def command(self, name, payload=None):
         self.calls.append((name, payload))
@@ -154,3 +157,74 @@ def test_single_platform_never_passes_unsafe_start_or_shutdown(tmp_path, problem
                      session_minutes=1, clock=lambda: api.now, sleep=lambda _: None)
         assert result["outcome"] == "failure"
         assert api.calls[-1][0] == "stop"
+
+
+class CheckpointApi(SessionApi):
+    def __init__(self, *, problem=None):
+        super().__init__({"code": "FARMING_STOP", "message": CHECKPOINT_STOP})
+        self.problem = problem
+
+    def status(self):
+        sample = super().status()
+        sample.update(farming_checkpoint_available=self.problem != "old-engine",
+                      frame={"source_id": "view"}, code_revision={"runtime.py": "hash"},
+                      input_state={"enabled": False, "held_keys": []})
+        if self.armed:
+            self.now = self.polls * (1 if self.problem == "early" else 5)
+            if self.problem == "source":
+                sample["frame"]["source_id"] = "new-view"
+            if self.problem == "code":
+                sample["code_revision"] = {"runtime.py": "new"}
+            if self.problem == "no-attacks":
+                sample["combat_evidence"]["events"] = []
+            if self.problem == "timeout":
+                sample["mode"] = "live"
+        elif self.polls and self.problem == "held-key":
+            sample["input_state"]["held_keys"] = ["ctrl"]
+        return sample
+
+
+def test_short_checkpoint_requires_attacks_but_is_never_a_full_session_pass(tmp_path):
+    api = CheckpointApi()
+    result = run(api, tmp_path / "run", area="island", single_platform=True,
+                 checkpoint_seconds=10, clock=lambda: api.now, sleep=lambda _: None)
+    assert result["outcome"] == "checkpoint_success"
+    assert result["full_session_passed"] is False
+    assert api.calls[0][1]["farming"]["checkpoint_seconds"] == 10
+    assert api.calls[0][1]["farming"]["no_consumables"] is True
+    assert api.calls[-1][0] == "stop"
+
+
+@pytest.mark.parametrize("problem", [
+    "early", "source", "code", "no-attacks", "held-key", "timeout"])
+def test_checkpoint_refuses_missing_or_changed_evidence_and_releases(tmp_path, problem):
+    api = CheckpointApi(problem=problem)
+    result = run(api, tmp_path / "run", area="island", single_platform=True,
+                 checkpoint_seconds=10, clock=lambda: api.now, sleep=lambda _: None)
+    assert result["outcome"] == "failure"
+    assert result["full_session_passed"] is False
+    assert api.calls[-1][0] == "stop"
+    assert (tmp_path / "run/failure/summary.json").is_file()
+
+
+def test_checkpoint_requires_installed_engine_support_before_arm(tmp_path):
+    api = CheckpointApi(problem="old-engine")
+    with pytest.raises(RuntimeError, match="lacks bounded"):
+        run(api, tmp_path / "run", area="island", single_platform=True,
+            checkpoint_seconds=10)
+    assert not api.calls
+
+
+@pytest.mark.parametrize("percent", [49, None])
+def test_existing_health_policy_is_checked_before_arming_from_safe_staging(tmp_path, percent):
+    api = CheckpointApi()
+    status = api.status
+    def low_health():
+        sample = status()
+        sample["autopotter"]["readings"]["hp"]["percent"] = percent
+        return sample
+    api.status = low_health
+    with pytest.raises(RuntimeError, match="No farming started"):
+        run(api, tmp_path / "run", area="island", single_platform=True,
+            checkpoint_seconds=10)
+    assert not api.calls

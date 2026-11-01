@@ -5,13 +5,15 @@ import vm from 'node:vm';
 import { expect, it, vi } from 'vitest';
 
 async function startOverlay() {
-  const shortcuts = new Map(), requests = [];
+  const shortcuts = new Map(), requests = [], intervals = [];
   const win = {
     webContents: { send: vi.fn(), on: vi.fn(), setWindowOpenHandler: vi.fn() },
     setContentProtection: vi.fn(), setMenu: vi.fn(), on: vi.fn(),
     setIgnoreMouseEvents: vi.fn(), setFocusable: vi.fn(), show: vi.fn(),
     focus: vi.fn(), blur: vi.fn(), showInactive: vi.fn(), setAlwaysOnTop: vi.fn(), moveTop: vi.fn(),
-    isDestroyed: () => false, getNativeWindowHandle: () => Buffer.alloc(8, 1),
+    setBounds: vi.fn(),
+    isDestroyed: () => false, isVisible: () => true,
+    getNativeWindowHandle: () => Buffer.alloc(8, 1),
     loadURL: vi.fn(async () => {}),
   };
   const construct = vi.fn();
@@ -29,7 +31,7 @@ async function startOverlay() {
     require: name => ({ electron, 'node:path': path,
       'node:crypto': { randomUUID: () => 'overlay-owner' }, 'node:fs/promises': {} })[name],
     __dirname: '/overlay', process: { env: {} }, Buffer, URL, AbortSignal,
-    setInterval: vi.fn(),
+    setInterval: callback => { intervals.push(callback); },
     fetch: async (url, options) => {
       if (options?.body) requests.push({ url, body: JSON.parse(options.body) });
       return { ok: true, text: async () => '<meta name="debug-token" content="token">',
@@ -37,7 +39,7 @@ async function startOverlay() {
     },
   });
   await started;
-  return { win, construct, shortcuts, requests, electron };
+  return { win, construct, shortcuts, requests, electron, intervals };
 }
 
 it('starts Off with settings closed and click-through without activating the overlay', async () => {
@@ -78,4 +80,16 @@ it('stays click-through and refuses native settings requests', async () => {
   expect(requests.at(-1).body.panel).toBe(false);
   expect(win.setFocusable).toHaveBeenLastCalledWith(false);
   expect(win.setAlwaysOnTop).toHaveBeenLastCalledWith(true);
+  expect(win.setAlwaysOnTop.mock.calls.slice(-2)).toEqual([[false], [true]]);
+});
+
+it('keeps a visible overlay shown without repeating Win32 show transitions on every poll', async () => {
+  const { win, intervals } = await startOverlay();
+  const shown = win.showInactive.mock.calls.length;
+  await intervals[0]();
+  await intervals[0]();
+  expect(win.showInactive).toHaveBeenCalledTimes(shown);
+  expect(win.setAlwaysOnTop.mock.calls.slice(-2)).toEqual([[false], [true]]);
+  const raised = win.setAlwaysOnTop.mock.invocationCallOrder.at(-1);
+  expect(raised).toBeGreaterThan(win.moveTop.mock.invocationCallOrder.at(-1));
 });

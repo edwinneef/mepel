@@ -21,6 +21,8 @@ def stop_records(value):
 
 def classify(reason: str) -> tuple[str, str]:
     reason = reason.lower()
+    if any(word in reason for word in (" hp", " mp", "hud", "potions", "health")):
+        return "health", "Inspect saved HUD readings and the no-consumables health limits."
     # FOCUS_LOSS is also used for stale feedback; the recorded detail takes priority.
     if "stale" in reason or "freshness" in reason or "500 ms" in reason:
         return "navigation", "Inspect frame gaps and stage timings; keep freshness gates unchanged."
@@ -87,9 +89,16 @@ def summarize(path: Path) -> dict:
                       if r.get("captured_at") is not None), None)
     until = relevant[-1].get("time") if relevant else None
     summaries = [clip_summary(Path(clip), since, until) for clip in clips[-3:]]
+    after = result.get("after") or {}
     return {"source": str(path.resolve()), "input_sent": False, "native_acceptance": False,
             "category": category, "reason": reason, "next_diagnostic": next_step,
             "reported_run_seconds": result.get("seconds"), "stops": relevant[-3:],
+            "input_refusal": after.get("input_refusal"),
+            "input_state": after.get("input_state"),
+            "code_revision": (result.get("before") or {}).get("code_revision"),
+            "health_readings": [sample.get("autopotter", {}).get("readings")
+                                for sample in result.get("samples", [])
+                                if sample.get("autopotter")][-3:],
             "clips": summaries,
             "limits": "Saved evidence only. Policy replay cannot reproduce OS focus, key delivery "
                       "or live capture scheduling. Timing outliers do not establish their cause."}

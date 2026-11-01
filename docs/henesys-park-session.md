@@ -76,7 +76,8 @@ start the installed source once at the beginning of the new session.
    timeout, new unfocused frame, alarm or session change stops without refocusing.
 
    Operator-approved recognition recovery: during an active route, a brief visual
-   miss releases and suspends all input for at most two seconds. Fresh matching
+   miss releases and suspends all input for at most four seconds (two seconds before
+   2026-11-01). Fresh matching
    identity and consecutive agreeing position observations resume the same route;
    route/edge clocks keep running. Focus, map, freshness, watchdog, F8, lease and
    context failures still end the run. The checker may observe a paused recovery

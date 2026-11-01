@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import { EnemyTrackDiagnostics, predictBoxes, projectDisplayBoxes } from './LiveDetectionBoxes';
+import { EnemyTrackDiagnostics, PlayerTrackDiagnostics, predictBoxes, projectDisplayBoxes } from './LiveDetectionBoxes';
 import type { Detection } from './contracts';
 
 const monster = (x: number, template = 'catalog:Pig:stand-0'): Detection => ({
@@ -17,6 +17,16 @@ it('draws uncertain enemy estimates separately from visible sprite bounds', () =
   expect(getByText(/enemy:7.*occluded.*60%.*prediction only/)).toBeTruthy();
   expect(container.querySelector('ellipse')?.getAttribute('rx')).toBe('40');
   expect(container.querySelector('rect')).toBeNull();
+});
+
+it('draws the player search window and prediction while coasting without an observed box', () => {
+  const { container, getByText } = render(<svg><PlayerTrackDiagnostics tracking={{
+    state: 'coasting', predicted: { x: 100, y: 200, width: 44, height: 64 }, observed: null,
+    search: { x: 0, y: 100, width: 350, height: 240 }, confidence: 0, identity: null,
+    since_confirmed: 1.25,
+  }} /></svg>);
+  expect(getByText(/track · coasting · 0%.*1\.3s since confirmed.*identity unconfirmed/)).toBeTruthy();
+  expect(container.querySelectorAll('rect')).toHaveLength(2);
 });
 
 it('compensates capture delay across animation frames without mutating engine observations', () => {

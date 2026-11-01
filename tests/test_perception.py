@@ -9,7 +9,8 @@ import pytest
 
 from maplebot.config import PerceptionConfig
 from maplebot.geometry import Rect
-from maplebot.perception import CameraTracker, Detection, TemplateDetector
+from maplebot.perception import FULL_SCAN_EVERY, CameraTracker, Detection, TemplateDetector
+from maplebot.reacquisition import ConfirmedSprites
 
 
 def test_annotation_does_not_cover_game_pixels_with_a_status_strip(tmp_path):
@@ -352,7 +353,7 @@ def test_partly_covered_tag_of_another_player_never_extends_the_track(tmp_path):
     assert detector.detect(tag_scene(covered), now=0.3).player is None
 
 
-def test_named_sprite_alias_requires_prior_full_name_and_expires(tmp_path):
+def test_named_track_requires_prior_full_name_and_expires(tmp_path):
     teach_tag(tmp_path, name_tag())
     detector = TemplateDetector(tmp_path, PerceptionConfig())
     gray = cv2.cvtColor(tag_scene(name_tag()), cv2.COLOR_BGR2GRAY)
@@ -365,13 +366,33 @@ def test_named_sprite_alias_requires_prior_full_name_and_expires(tmp_path):
     recovered = detector._resolve([sprite], [], [], gray, .5)[0]
     assert recovered.template == "pose" and recovered.identity == "nametag:name"
     assert not recovered.tracked and recovered.confidence == sprite.confidence
-    unknown = replace(sprite, template="unknown")
-    assert detector._resolve([unknown], [], [], gray, .6)[0].identity is None
-    assert detector._resolve([sprite], [], [], gray, 2.2)[0].identity is None
-    detector._resolve([sprite], matches, [], gray, 2.3)
+    climbing = replace(sprite, template="climb")  # a pose never seen beside the tag
+    assert detector._resolve([climbing], [], [], gray, .6)[0].identity == "nametag:name"
+    # Expiry counts from the last name-carrying frame (the climbing pose at .6).
+    assert detector._resolve([sprite], [], [], gray, 4.7)[0].identity is None
+    detector._resolve([sprite], matches, [], gray, 4.8)
     ambiguous = replace(sprite, box=body.translated(80, 0), confidence=.94)
-    assert detector._resolve([sprite, ambiguous], [], [], gray, 2.4)[0] is None
-    assert detector._resolve([sprite], [], [], gray, 2.5)[0].identity is None
+    assert detector._resolve([sprite, ambiguous], [], [], gray, 4.9)[0] is None
+    assert detector._resolve([sprite], [], [], gray, 5.0)[0].identity is None
+
+
+def test_a_lookalike_in_view_requires_the_name_tag_for_identity(tmp_path):
+    teach_tag(tmp_path, name_tag())
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    gray = cv2.cvtColor(tag_scene(name_tag()), cv2.COLOR_BGR2GRAY)
+    matches = detector._nametag_candidates(gray)
+    body = detector.body_from_nametag(matches[0][1], matches[0][0].box)
+    sprite = Detection("player", body, .95, "pose")
+    twin = replace(sprite, box=body.translated(200, 0), confidence=.8)  # below the margin test
+    detector._resolve([sprite], matches, [], gray, .1)
+    failures = []
+    detector._resolve([sprite, replace(twin, confidence=.95 - detector.config.player_margin)],
+                      [], failures, gray, .2)
+    assert detector.lookalike_at == .2
+    failures = []
+    alone = detector._resolve([sprite], [], failures, gray, .4)[0]
+    assert alone.identity is None
+    assert "Look-alike player nearby; name tag required for identity" in failures
 
 
 def test_occluded_name_requires_a_fresh_matching_sprite_and_glyphs_across_the_name(tmp_path):
@@ -536,6 +557,13 @@ def test_search_window_falls_back_to_the_whole_frame_when_the_player_jumps_away(
         assert moved.player is None
         assert "Player not found near the last confirmed position" in moved.failures
         moved = detector.detect(frame, 1.4, monsters=monsters)
+    else:
+        # Combat keys are released while the player is unconfirmed, so misses search the
+        # prediction and defer the whole-frame scan to every FULL_SCAN_EVERY-th frame.
+        for step in range(1, FULL_SCAN_EVERY):
+            assert moved.player is None
+            assert "Player not found near its prediction; full scan deferred" in moved.failures
+            moved = detector.detect(frame, 0.3 + step * .3, monsters=monsters)
     assert moved.player is not None and moved.player.box == Rect(500, 40, 24, 28)
 
 
@@ -637,7 +665,7 @@ def test_edge_strip_limits_the_whole_frame_search_and_keeps_frame_coordinates(tm
 
 def test_prediction_follows_camera_and_world_motion_and_never_marks_a_frame_fresh():
     state = SimpleNamespace(track=(Rect(100, 100, 44, 64), 1.0, 1.0), world_step=(0.0, 0.0),
-                            predicted=None)
+                            predicted=None, confirmed_sprites=ConfirmedSprites())
     TemplateDetector._predict(state, (-12.0, 0.0), 0.9)  # camera scrolls, player stands
     assert state.track == (Rect(88, 100, 44, 64), 1.0, 1.0)  # confirmation times unchanged
     state.track = (Rect(100, 100, 44, 64), 2.0, 2.0)  # found where the camera kept it

@@ -44,11 +44,27 @@ def test_stale_feedback_is_not_diagnosed_as_operator_focus_loss(tmp_path):
     path, _ = saved_failure(tmp_path, "Target focus lost: Navigation fused position is stale")
     assert summarize(path)["category"] == "navigation"
     assert classify("Player recognition failed")[0] == "perception"
+    assert classify("Farming HP unreadable; stopped")[0] == "health"
 
 
 def test_active_time_excludes_previous_activity_in_recorder_pre_roll(tmp_path):
     _, clip = saved_failure(tmp_path)
     assert clip_summary(clip, since=15, until=16)["observed_active_seconds"] == 1
+
+
+def test_report_retains_refusal_stage_and_foreground_owner_after_stop(tmp_path):
+    path, _ = saved_failure(tmp_path)
+    value = json.loads(path.read_text())
+    value["after"]["input_refusal"] = {
+        "processing": {"sequence": 7, "stage": "perception"},
+        "window": {"foreground": {"hwnd": 42, "pid": 5}},
+    }
+    value["after"]["input_state"] = {"enabled": False, "held_keys": []}
+    path.write_text(json.dumps(value))
+    report = summarize(path)
+    assert report["input_refusal"]["processing"]["stage"] == "perception"
+    assert report["input_refusal"]["window"]["foreground"]["pid"] == 5
+    assert report["input_state"]["held_keys"] == []
 
 
 def test_missing_clip_is_explicit_and_requested_replay_fails_without_losing_report(tmp_path):

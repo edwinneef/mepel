@@ -10,6 +10,7 @@ from .decision import Action
 from .move_proofs import MoveProofs
 from .navigation import RouteMap, map_hash, pose_gaps, required_poses
 from .navigation_executor import EdgeStep, Feedback, Navigator, distance
+from .reacquisition import RECOVERY_SECONDS
 from .scheduler import SUSTAIN
 from .short_walk import ShortWalk
 
@@ -18,7 +19,7 @@ from .short_walk import ShortWalk
 FLIGHT_GRACE_SECONDS = 0.8
 # Screen width searched beside a map end during an edge step; covers the walk-in band.
 EDGE_STRIP = 480
-RECOGNITION_RECOVERY_SECONDS = 2
+RECOGNITION_RECOVERY_SECONDS = RECOVERY_SECONDS
 # Written beside data/areas by tools/recognition_eval.py --coverage.
 POSE_COVERAGE = "recognition-coverage.json"
 # Stops that blame the move itself; focus, feedback or budget stops do not.
@@ -303,7 +304,12 @@ class NavigationRuntime:
                             bool(window and window.focused and not self.app.capture_only))
         identified = bool(player and not player.tracked and math.isfinite(player.confidence)
                           and player.confidence >= self.app.config.perception.confidence)
-        identity = player.template.removesuffix(":tag-only") if identified else None
+        # A sprite continuing the named track carries that name, as in combat recovery.
+        identity = ((getattr(player, "identity", None) or player.template.removesuffix(":tag-only"))
+                    if identified else None)
+        if (identity and self.identity and self.identity.startswith("nametag:")
+                and not identity.startswith("nametag:")):
+            identified, identity = False, None  # Not carried by the named track: may be another.
         navigating = (self.app.mode == "navigation" and isinstance(self.agent, Navigator)
                       and self.agent.active)
         # A drop or climb rides the marker in its corridor; the name tag blurs at fall speed.
