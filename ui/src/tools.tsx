@@ -22,12 +22,26 @@ function Data({ value }: { value: unknown }) {
 }
 
 export function TrackingTool({ snapshot: s, client, act, selected, disabled }: ToolProps) {
+  const [poseIdentity, setPoseIdentity] = useState('');
+  const [poseOutfit, setPoseOutfit] = useState('default');
+  const poses = s.pose_collection;
   const teach = (kind: string) => act(() => client.command('template', { ...selected(), kind }));
   return <><p className="tool-intro">Freeze the preview, then draw a tight rectangle around the example.</p>
     <Group title="Player identity"><p>Include the player's feet. A name tag helps recognition through gear changes and climbing.</p>
       <div className="button-grid"><button disabled={disabled} onClick={() => void teach('player')}>Add player</button>
         <button disabled={disabled} onClick={() => void teach('nametag')}>Add name tag</button></div>
       <p className="reading">{s.player ? `${s.player.tracked ? 'Tracked' : 'Confirmed'} · ${(s.player.confidence * 100).toFixed(0)}% similarity` : 'Player not recognized'}</p>
+    </Group>
+    <Group title="Pose collection">
+      <p>Save candidate appearances while you play. This sends no input and does not change recognition.</p>
+      <label>Character name<select aria-label="Pose character" disabled={disabled || poses?.enabled} value={poseIdentity} onChange={event => setPoseIdentity(event.target.value)}>
+        <option value="">Select a taught name</option>{poses?.identities.map((identity, index) => <option key={identity} value={identity}>Taught name {index + 1} ({identity.slice(0, 6)})</option>)}
+      </select></label>
+      <label>Outfit label<input aria-label="Pose outfit" disabled={disabled || poses?.enabled} value={poseOutfit} onChange={event => setPoseOutfit(event.target.value)} /></label>
+      <p>Use a new outfit label to start a separate collection.</p>
+      {poses?.identity && <p>Collection: {poses.identity.slice(0, 6)} / {poses.outfit}</p>}
+      <button disabled={disabled || !poses || (!poses.enabled && (!poseIdentity || !/^[a-zA-Z0-9_-]{1,64}$/.test(poseOutfit)))} onClick={() => void act(() => client.command('pose_collection', poses?.enabled ? { enabled: false } : { enabled: true, identity: poseIdentity, outfit: poseOutfit }))}>{poses?.enabled ? 'Stop pose collection' : 'Start pose collection'}</button>
+      <p className="reading">{poses ? `${poses.reason} / ${poses.saved}/${poses.limit} saved / ${poses.duplicates} duplicates / ${poses.rejected} rejected / ${poses.pending} pending` : 'Pose collection unavailable'}</p>
     </Group>
     <Group title="Enemy library"><p>{s.catalog?.species ?? 0} species · {s.catalog?.frames ?? 0} cached frames</p>
       <p>Catalog enemies are automatic. Add examples only for missing types.</p>

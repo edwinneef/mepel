@@ -64,3 +64,15 @@ def test_probe_config_rejects_unbounded_or_non_finite_values(settings):
 def test_agent_config_rejects_unbounded_clear_time(seconds):
     with pytest.raises(ValueError, match="clear_seconds"):
         AgentConfig(clear_seconds=seconds)
+
+
+def test_pose_collection_config_limits(tmp_path):
+    from maplebot.config import PoseCollectionConfig
+
+    assert PoseCollectionConfig().limit == 32
+    for changes in ({"limit": 0}, {"limit": 129}, {"interval": 0}, {"interval": float('nan')}):
+        with pytest.raises(ValueError):
+            PoseCollectionConfig(**changes)
+    path = tmp_path / 'poses.toml'
+    path.write_text('[pose_collection]\nlimit=12\ninterval=5\n')
+    assert Config.load(path).pose_collection == PoseCollectionConfig(12, 5)

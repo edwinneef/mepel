@@ -307,3 +307,29 @@ Animated poses, occlusion, moving scenery, similarly colored sprites and Game-vi
 First improvements should use labeled real captures: validate multiple animation poses and hard negatives, measure false positives, compare foreground masks/segmentation, tune the range/platform heuristic and add screenshot-based health/death evidence. Consider learned detectors only after measuring the simple approach on those frames.
 
 Reference documentation: [MSS](https://python-mss.readthedocs.io/stable/), [OpenCV template matching](https://docs.opencv.org/4.x/d4/dc6/tutorial_py_template_matching.html), [Win32 DPI awareness](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setthreaddpiawarenesscontext), [SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput).
+
+### Passive pose candidates
+
+In **Tracking → Pose collection**, select an already taught name, enter an outfit
+label, and choose **Start pose collection**. Collection starts Off each engine session.
+Use a new outfit label after changing appearance; the old collection is preserved.
+The status shows saved, duplicate, rejected, pending and full/error counts or reasons.
+**Stop pose collection** stops new samples; queued writes finish in the background.
+
+Collection uses existing verified frames and two fresh, agreeing full-name observations.
+It skips ambiguous, tracked, stale or detected overlapping appearances. It does not
+send input, promote candidates to recognition, or relax any gameplay gate. Collection
+is paused when enemy search is unavailable (for example navigation/probes). Unknown
+look-alike characters remain an unvalidated case; these files are candidates only.
+
+Candidates live under `data/pose-candidates/<taught-name-id>/<outfit>/` as atomic JSON
+records containing PNG crop/mask data, anchors, capture provenance and source hashes.
+Defaults are 32 candidates per outfit and at least 3 seconds between samples. Optional
+`[pose_collection]` configuration accepts `limit` (1–128) and `interval` (3–60 seconds).
+A full collection stops; no saved recordings, maps or templates are deleted. Storage
+errors stop collection and appear in status. Shutdown waits at most one second for
+writes and reports if writes remain pending. Old samples never count as fresh evidence.
+
+Offline verification: `tests/test_pose_collection.py`, the collection integration in
+`tests/test_perception.py` and `tests/test_runtime.py`, and `ui/src/tools.test.tsx`.
+These checks do not establish native collection or recognition accuracy.

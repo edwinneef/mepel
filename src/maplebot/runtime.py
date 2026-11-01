@@ -44,6 +44,7 @@ from .keyboard import (
 from .live_position import STALE_SECONDS, LivePosition
 from .navigation_runtime import NavigationRuntime
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
+from .pose_collection import PoseCollection
 from .potion_evidence import PotionEvidence, PotionFrame
 from .preview_stream import PreviewSource, PreviewStream
 from .probe_store import ProbeStore
@@ -174,6 +175,10 @@ class Application:
         self.position: LivePosition | None = None
         self.windows = Windows()
         self.detector = TemplateDetector(self.data / "templates", config.perception)
+        self.pose_collection = PoseCollection(
+            self.data / "pose-candidates", limit=config.pose_collection.limit,
+            interval=config.pose_collection.interval,
+        )
         self.agent = Agent(config.agent, config.perception.confidence)
         self.potter = PotionMonitor(self.data / "autopotter.json")
         self.mode = "capture"
@@ -336,6 +341,7 @@ class Application:
         self.encoder.close()
         self.potion_evidence.close()
         self.recorder.close()
+        self.pose_collection.close()
         self.alarm.close()
 
     def request(
@@ -456,6 +462,10 @@ class Application:
             frame = self.published_frame if self.raw is not None else None
             result = {
                 **self.status,
+                "pose_collection": {
+                    **self.pose_collection.snapshot(),
+                    "identities": [tag.name for tag in getattr(self.detector, "nametags", [])],
+                },
                 "schema_version": 1,
                 "session_id": self.session_id,
                 "code_revision": self.code_revision,
@@ -1164,6 +1174,15 @@ class Application:
                 gate = self.snapshot()["readiness"].get(activity)
                 if gate is None or not gate["ready"]:
                     raise ValueError(gate["reason"] if gate else "Invalid control probe")
+        if name == "pose_collection":
+            if not isinstance(payload.get("enabled", False), bool):
+                raise ValueError("enabled must be a boolean")
+            if not payload.get("enabled", False):
+                return self.pose_collection.configure()
+            identity = str(payload.get("identity", ""))
+            if identity not in {tag.name for tag in self.detector.nametags}:
+                raise ValueError("Select a taught name before collecting poses")
+            return self.pose_collection.configure(identity, str(payload.get("outfit", "")))
         if name == "range_profile":
             profile_name = payload.get("profile")
             range_profile(profile_name)
@@ -1843,6 +1862,12 @@ class Application:
         perception_began = time.perf_counter()
         self.processing_frame = {**self.processing_frame, "stage": "perception"}
         observation = self.detector.detect(image, now, monsters=self.monster_search)
+        self.pose_collection.observe(
+            image, self.detector, observation, now, captured_at,
+            (self.session_id, self.source_generation),
+            eligible=bool(self.monster_search and self.calibration and
+                          self.calibration.capture_verified and not self.calibrating),
+        )
         perception_ms = (time.perf_counter() - perception_began) * 1000
         evidence = summarize({
             "frame": {"id": f"{self.session_id}:{self.sequence}", "available": True,

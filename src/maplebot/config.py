@@ -184,6 +184,18 @@ class RecordingConfig:
 
 
 @dataclass(frozen=True)
+class PoseCollectionConfig:
+    limit: int = 32
+    interval: float = 3.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.limit, int) or not 1 <= self.limit <= 128:
+            raise ValueError("pose_collection.limit must be between 1 and 128")
+        if not math.isfinite(self.interval) or not 3 <= self.interval <= 60:
+            raise ValueError("pose_collection.interval must be between 3 and 60")
+
+
+@dataclass(frozen=True)
 class Config:
     capture: CaptureConfig = field(default_factory=CaptureConfig)
     debugger: DebuggerConfig = field(default_factory=DebuggerConfig)
@@ -193,6 +205,7 @@ class Config:
     probe: ProbeConfig = field(default_factory=ProbeConfig)
     timing: TimingConfig = field(default_factory=TimingConfig)
     recording: RecordingConfig = field(default_factory=RecordingConfig)
+    pose_collection: PoseCollectionConfig = field(default_factory=PoseCollectionConfig)
 
     @classmethod
     def load(cls, path: Path) -> "Config":
@@ -210,6 +223,7 @@ class Config:
                     ("probe", ProbeConfig),
                     ("timing", TimingConfig),
                     ("recording", RecordingConfig),
+                    ("pose_collection", PoseCollectionConfig),
                 )
             }
         )

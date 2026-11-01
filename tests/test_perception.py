@@ -766,3 +766,32 @@ def test_unknown_stranger_displacement_is_a_conflict_not_tracking_fallback(tmp_p
         [], stranger, failures, np.zeros((768, 1366), np.uint8), 1.25)
     assert player is None and conflict
     assert detector.confirmed_sprites.last[1] == own
+
+
+def test_pose_collection_uses_real_name_match_and_rejects_occlusion(tmp_path):
+    import time
+
+    from maplebot.pose_collection import PoseCollection
+
+    tag = name_tag()
+    teach_tag(tmp_path, tag)
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    store = PoseCollection(tmp_path / 'candidates')
+    store.configure('name', 'first')
+    frame = tag_scene(tag, sprite=True)
+    try:
+        for now in (1., 1.1):
+            observation = detector.detect(frame, now=now)
+            store.observe(frame, detector, observation, now, time.time(), 1, eligible=True)
+        deadline = time.monotonic() + 2
+        while store.jobs.unfinished_tasks and time.monotonic() < deadline:
+            time.sleep(.005)
+        assert store.saved == 1, (store.reason, observation.failures)
+        frame[150:163, 110:170] = (90, 140, 60)
+        for now in (5., 5.1):
+            observation = detector.detect(frame, now=now)
+            store.observe(frame, detector, observation, now, time.time(), 1, eligible=True)
+        assert store.saved == 1 and len(store.examples) == 1
+    finally:
+        store.close()
+        detector.pool.shutdown()

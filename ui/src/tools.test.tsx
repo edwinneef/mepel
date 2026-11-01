@@ -102,3 +102,22 @@ it('capture-only keeps probe buttons disabled and diagnostics retain worker reco
   fireEvent.click(screen.getByRole('button', { name: 'Restart capture worker' }));
   expect(command).toHaveBeenCalledWith('restart_capture');
 });
+
+it('requires explicit pose identity and outfit, starts and stops collection', async () => {
+  const poses = { enabled: false, identity: '', outfit: '', identities: ['alice', 'bob'], saved: 0, duplicates: 0, rejected: 0, pending: 0, limit: 32, reason: 'Off' };
+  const { command, props } = setup({ snapshot: snapshot({ pose_collection: poses }) });
+  const view = render(<TrackingTool {...props} />);
+  expect((screen.getByRole('button', { name: 'Start pose collection' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Pose character'), { target: { value: 'alice' } });
+  fireEvent.change(screen.getByLabelText('Pose outfit'), { target: { value: 'winter' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Start pose collection' }));
+  await waitFor(() => expect(command).toHaveBeenCalledWith('pose_collection', { enabled: true, identity: 'alice', outfit: 'winter' }));
+  view.rerender(<TrackingTool {...props} snapshot={snapshot({ pose_collection: { ...poses, enabled: true, identity: 'alice', outfit: 'winter' } })} />);
+  expect((screen.getByLabelText('Pose character') as HTMLSelectElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Stop pose collection' }));
+  expect(command).toHaveBeenCalledWith('pose_collection', { enabled: false });
+  view.rerender(<TrackingTool {...props} snapshot={snapshot({ pose_collection: poses })} />);
+  fireEvent.change(screen.getByLabelText('Pose character'), { target: { value: 'bob' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Start pose collection' }));
+  expect(command).toHaveBeenCalledWith('pose_collection', { enabled: true, identity: 'bob', outfit: 'winter' });
+});

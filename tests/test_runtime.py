@@ -1936,3 +1936,20 @@ def test_readouts_hold_the_last_platform_through_a_brief_gap_but_not_a_jump(app)
     app._position_snapshot(on)
     app.shown_platform = ("a", "p1", now - 2)
     assert app._position_snapshot(gap)["kind"] == "unknown"
+
+
+def test_pose_collection_commands_are_opt_in_and_send_no_input(app):
+    from types import SimpleNamespace
+
+    app.detector.nametags = [SimpleNamespace(name="alice")]
+    assert not app.snapshot()["pose_collection"]["enabled"]
+    assert app.pose_collection.writer is None
+    with pytest.raises(ValueError, match="taught name"):
+        app._command("pose_collection", {"enabled": True, "identity": "unknown", "outfit": "one"})
+    before = list(app.controller.backend.events)
+    app._command("pose_collection", {"enabled": True, "identity": "alice", "outfit": "one"})
+    assert app.snapshot()["pose_collection"]["enabled"]
+    app._command("pose_collection", {"enabled": False})
+    assert not app.snapshot()["pose_collection"]["enabled"]
+    assert app.controller.backend.events == before
+    app.pose_collection.close()
