@@ -191,7 +191,7 @@ class AreaMinimap:
         at = Rect(int(x), int(y), self.home.width, self.home.height)
         return at, self._agreement(image, at)
 
-    def _scroll_offset(self, crop: np.ndarray) -> tuple[int, float] | None:
+    def _scroll_offset(self, crop: np.ndarray) -> tuple[float, float] | None:
         """The picture's top row in this canvas, if one vertical placement clearly wins."""
         assert self.scroll is not None
         picture, (left, _) = self.picture, self.scroll
@@ -212,7 +212,14 @@ class AreaMinimap:
         # Repeating terrain can fit at two scrolls; then the height stays unknown.
         if scores[row] < SCROLL_MATCH or scores[row] - rival < SCROLL_MARGIN:
             return None
-        return -row, float(scores[row])
+        # Sub-pixel peak: one minimap pixel is 16 game pixels of height.
+        shift = 0.0
+        if 0 < row < len(scores) - 1:
+            below, here, above = scores[row - 1], scores[row], scores[row + 1]
+            curve = below - 2 * here + above
+            if curve < 0:
+                shift = float(np.clip(0.5 * (below - above) / curve, -0.5, 0.5))
+        return -(row + shift), float(scores[row])
 
     def _read_scrolled(self, image: np.ndarray, at: Rect) -> MinimapFix:
         assert self.scroll is not None

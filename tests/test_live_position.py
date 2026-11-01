@@ -202,6 +202,23 @@ def test_passive_pairs_never_save_without_opt_in_or_when_they_disagree(store):
         position.close()
 
 
+def test_passive_pairs_skip_frames_where_the_player_moves_vertically(store):
+    position = LivePosition(store, AREA)
+    try:
+        for index, dx in enumerate(range(10, 200, 8)):
+            image = view(((dx, 20),))
+            player = Detection("player", Rect(round(8 * (dx + 2.5)) - 22,
+                                              536 - 30 * (index % 2), 44, 64), 1.0, "nametag")
+            position.update(image, position.read_map(image),
+                            Observation(player, [], camera_shift=(0, 0), camera_confidence=.9),
+                            index * .3, passive_calibration=True)
+            if position.passive_pending is not None:
+                position.passive_pending.result(timeout=5)
+        assert position.passive == [] and position.calibration is None
+    finally:
+        position.close()
+
+
 def test_passive_calibration_supersedes_unverified_automatic_alignment(store, monkeypatch):
     profile = store.load(AREA)["profile"]
     reference = profile["views"][0]

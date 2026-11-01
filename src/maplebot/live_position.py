@@ -103,6 +103,7 @@ class LivePosition:
         self.passive_rejected = 0
         self.passive_fitted = 0
         self.passive_reason = "Off"
+        self.passive_previous: tuple[float, float] | None = None  # time, feet screen y
         self._load(area_id)
 
     def _load(self, area_id: str) -> None:
@@ -206,7 +207,8 @@ class LivePosition:
         player = observation.player
         shift = observation.camera_shift if observation.camera_confidence >= 0.35 else None
         self._collect(image, fix, player)
-        learned = self._learn(image, fix, player) if passive_calibration else None
+        learned = (self._learn(image, fix, player, self._steady(player, shift, now))
+                   if passive_calibration else None)
         if self.tracker is None:
             location = Location("unknown", None, None, "Walk calibration needed")
         else:
@@ -336,15 +338,29 @@ class LivePosition:
             pending = self.pool.submit(self._register, image.copy(), dot, screen)
         return pending, lost
 
+    def _steady(self, player: Detection | None, shift, now: float) -> bool:
+        """The name tag kept its height since the last frame, allowing for the camera.
+
+        While the player jumps or climbs, the minimap marker and the name tag update at
+        different moments, so such pairs disagree in height; they are not collected.
+        """
+        if not _fresh(player) or shift is None:
+            self.passive_previous = None
+            return False
+        assert player is not None
+        previous, self.passive_previous = self.passive_previous, (now, float(player.box.feet))
+        return (previous is not None and 0 < now - previous[0] <= 0.5
+                and abs(player.box.feet - previous[1] - shift[1]) <= 2)
+
     def _learn(self, image: np.ndarray, fix: MinimapFix,
-               player: Detection | None) -> dict | None:
+               player: Detection | None, steady: bool = True) -> dict | None:
         """Collect pairs while input is idle; save only a fit within one marker pixel."""
         if self.calibration is not None or self.samples is not None:
             self.passive, self.passive_pending = [], None
             self.passive_reason = "Off: walk calibration saved or in progress"
             return None
         self.passive_pending, lost = self._gather(self.passive, self.passive_pending,
-                                                  image, fix, player)
+                                                  image, fix, player if steady else None)
         self.passive_rejected += lost
         count = len(self.passive)
         if count < PASSIVE_MIN_PAIRS:
