@@ -36,9 +36,9 @@ def restore_focus(api):
     state = status.get("input_state") or {}
     if state.get("held_keys") != [] or state.get("active") or state.get("queued"):
         raise RuntimeError("Input must be released and idle")
-    if not status.get("focused"):
-        if not api.command("focus_game", {"click_fallback": True}).get("focused"):
-            raise RuntimeError("Guarded focus failed; no retry")
+    # Cached capture status can still say focused just after the operator clicks the GUI.
+    if not api.command("focus_game", {"click_fallback": True}).get("focused"):
+        raise RuntimeError("Guarded focus failed; no retry")
     return api.status()
 
 

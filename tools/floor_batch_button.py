@@ -9,7 +9,7 @@ from tkinter.scrolledtext import ScrolledText
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def main():
+def main(*, runner=subprocess.run, on_ready=None):
     window = tk.Tk()
     window.title("Floor-only combat check")
     window.geometry("640x340")
@@ -23,12 +23,14 @@ def main():
         output.insert("end", text + "\n")
         output.see("end")
         busy = False
+        window.deiconify()
         button.config(state="normal")
 
     def worker():
         try:
-            result = subprocess.run(
-                [sys.executable, "-m", "tools.prepared_floor_check", "--run", "--focus"],
+            result = runner(
+                [str(Path(sys.executable).with_name("python.exe")), "-m",
+                 "tools.prepared_floor_check", "--run", "--focus"],
                 cwd=ROOT, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW)
             text = result.stdout + result.stderr
@@ -43,6 +45,7 @@ def main():
         busy = True
         button.config(state="disabled")
         output.insert("end", "Starting one guarded batch; restoring game focus...\n")
+        window.withdraw()
         threading.Thread(target=worker, daemon=True).start()
 
     button = tk.Button(window, text="Start one 60-second floor batch", command=start)
@@ -56,6 +59,8 @@ def main():
             window.destroy()
 
     window.protocol("WM_DELETE_WINDOW", close)
+    if on_ready is not None:
+        window.after(0, on_ready, window, button, output)
     window.mainloop()
 
 

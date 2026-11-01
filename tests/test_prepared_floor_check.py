@@ -49,3 +49,21 @@ def test_focus_uses_guarded_command_once_and_rejects_refusal():
     with pytest.raises(RuntimeError, match="no retry"):
         restore_focus(denied)
     assert len(denied.calls) == 1
+
+
+def test_focus_is_restored_even_when_cached_status_claims_focused():
+    from tools.prepared_floor_check import restore_focus
+
+    class Api:
+        calls = []
+
+        def status(self):
+            return ready()
+
+        def command(self, name, payload):
+            self.calls.append(name)
+            return {"focused": True}
+
+    api = Api()
+    assert restore_focus(api)["focused"]
+    assert api.calls == ["focus_game"]
