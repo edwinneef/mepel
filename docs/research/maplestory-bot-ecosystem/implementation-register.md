@@ -10,22 +10,22 @@ All 16 original reports and the dirty AGENTS.md/CLAUDE.md pointers are preserved
 
 | ID | Finding | Phase | Disposition | Source |
 | --- | --- | --- | --- | --- |
-| B01 | Independent occlusion/reacquisition benchmark | p2 | planned | [source](improvement-backlog.md#1-independent-occlusionreacquisition-benchmark) |
+| B01 | Independent occlusion/reacquisition benchmark | p2 | implemented_offline | [source](improvement-backlog.md#1-independent-occlusionreacquisition-benchmark) |
 | B02 | Minimap-guided player search ROI | p5 | planned | [source](improvement-backlog.md#2-minimap-guided-player-search-roi) |
 | B03 | Marker/other-player consistency veto | p5 | planned | [source](improvement-backlog.md#3-markerother-player-consistency-veto) |
 | B04 | Calibrated confidence and ambiguity reporting | p5 | planned | [source](improvement-backlog.md#4-calibrated-confidence-and-ambiguity-reporting) |
-| B05 | Whole-pipeline tail-latency profiling | p3 | planned | [source](improvement-backlog.md#5-whole-pipeline-tail-latency-profiling) |
-| B06 | Recording completeness and write-error reporting | p3 | planned | [source](improvement-backlog.md#6-recording-completeness-and-write-error-reporting) |
-| B07 | Two-stage monster association experiment | p6 | planned | [source](improvement-backlog.md#7-two-stage-monster-association-experiment) |
-| B08 | Global assignment for crowded monster tracks | p6 | planned | [source](improvement-backlog.md#8-global-assignment-for-crowded-monster-tracks) |
+| B05 | Whole-pipeline tail-latency profiling | p3 | partial | [source](improvement-backlog.md#5-whole-pipeline-tail-latency-profiling) |
+| B06 | Recording completeness and write-error reporting | p3 | implemented_offline | [source](improvement-backlog.md#6-recording-completeness-and-write-error-reporting) |
+| B07 | Two-stage monster association experiment | p6 | experimented_not_promoted | [source](improvement-backlog.md#7-two-stage-monster-association-experiment) |
+| B08 | Global assignment for crowded monster tracks | p6 | experimented_not_promoted | [source](improvement-backlog.md#8-global-assignment-for-crowded-monster-tracks) |
 | B09 | Timestamp-aware bounded motion model | p5 | planned | [source](improvement-backlog.md#9-timestamp-aware-bounded-motion-model) |
 | B10 | Partial nametag morphology ablation | p5 | planned | [source](improvement-backlog.md#10-partial-nametag-morphology-ablation) |
 | B11 | Prediction-first local template verification | p5 | planned | [source](improvement-backlog.md#11-prediction-first-local-template-verification) |
-| B12 | Explicit observation-age contracts across consumers | p3 | planned | [source](improvement-backlog.md#12-explicit-observation-age-contracts-across-consumers) |
+| B12 | Explicit observation-age contracts across consumers | p3 | partial | [source](improvement-backlog.md#12-explicit-observation-age-contracts-across-consumers) |
 | B13 | Combat feedback evidence ladder | p6 | planned | [source](improvement-backlog.md#13-combat-feedback-evidence-ladder) |
-| B14 | Matched-map projection/quantization corpus | p4 | planned | [source](improvement-backlog.md#14-matched-map-projectionquantization-corpus) |
+| B14 | Matched-map projection/quantization corpus | p4 | partial | [source](improvement-backlog.md#14-matched-map-projectionquantization-corpus) |
 | B15 | Navigation failure taxonomy and replay coverage | p7 | planned | [source](improvement-backlog.md#15-navigation-failure-taxonomy-and-replay-coverage) |
-| B16 | Movement-proof provenance audit/extension | p4 | planned | [source](improvement-backlog.md#16-movement-proof-provenance-auditextension) |
+| B16 | Movement-proof provenance audit/extension | p4 | audited_deferred_migration | [source](improvement-backlog.md#16-movement-proof-provenance-auditextension) |
 | B17 | Multi-rate perception scheduling experiment | p8 | planned | [source](improvement-backlog.md#17-multi-rate-perception-scheduling-experiment) |
 | B18 | Alternate capture backend A/B evaluation | p8 | planned | [source](improvement-backlog.md#18-alternate-capture-backend-ab-evaluation) |
 | B19 | Lightweight learned monster detector experiment | p8 | planned | [source](improvement-backlog.md#19-lightweight-learned-monster-detector-experiment) |
@@ -36,8 +36,8 @@ All 16 original reports and the dirty AGENTS.md/CLAUDE.md pointers are preserved
 | X04 | Body fragments, masked points and appearance reidentification | p5 | planned | [source](player-tracking.md#recommended-incremental-work) |
 | X05 | Marker shapes, minimap motion, reset and stitching | p4 | planned | [source](navigation.md#minimap-versus-full-screen-localization) |
 | X06 | Route teaching/compression, physics, landing and boundaries | p7 | planned | [source](navigation.md#physics-boundaries-and-geometry) |
-| X07 | Paired visual evidence reports and uncertainty overlays | p2 | planned | [source](debugging.md#external-reporting-pattern) |
-| X08 | Cancellation contracts, ticket timeline and recovery reasons | p3 | planned | [source](input-and-automation.md#practical-improvements-and-verification) |
+| X07 | Paired visual evidence reports and uncertainty overlays | p2 | implemented_offline | [source](debugging.md#external-reporting-pattern) |
+| X08 | Cancellation contracts, ticket timeline and recovery reasons | p3 | partial | [source](input-and-automation.md#practical-improvements-and-verification) |
 | X09 | Template caches, buffer ownership, worker counts and cadence | p8 | planned | [source](performance.md#optimization-comparison) |
 | X10 | Scale/features/differencing/background/OCR alternatives | p8 | planned | [source](computer-vision.md#recognition-choices) |
 | X11 | Code, model, data and dependency provenance | p8 | planned | [source](repositories.md#licensing-and-maturity-interpretation) |
@@ -119,3 +119,5 @@ Coverage/handoff audit. Depends on: p8.
 ## Evidence log
 
 - p1: Created 33 stable entries (20 backlog, 12 supplementary groups, one unfinished combat outcome); all 16 reports mapped. Original report/instruction hashes recorded; acceptance source text retained. No app changes or live runs.
+
+- p2/p3/p4/p6 offline evidence and remaining limits: [implementation-evidence.md](implementation-evidence.md). P3 contracts and later ready phases continue; no live authorization.

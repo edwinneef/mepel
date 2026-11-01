@@ -17,6 +17,9 @@ from typing import Any
 
 from .config import RecordingConfig
 
+WRITER_ERROR_LIMIT = 8
+WRITER_ERROR_MESSAGE_LIMIT = 512
+
 
 class SessionRecorder:
     def __init__(self, root: Path, config: RecordingConfig, fps: float) -> None:
@@ -36,6 +39,13 @@ class SessionRecorder:
         self.events = 0
         self.dropped = 0
         self.pending = 0
+        # Lifetime counters must survive session switches while older writes are pending.
+        self.writer_pending = dict.fromkeys(("frame", "line", "mkdir", "potion_done"), 0)
+        self.writer_errors = dict.fromkeys(("frame", "line", "mkdir"), 0)
+        self.writer_recent_errors: deque[dict] = deque(maxlen=WRITER_ERROR_LIMIT)
+        self.writer_active: dict | None = None
+        self.writer_last_success: dict | None = None
+        self.writer_dropped_frames = 0
         self.potion_paths: set[Path] = set()
         self.lock = threading.RLock()
         self.jobs: queue.Queue[tuple[str, Path, Any] | None] = queue.Queue()
@@ -64,7 +74,7 @@ class SessionRecorder:
                 path, lines = self.path, []
         # Pre-roll: buffered frames may be flushed later, so log their decisions too.
         for line in lines:
-            self.jobs.put(("line", path / "decisions.jsonl", line))
+            self._enqueue("line", path / "decisions.jsonl", line)
         return path
 
     def stop(self) -> Path | None:
@@ -112,7 +122,7 @@ class SessionRecorder:
             if keyframe:
                 self.last_keyframe = now
             closing = self.closing
-        self.jobs.put(("line", path / "decisions.jsonl", line))
+        self._enqueue("line", path / "decisions.jsonl", line)
         if frame:
             self._frame(path, stem, raw)
         if closing:
@@ -136,13 +146,15 @@ class SessionRecorder:
         for stem, raw, _ in frames:
             self._frame(path, stem, raw)
         event = {"time": round(time.time(), 3), "reason": reason}
-        self.jobs.put(("line", path / "events.jsonl", json.dumps(event) + "\n"))
+        self._enqueue("line", path / "events.jsonl", json.dumps(event) + "\n")
         if clip:
             self.stop()
         return path
 
     def snapshot(self) -> dict:
         with self.lock:
+            pending = sum(self.writer_pending.values())
+            incomplete = any(self.writer_errors.values()) or self.writer_dropped_frames > 0
             return {
                 "path": str(self.path) if self.path else None,
                 "full": self.full,
@@ -152,6 +164,27 @@ class SessionRecorder:
                 ),
                 "events": self.events,
                 "dropped": self.dropped,
+                "writer": {
+                    "scope": "recorder_lifetime",
+                    # Complete means requested jobs drained without known loss, not fsync
+                    # durability or coverage of frames the recording policy did not request.
+                    "status": (
+                        "incomplete" if incomplete else
+                        "pending" if pending or self.pending else "complete"
+                    ),
+                    "pending_jobs": pending,
+                    "pending_by_kind": dict(self.writer_pending),
+                    "pending_frames": self.pending,
+                    "active": dict(self.writer_active) if self.writer_active else None,
+                    "errors_by_kind": dict(self.writer_errors),
+                    "recent_errors": [dict(error) for error in self.writer_recent_errors],
+                    "error_history_limit": WRITER_ERROR_LIMIT,
+                    "dropped_frames": self.writer_dropped_frames,
+                    "last_success": (
+                        dict(self.writer_last_success) if self.writer_last_success else None
+                    ),
+                    "thread_alive": self.writer.is_alive(),
+                },
             }
 
     def save_potion(self, record: dict, frames: list) -> None:
@@ -160,14 +193,14 @@ class SessionRecorder:
         if record["status"] == "queued":
             with self.lock:
                 self.potion_paths.add(path)
-            self.jobs.put(("mkdir", path, None))
+            self._enqueue("mkdir", path, None)
         for frame in frames:
             self._frame(path, frame.stem, frame.raw, deduplicate=False)
             line = json.dumps({"frame": f"{frame.stem}.png", **frame.status}) + "\n"
-            self.jobs.put(("line", path / "decisions.jsonl", line))
-        self.jobs.put(("line", path / "potion-evidence.jsonl", json.dumps(record) + "\n"))
+            self._enqueue("line", path / "decisions.jsonl", line)
+        self._enqueue("line", path / "potion-evidence.jsonl", json.dumps(record) + "\n")
         if record["status"] not in {"queued", "awaiting_observation"}:
-            self.jobs.put(("potion_done", path, None))
+            self._enqueue("potion_done", path, None)
 
     def close(self) -> None:
         self.stop()
@@ -180,15 +213,23 @@ class SessionRecorder:
                 return
             if self.pending >= self.config.max_queue_frames:
                 self.dropped += 1
+                self.writer_dropped_frames += 1
                 return
             self.pending += 1
             if deduplicate:
                 self.written.add(stem)
-        self.jobs.put(("frame", path / f"{stem}.png", raw))
+        self._enqueue("frame", path / f"{stem}.png", raw)
+
+    def _enqueue(self, kind: str, path: Path, data: Any) -> None:
+        with self.lock:
+            self.writer_pending[kind] += 1
+            self.jobs.put((kind, path, data))
 
     def _write(self) -> None:
         while (job := self.jobs.get()) is not None:
             kind, path, data = job
+            with self.lock:
+                self.writer_active = {"kind": kind, "path": str(path)}
             try:
                 if kind == "frame":
                     path.write_bytes(data)
@@ -200,11 +241,22 @@ class SessionRecorder:
                 elif kind == "line":
                     with path.open("a", encoding="utf-8") as handle:
                         handle.write(data)
-            except OSError:
-                if kind == "frame":
-                    with self.lock:
+            except OSError as error:
+                with self.lock:
+                    self.writer_errors[kind] += 1
+                    self.writer_recent_errors.append({
+                        "kind": kind, "path": str(path), "errno": error.errno,
+                        "message": str(error)[:WRITER_ERROR_MESSAGE_LIMIT],
+                    })
+                    if kind == "frame":
                         self.dropped += 1
+                        self.writer_dropped_frames += 1
+            else:
+                with self.lock:
+                    self.writer_last_success = {"kind": kind, "path": str(path)}
             finally:
-                if kind == "frame":
-                    with self.lock:
+                with self.lock:
+                    self.writer_active = None
+                    self.writer_pending[kind] -= 1
+                    if kind == "frame":
                         self.pending -= 1

@@ -1,13 +1,15 @@
 import json
 import os
+import threading
 import time
+from pathlib import Path
 
 import pytest
 from test_keyboard import controller as _controller
 
 from maplebot.config import RecordingConfig, TimingConfig
 from maplebot.decision import Action
-from maplebot.recorder import SessionRecorder
+from maplebot.recorder import WRITER_ERROR_LIMIT, WRITER_ERROR_MESSAGE_LIMIT, SessionRecorder
 
 controller = _controller
 
@@ -133,6 +135,8 @@ def test_slow_writer_drops_frames_instead_of_blocking(recorder):
     recorder.trigger("incident", now=0.0)
     assert recorder.dropped == 4
     recorder.pending = 0
+    assert recorder.snapshot()["writer"]["status"] == "incomplete"
+    assert recorder.snapshot()["writer"]["dropped_frames"] == 4
 
 
 @pytest.mark.parametrize("recording_kind", ["session", "clip", "full", "potion"])
@@ -205,3 +209,119 @@ def test_timed_full_recording_saves_every_frame_then_stops_by_itself(recorder):
     assert sorted(item.stem for item in path.glob("*.png")) == ["00000000", "00000001", "00000002"]
     lines = (path / "decisions.jsonl").read_text("utf-8").splitlines()
     assert json.loads(lines[-1])["frame"] == "00000003.png"
+
+
+@pytest.mark.parametrize("kind", ["line", "frame", "mkdir"])
+def test_writer_reports_each_write_failure_and_continues(recorder, monkeypatch, kind):
+    path = recorder.root / "potion-fault" if kind == "mkdir" else recorder.start_full()
+    target = path if kind == "mkdir" else path / (
+        "decisions.jsonl" if kind == "line" else "00000000.png"
+    )
+    method = {"line": "open", "frame": "write_bytes", "mkdir": "mkdir"}[kind]
+    original = getattr(Path, method)
+    failed = False
+
+    def fail_once(candidate, *args, **kwargs):
+        nonlocal failed
+        if candidate == target and not failed:
+            failed = True
+            raise OSError(28, "simulated disk full")
+        return original(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(Path, method, fail_once)
+    if kind == "mkdir":
+        recorder.save_potion({"recording": path.name, "status": "queued"}, [])
+    else:
+        feed(recorder, 0, 1)
+    flush(recorder)
+    status = recorder.snapshot()["writer"]
+    assert failed and status["status"] == "incomplete"
+    assert status["errors_by_kind"][kind] == 1
+    assert any(error["path"] == str(target) and error["errno"] == 28
+               for error in status["recent_errors"])
+    assert status["pending_jobs"] == 0 and status["pending_frames"] == 0
+
+    # A later independent write succeeds, while prior evidence loss remains visible.
+    if kind == "mkdir":
+        recorder.save_potion({"recording": path.name, "status": "queued"}, [])
+        recorder.save_potion({"recording": path.name, "status": "finished"}, [])
+    else:
+        feed(recorder, 1, 1)
+    recorder.close()
+    status = recorder.snapshot()["writer"]
+    assert status["status"] == "incomplete" and not status["thread_alive"]
+    assert status["pending_jobs"] == 0 and status["active"] is None
+    assert status["last_success"] is not None
+    if kind == "mkdir":
+        assert (path / "potion-evidence.jsonl").exists()
+        assert not recorder.potion_paths
+    else:
+        assert (path / "00000001.png").read_bytes() == b"png"
+        lines = (path / "decisions.jsonl").read_text("utf-8").splitlines()
+        assert json.loads(lines[-1])["frame"] == "00000001.png"
+    assert status["dropped_frames"] == (1 if kind == "frame" else 0)
+
+
+def test_writer_backlog_includes_active_job_and_stop_does_not_wait(recorder, monkeypatch):
+    path = recorder.start("backlog")
+    target = path / "decisions.jsonl"
+    entered, release = threading.Event(), threading.Event()
+    original = Path.open
+
+    def blocked_open(candidate, *args, **kwargs):
+        if candidate == target:
+            entered.set()
+            assert release.wait(timeout=3), "test did not release writer"
+        return original(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", blocked_open)
+    try:
+        feed(recorder, 0, 1)
+        assert entered.wait(timeout=2)
+        feed(recorder, 1, 3)
+        status = recorder.snapshot()["writer"]
+        assert status["status"] == "pending"
+        assert status["pending_jobs"] == status["pending_by_kind"]["line"] == 4
+        assert status["active"] == {"kind": "line", "path": str(target)}
+        assert recorder.stop() == path
+        assert not recorder.active and not release.is_set()
+        assert recorder.snapshot()["writer"]["pending_jobs"] == 4
+    finally:
+        release.set()
+        recorder.close()
+    status = recorder.snapshot()["writer"]
+    assert status["status"] == "complete" and status["pending_jobs"] == 0
+    assert status["active"] is None and not status["thread_alive"]
+    assert len(target.read_text("utf-8").splitlines()) == 4
+
+
+def test_writer_error_history_is_bounded_and_survives_new_sessions(recorder, monkeypatch):
+    path = recorder.start("failed-evidence")
+    target = path / "decisions.jsonl"
+    original = Path.open
+
+    def failed_open(candidate, *args, **kwargs):
+        if candidate == target:
+            raise OSError(28, "x" * (WRITER_ERROR_MESSAGE_LIMIT + 100))
+        return original(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", failed_open)
+    count = WRITER_ERROR_LIMIT + 3
+    feed(recorder, 0, count)
+    flush(recorder)
+    recorder.stop()
+    next_path = recorder.start("healthy-evidence")
+    feed(recorder, count, 1)
+    recorder.close()
+    status = recorder.snapshot()["writer"]
+    assert status["scope"] == "recorder_lifetime" and status["status"] == "incomplete"
+    assert status["errors_by_kind"]["line"] == count
+    assert len(status["recent_errors"]) == status["error_history_limit"] == WRITER_ERROR_LIMIT
+    assert all(len(error["message"]) <= WRITER_ERROR_MESSAGE_LIMIT
+               for error in status["recent_errors"])
+    assert status["last_success"]["path"] == str(next_path / "decisions.jsonl")
+    status["recent_errors"][0]["kind"] = "changed copy"
+    status["errors_by_kind"]["line"] = 0
+    again = recorder.snapshot()["writer"]
+    assert again["errors_by_kind"]["line"] == count
+    assert again["recent_errors"][0]["kind"] == "line"
