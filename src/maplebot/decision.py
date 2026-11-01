@@ -313,9 +313,16 @@ class Agent:
                 )
             self.last_distance = abs(dx)
             self.state, self.facing = State.APPROACH, direction
+            # A retreating enemy can outpace 0.12s taps separated by capture/dispatch.
+            # Increase only this observed pursuit pulse; retain the gap stall guard.
+            seconds = self.config.movement_seconds
+            retreating = closing <= -APPROACHING_PX
+            if retreating:
+                seconds = max(seconds, min(seconds * 2, 0.24))
             return self._result(
+                "Bounded retreating-target pursuit, then observe again" if retreating else
                 "Short approach step, then observe again",
-                Action(direction, self.config.movement_seconds),
+                Action(direction, seconds),
             )
         outcome = policy_input.last_outcome
         approached_facing_target = (

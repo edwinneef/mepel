@@ -511,3 +511,34 @@ def test_a_clearly_nearer_target_replaces_the_current_one_instead_of_walking_thr
     agent.start()
     agent.step(scene([entity(x=300)]), 0)
     assert "retargeting" not in agent.step(scene([entity(x=300), entity(x=290)]), .2).reason
+
+
+@pytest.mark.parametrize("direction", [1, -1])
+def test_retreating_target_gets_bounded_pulse_and_still_stops_if_gap_grows(direction):
+    agent = Agent(AgentConfig(attack_range=65))
+    agent.start()
+    # Recorded failure: player +70px, enemy +109px, growing gap despite movement.
+    pairs = [(996, 1101.5), (1010, 1142.5), (1026, 1161.5),
+             (1050, 1188.5), (1066, 1210.5), (1082, 1230)]
+    def observation(pair):
+        px, tx = pair
+        return scene([entity(x=100 + direction * (tx - 996))],
+                     player=entity("player", x=100 + direction * (px - 996)))
+    agent.step(observation(pairs[0]), 0)
+    agent.step(observation(pairs[0]), .1)
+    for index, pair in enumerate(pairs[1:5], 1):
+        result = agent.step(observation(pair), index * .3)
+        assert result.action.kind == ("right" if direction == 1 else "left")
+        assert result.action.seconds == .24
+    result = agent.step(observation(pairs[5]), 2)
+    assert result.state == State.IDLE and result.action.kind == "release"
+    assert "5 observations" in result.reason
+
+
+def test_camera_pan_alone_does_not_enable_longer_pursuit():
+    agent = Agent(AgentConfig())
+    agent.start()
+    agent.step(scene([entity(x=300)]), 0)
+    result = agent.step(scene([entity(x=320)], player=entity("player", x=120),
+                              shift=(20, 0)), .1)
+    assert result.action.seconds == .12
