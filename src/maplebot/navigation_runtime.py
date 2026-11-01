@@ -645,6 +645,7 @@ class NavigationRuntime:
                                              - (time.perf_counter() - self.recovery["started"]))
                     if self.recovery else 0, "events": self.recovery_log[-16:]}
         return {**value, "map": self.graph.snapshot() if self.graph else None,
+                "code": getattr(self, "code_revision", None),
                 "recovery": recovery,
                 **({"stage": "reacquire_player", "reason": self.reason} if self.recovery else {}),
                 "feedback": self.feedback_status(),

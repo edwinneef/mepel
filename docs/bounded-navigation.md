@@ -1,5 +1,24 @@
 # Bounded navigation
 
+## Reload navigation code without restarting
+
+With Bot Off and all input released, run:
+
+```powershell
+.\.venv\Scripts\python.exe -m tools.reload_navigation
+```
+
+This replaces `navigation.py`, `navigation_executor.py`, `short_walk.py` and
+`navigation_runtime.py` together. It refuses active gameplay, probes, held keys,
+leases or pending input. Invalid source retains the previous navigation bundle.
+The engine session, capture, tracked map, calibration, confirmed controls, alarms,
+proofs and failed-move exclusions remain in place. The current route and feedback
+are cleared; preview a fresh route before starting again. Source hashes appear in
+the response and `navigation.code` status. Reload sends no input and never resumes
+gameplay or acknowledges an alarm. Changes outside these four files still need
+the normal engine restart. The command is also available as `nav_reload_code` on
+the existing authenticated debugger API.
+
 Navigation → Routes loads recorded movement evidence for the tracked saved map.
 Choose an origin and destination, then Preview route. Every place shows its name
 and stable P/R label. Unknown position permits a hypothetical preview, never input.

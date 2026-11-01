@@ -1132,6 +1132,9 @@ class Application:
             return self.request_probe(payload)
         if name == "confirm_controls":
             raise ValueError("Use the per-probe confirmation controls")
+        if name == "nav_reload_code":
+            from .navigation_reload import reload_navigation
+            return reload_navigation(self)
         if name == "nav_go":
             return self.navigation.go(
                 context, str(payload.get("target", "")), payload.get("opt_in") is True
