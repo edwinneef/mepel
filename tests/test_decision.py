@@ -490,12 +490,12 @@ def test_target_walking_toward_the_player_is_awaited_then_attacked_without_refac
     assert attack.action.kind == "attack"
 
 
-def test_a_stationary_target_is_still_approached_in_short_steps():
+def test_far_stationary_target_uses_bounded_longer_steps():
     agent = Agent(AgentConfig(range_profile="custom", attack_min_range=0, attack_range=65))
     agent.start()
     agent.step(scene([entity(x=300)]), 0)
     step = agent.step(scene([entity(x=300)]), .2)
-    assert step.action.kind == "right" and step.action.seconds == .12
+    assert step.action.kind == "right" and step.action.seconds == .24
 
 
 def test_a_clearly_nearer_target_replaces_the_current_one_instead_of_walking_through_it():
@@ -541,4 +541,47 @@ def test_camera_pan_alone_does_not_enable_longer_pursuit():
     agent.step(scene([entity(x=300)]), 0)
     result = agent.step(scene([entity(x=320)], player=entity("player", x=120),
                               shift=(20, 0)), .1)
-    assert result.action.seconds == .12
+    assert result.action.seconds == .24
+    assert "retreating" not in result.reason
+
+
+def test_verified_attack_repeats_at_cooldown_without_extra_release_or_facing():
+    agent = Agent(AgentConfig(attack_range=65))
+    agent.start()
+    obs = scene([entity(x=150)])
+    agent.step(obs, 0)
+    agent.step(obs, .1)
+    assert agent.step(obs, .2).action.kind == "attack"
+    assert agent.step(obs, agent.verify_until - .01).action.kind == "release"
+    assert agent.step(obs, agent.verify_until).action.kind == "attack"
+
+
+def test_close_target_is_not_dropped_for_marginally_nearer_enemy():
+    agent = Agent(AgentConfig(attack_range=65))
+    agent.start()
+    original = tracked_entity(x=160, track_id="stable")
+    agent.step(scene([original]), 0)
+    result = agent.step(scene([original, tracked_entity(x=125, track_id="other")]), .1)
+    assert result.target.track_id == "stable"
+
+
+def test_brief_occlusion_preserves_identity_without_sending_movement():
+    agent = Agent(AgentConfig(attack_range=65))
+    agent.start()
+    original = tracked_entity(x=300, track_id="stable")
+    agent.step(scene([original]), 0)
+    for now in (.1, .2):
+        result = agent.step(scene([]), now)
+        assert result.target.track_id == "stable"
+        assert result.action.kind == "release"
+    assert agent.step(scene([]), .3).state == State.SEARCH
+
+
+def test_far_approach_is_longer_but_near_boundary_stays_short():
+    agent = Agent(AgentConfig(attack_range=65))
+    agent.start()
+    obs = scene([entity(x=300)])
+    agent.step(obs, 0)
+    assert agent.step(obs, .1).action.seconds == .24
+    near = scene([entity(x=300)], player=entity("player", x=220))
+    assert agent.step(near, .2).action.seconds == .12

@@ -264,12 +264,20 @@ class Agent:
                 if now < self.verify_until or self.missing_frames < 3:
                     return self._result("Target absent; awaiting further visual evidence")
                 return self._search("Target absent for 3 frames after attack; kill unconfirmed")
+            # Brief overlap near terrain/other sprites must not discard a known track.
+            # Release while unseen; this grants neither movement nor speculative attacks.
+            if (self.target.track_id and self.target_seen_at is not None
+                    and not observation.enemy_tracks
+                    and 0 <= now - self.target_seen_at <= OCCLUDED_ATTACK_SECONDS):
+                self.missing_frames += 1
+                if self.missing_frames < 3:
+                    return self._result("Target briefly obscured; hold identity and release")
             return self._search("Target missing or below confidence; waiting for a fresh target")
         previous, self.target = expected, match
         self.missing_frames, self.target_seen_at = 0, now
         dx = match.box.center[0] - player.box.center[0]
         direction = "right" if dx >= 0 else "left"
-        if self.state == State.APPROACH:
+        if self.state == State.APPROACH and abs(dx) > self.config.attack_range:
             nearer = [item for item in candidates if item is not match and abs(
                 item.box.center[0] - player.box.center[0]) < abs(dx) - RETARGET_MARGIN]
             if nearer:
@@ -286,7 +294,9 @@ class Agent:
             if self.attempts >= self.config.max_attack_attempts:
                 return self.stop("Attack limit reached without confirmed target disappearance")
             self.state = State.APPROACH
-            return self._result("Target remains visible; reacquire range")
+            # The previous attack established facing. Reuse it if the target stayed
+            # on that side; perform the range check and next attack in this frame.
+            self.ready_facing = self.facing == direction
         if abs(dx) < self.config.attack_min_range:
             return self.stop("Target inside minimum attack range; reposition manually")
         if abs(dx) > self.config.attack_range:
@@ -317,7 +327,8 @@ class Agent:
             # Increase only this observed pursuit pulse; retain the gap stall guard.
             seconds = self.config.movement_seconds
             retreating = closing <= -APPROACHING_PX
-            if retreating:
+            far = abs(dx) > max(self.config.attack_range * 2, 130)
+            if retreating or far:
                 seconds = max(seconds, min(seconds * 2, 0.24))
             return self._result(
                 "Bounded retreating-target pursuit, then observe again" if retreating else
