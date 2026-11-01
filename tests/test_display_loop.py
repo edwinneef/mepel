@@ -164,6 +164,33 @@ def test_late_recognition_refreshes_boxes_before_they_expire():
     assert shown and all(count == 1 for count in shown)
 
 
+def test_an_animating_sprite_keeps_pace_at_recognition_speed():
+    # Ever-changing animation frames defeat patch matching, as a hopping slime does.
+    # Recognition (every 0.25 s, arriving 0.2 s late) measures its 90 px/s walk.
+    tracks = DisplayTracks()
+
+    def truth(t):
+        return 200 + 90 * t
+
+    def frame(t):
+        return scene([((round(truth(t)), 300), 10 + int(t * 7))])
+
+    pending = [(c / 4 + .2, c / 4) for c in range(16)]
+    errors = []
+    for step in range(int(4 * 30)):
+        now = step / 30
+        tracks.update(cv2.cvtColor(frame(now), cv2.COLOR_BGR2GRAY), now)
+        while pending and pending[0][0] <= now:
+            _, captured = pending.pop(0)
+            item = {**monster(round(truth(captured)), 300), "track_id": "enemy:1"}
+            tracks.anchor(drawing(f"r{captured}", captured, [item]), frame(captured))
+        if now >= .75:
+            drawn = tracks.items(now)[1]
+            assert drawn, now
+            errors.append(abs(drawn[0]["box"]["x"] - truth(now)))
+    assert np.median(errors) <= 10 and max(errors) <= 40
+
+
 class FakeCapture:
     def __init__(self, frames):
         self.frames = frames

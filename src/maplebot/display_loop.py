@@ -53,6 +53,11 @@ class Track:
     vx: float = 0.0
     vy: float = 0.0
     history: deque = field(default_factory=lambda: deque(maxlen=90))
+    # Recognition's last box centre (capture time, x, y) and the speed between its last two.
+    recognized: tuple[float, float, float] | None = None
+    rvx: float = 0.0
+    rvy: float = 0.0
+    predicted: bool = False  # this frame's place came from recognition speed, not pixels
 
     def at(self, moment: float) -> tuple[float, float]:
         """Top-left at the history sample closest to a recognition timestamp."""
@@ -72,6 +77,12 @@ class DisplayTracks:
     SCORE = 0.6
     REFRESH = 0.8  # confident matches refresh the patch; recognition bounds any drift
     SPEED = 600.0  # px/s of search margin around a prediction
+    # Animated sprites (a hopping slime squashes and stretches) defeat patch matching. Then
+    # the box keeps moving at the speed recognition measured, for at most PREDICT seconds
+    # past the recognition frame, instead of freezing behind the monster.
+    PREDICT = 0.6
+    WALK = 300.0  # px/s cap on a recognition-measured speed
+    FRESH = 0.1  # a patch match this recent outranks a late recognition box
     ASSOCIATE = 48.0
     AMBIGUOUS = 16.0
 
@@ -105,9 +116,16 @@ class DisplayTracks:
             dt = max(0.0, now - track.updated)
             px, py = track.x + track.vx * dt, track.y + track.vy * dt
             found = self._search(gray, track.template, px, py, min(120.0, 12 + self.SPEED * dt))
-            if found is None:
+            recognized = track.recognized
+            if found is None and recognized is not None and (track.rvx or track.rvy) \
+                    and now - recognized[0] <= self.PREDICT:
+                track.x, track.y = track.x + track.rvx * dt, track.y + track.rvy * dt
+                track.vx, track.vy, track.seen, track.predicted = track.rvx, track.rvy, now, True
+            elif found is None:
                 track.vx = track.vy = 0.0
+                track.predicted = False
             else:
+                track.predicted = False
                 if dt > 0:
                     track.vx = float(np.clip(0.5 * track.vx + 0.5 * (found[0] - track.x) / dt,
                                              -self.SPEED, self.SPEED))
@@ -183,22 +201,38 @@ class DisplayTracks:
                 key = f"monster:{self.count}"
             old = self.tracks.get(key)
             template = gray[top:bottom, left:right].copy()
+            recognized = (moment, (left + right) / 2, (top + bottom) / 2)
             if (old is not None and self.gray is not None and self.time is not None
                     and self.time - old.seen <= self.VISIBLE):
-                # Recognition describes an older frame. A live track keeps its current
-                # place instead of snapping back; only its patch and identity refresh.
+                rvx, rvy = self._speed(old.recognized, recognized)
                 h, w = template.shape
-                cx = old.x + old.template.shape[1] / 2 - w / 2
-                cy = old.y + old.template.shape[0] / 2 - h / 2
+                if self.time - old.seen <= self.FRESH and not old.predicted:
+                    # Recognition describes an older frame. A live track keeps its current
+                    # place instead of snapping back; only its patch and identity refresh.
+                    cx = old.x + old.template.shape[1] / 2 - w / 2
+                    cy = old.y + old.template.shape[0] / 2 - h / 2
+                else:
+                    # Pixels lost this sprite: recognition, carried forward at its speed.
+                    ahead = max(0.0, self.time - moment)
+                    cx, cy = left + rvx * ahead, top + rvy * ahead
+                    old.template, old.x, old.y = template, cx, cy
+                    old.predicted = True
+                    if ahead <= self.PREDICT:
+                        old.seen = self.time
                 found = self._search(self.gray, template, cx, cy, 16.0)
                 if found is not None:
                     old.template, old.x, old.y, old.seen = template, found[0], found[1], self.time
-                    old.history.append((self.time, old.x, old.y))
+                    old.predicted = False
+                old.history.append((self.time, old.x, old.y))
                 old.detection, old.identity, old.anchored = item, identity(item), arrival
+                old.recognized, old.rvx, old.rvy = recognized, rvx, rvy
                 tracks[key] = old
             else:
                 track = Track(key, kind, identity(item), item, template, float(left), float(top),
                               moment, arrival, moment)
+                track.recognized = recognized
+                if old is not None:  # Same identity whose box went stale: keep its speed.
+                    track.rvx, track.rvy = self._speed(old.recognized, recognized)
                 track.history.append((moment, track.x, track.y))
                 if self.gray is not None and self.time is not None and self.time > moment:
                     # Bring the recognition box forward to the newest displayed frame.
@@ -240,6 +274,14 @@ class DisplayTracks:
                    for x, y in map(center, tracks.values())):
                 tracks[key] = old
         self.tracks = tracks
+
+    def _speed(self, previous: tuple | None, current: tuple) -> tuple[float, float]:
+        """Box-centre speed between two recognition results of one track, or zero."""
+        if previous is None or not 0.05 <= current[0] - previous[0] <= 1.0:
+            return 0.0, 0.0
+        dt = current[0] - previous[0]
+        return (float(np.clip((current[1] - previous[1]) / dt, -self.WALK, self.WALK)),
+                float(np.clip((current[2] - previous[2]) / dt, -self.WALK, self.WALK)))
 
     def boxes(self) -> tuple[Rect, ...]:
         return tuple(Rect(round(track.x), round(track.y), track.template.shape[1],
