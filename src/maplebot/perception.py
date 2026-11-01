@@ -292,6 +292,7 @@ class TemplateDetector:
         self.enemy_empty_observations = 0
         self.enemy_scan_frame = None
         self.enemy_tile = -1  # grid cell searched last; -1 before the first
+        self.enemy_cell: Rect | None = None  # the cell searched this frame, frame pixels
         self.enemy_scan_stage = "local"
         self.templates: list[Template] = []
         self.nametags: list[NameTag] = []
@@ -1119,6 +1120,7 @@ class TemplateDetector:
         player, monsters, failures, tag_confidence = self._observe_window(
             image, now, templates, floor, player_only=not monsters
         )
+        self.enemy_cell = None
         if search_enemies and not paused:
             monsters, failures = self._scan_tile(image, templates, floor, player, monsters,
                                                  failures)
@@ -1171,6 +1173,8 @@ class TemplateDetector:
             "predicted": asdict(predicted) if predicted else None,
             "observed": asdict(player.box) if player else None,
             "search": asdict(self.search_window) if self.search_window else None,
+            # Monsters were also searched here this frame (one grid cell outside the window).
+            "enemy_cell": asdict(self.enemy_cell) if self.enemy_cell else None,
             "confidence": round(float(player.confidence), 3) if player else 0.0,
             "identity": named or None,
             "since_confirmed": round(now - self.track[1], 3) if self.track else None,
@@ -1364,6 +1368,7 @@ class TemplateDetector:
         index, cell = next(((key, cell) for key, cell in cells if key > self.enemy_tile),
                            cells[0])
         self.enemy_tile, self.enemy_scan_stage = index, f"tile {index + 1}/{len(cells)}"
+        self.enemy_cell = cell
         crop = image[cell.y:cell.y + cell.height, cell.x:cell.x + cell.width]
         cache, area = self.masked_cache, self.player_area
         self.player_area = None

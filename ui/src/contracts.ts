@@ -16,6 +16,8 @@ export interface EnemyTrack {
 export interface PlayerTracking {
   state: 'confirmed' | 'tracked' | 'coasting' | 'lost';
   predicted: Rect | null; observed: Rect | null; search: Rect | null;
+  /** Grid cell outside the search window where monsters were also searched this frame. */
+  enemy_cell?: Rect | null;
   confidence: number; identity: string | null; since_confirmed: number | null;
 }
 export interface Frame {

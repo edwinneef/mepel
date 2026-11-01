@@ -64,7 +64,17 @@ def test_boxes_outside_the_searched_window_survive_until_their_cell_is_searched(
         result["player_tracking"] = {"search": local}
         tracks.anchor(result, image)
         assert {item["track_id"] for item in tracks.items(now)[1]} == {"enemy:1", "enemy:2"}
-    # A result that did search there still removes the box at once.
+    # A result whose enemy grid cell covered the far monster removes its box at once.
+    tracks.update(gray, 2.95)
+    tracks.anchor({**drawing("lost-cell", 2.95, [near]),
+                   "enemy_tracks": [{"track_id": "enemy:2", "state": "lost"}],
+                   "player_tracking": {"search": local,
+                                       "enemy_cell": {"x": 900, "y": 200, "width": 400,
+                                                      "height": 300}}}, image)
+    assert {item["track_id"] for item in tracks.items(2.95)[1]} == {"enemy:1"}
+    tracks.anchor(drawing("wide-again", 2.97, [near, far]), image)
+    assert {item["track_id"] for item in tracks.items(2.97)[1]} == {"enemy:1", "enemy:2"}
+    # A result that did search the whole frame also removes the box at once.
     tracks.update(gray, 3.0)
     full = drawing("full", 3.0, [near])
     full["enemy_tracks"] = [{"track_id": "enemy:2", "state": "lost"}]

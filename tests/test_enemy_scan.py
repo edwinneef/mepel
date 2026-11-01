@@ -32,6 +32,8 @@ def test_tiles_find_outside_roi_enemies_and_preserve_player(tmp_path, monkeypatc
             assert observation.player.box == first.player.box
             assert detector.search_window is not None  # the local window never widens
             stages.append(detector.enemy_scan_stage)
+            cell = observation.player_tracking["enemy_cell"]
+            assert cell is not None and cell == {**cell, **vars(detector.enemy_cell)}
             found |= {(x.box.x, x.box.y) for x in observation.monsters if x.confidence > .99}
         assert {(1000, 350), (650, 100)} <= found
         assert all(stage.startswith("tile ") for stage in stages)

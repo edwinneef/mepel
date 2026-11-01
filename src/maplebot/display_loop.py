@@ -252,18 +252,20 @@ class DisplayTracks:
 
         # A single recognition miss keeps a visible track (and its ID) until its lifetime
         # ends, unless another track now covers the same place. Recognition's "not visible"
-        # only removes a box where this result actually searched: outside the player's
-        # search window the monster was not looked for, not found missing.
+        # only removes a box where this result actually searched: the player's search
+        # window and this frame's enemy grid cell. Elsewhere the monster was not looked for.
         hidden = {item["track_id"] for item in drawing.get("enemy_tracks") or []
                   if item["state"] != "visible"}
-        search = (drawing.get("player_tracking") or {}).get("search")
+        tracking = drawing.get("player_tracking") or {}
+        search, cell = tracking.get("search"), tracking.get("enemy_cell")
 
         def searched(track: Track) -> bool:
             if not search:
                 return True
             x, y = center(track)
-            return (search["x"] <= x <= search["x"] + search["width"]
-                    and search["y"] <= y <= search["y"] + search["height"])
+            return any(area["x"] <= x <= area["x"] + area["width"]
+                       and area["y"] <= y <= area["y"] + area["height"]
+                       for area in (search, cell) if area)
 
         for key, old in self.tracks.items():
             if (key in tracks or (key in hidden and searched(old)) or self.time is None
