@@ -140,8 +140,18 @@ internal static class Program
             var raw = new[] { "info", "foothold", "ladderRope", "portal", "miniMap" }
                 .ToDictionary(name => name, name => Dump(map[name]
                     ?? throw new InvalidDataException($"Missing {name}")));
-            var marker = At(Image("Map/Map_000.wz", "MapHelper.img"), "minimap/user");
+            var helper = Image("Map/Map_000.wz", "MapHelper.img");
+            var marker = At(helper, "minimap/user");
+            // Only this map's placement records. Do not resolve artwork or open other maps.
+            var renderSections = map.WzProperties.Where(p => p.Name == "back"
+                || (p.Name.Length == 1 && p.Name[0] >= '0' && p.Name[0] <= '7'))
+                .ToDictionary(p => p.Name, p => Dump(p));
             var result = new { schema = 1, map_id = "000000060", raw,
+                render_sections = renderSections,
+                scene_entities = new[] { "life", "reactor" }
+                    .ToDictionary(name => name, name => Dump(map[name])),
+                portal_helper = Dump(helper["portal"]),
+                other_section_names = map.WzProperties.Select(p => p.Name).ToArray(),
                 marker = Dump(marker), archives,
                 minimap_canvas = ExportCanvas("Map/Map/Map0/Map0_000.wz", "000000060.img",
                     "miniMap/canvas", output, "minimap-canvas"),

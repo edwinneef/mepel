@@ -56,3 +56,7 @@ This bundle remains evaluation-only: no full-world render, independent actor pla
 native build identity, XY/contact/grip proof or fixture admission. Six reserve bundles and
 105 unnamed recording rows remain unresolved. It does not import saved maps, change
 alignment-corpus requirements, alter gameplay gates or authorize capture/live testing.
+
+Southperry artwork placement records are also retained in `raw.json` for dependency
+tracing. See `docs/southperry-render-dependencies.md` for the exact referenced images
+and the missing physical-archive indexes; these records do not contain the artwork.
