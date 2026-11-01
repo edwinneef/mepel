@@ -276,7 +276,7 @@ The two native smoke tools create and close their own temporary windows. Input s
 - `keyboard.py`: isolated, bounded Windows input and watchdog.
 - `input_timing.py`: backend-independent timing variation and compatible overlap scheduling.
 - `runtime.py`: ordered capture/decision/action loop, calibration and diagnostics.
-- `debugger.py`, `static/index.html`: loopback-only visual debugger and ROI selection.
+- `debugger.py`, `static/workbench/` (React workbench, built from `ui/`), `static/index.html` (original page at `/legacy`): loopback-only visual debugger and ROI selection.
 - `replay.py`: input-free replay and measured benchmarks.
 - `tests/`: detection, decisions, camera shifts, calibration, focus, emergency stop and key cleanup.
 
