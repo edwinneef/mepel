@@ -71,8 +71,8 @@ class DisplayTracks:
     # Seconds since a recognition result confirming the track reached the display. Counted
     # from arrival, not capture: results arrive late, so a capture-time clock expired boxes
     # just before each refresh and made the overlay blink. Monsters outside the player's
-    # search window are only re-confirmed by the wide scan about once a second.
-    LIFETIME = 1.5
+    # search window are re-confirmed once per cycle of the enemy-scan grid cells.
+    LIFETIME = 2.0
     VISIBLE = 0.5  # seconds since an image patch last confirmed the box
     SCORE = 0.6
     REFRESH = 0.8  # confident matches refresh the patch; recognition bounds any drift

@@ -197,6 +197,9 @@ TRACK_RADIUS, TRACK_SPEED, TRACK_MAX_RADIUS = 12, 240, 80
 PREDICTION_RESPONSE = 0.35
 PREDICTION_MAX_STEP = 40
 FULL_SCAN_EVERY = 4
+# Monsters outside the player's search window are searched one grid cell per frame, so
+# every frame costs about the same instead of a whole-frame scan once a second.
+TILE_COLUMNS, TILE_ROWS = 4, 2
 LOOKALIKE_SEPARATION = 30
 
 
@@ -288,7 +291,7 @@ class TemplateDetector:
         self.enemy_scan_context = None
         self.enemy_empty_observations = 0
         self.enemy_scan_frame = None
-        self.enemy_wide_at = float("-inf")
+        self.enemy_tile = -1  # grid cell searched last; -1 before the first
         self.enemy_scan_stage = "local"
         self.templates: list[Template] = []
         self.nametags: list[NameTag] = []
@@ -1104,14 +1107,9 @@ class TemplateDetector:
         if scan_context != self.enemy_scan_context:
             self.enemy_empty_observations = 0
             self.enemy_scan_frame = None
-            self.enemy_wide_at = float("-inf")
+            self.enemy_tile = -1
             self.enemy_scan_context = scan_context
         self.enemy_scan_stage = "local"
-        if (monsters and not paused and self.enemy_empty_observations >= 3
-                and now - self.enemy_wide_at >= 1.0):
-            self.enemy_scan_stage = "wide"
-            self.enemy_wide_at = now
-        self.catalog_info["enemy_scan_stage"] = self.enemy_scan_stage
         self.catalog_info["enemy_empty_observations"] = self.enemy_empty_observations
         waited = time.perf_counter()
         self._predict(*camera.result())
@@ -1121,6 +1119,10 @@ class TemplateDetector:
         player, monsters, failures, tag_confidence = self._observe_window(
             image, now, templates, floor, player_only=not monsters
         )
+        if search_enemies and not paused:
+            monsters, failures = self._scan_tile(image, templates, floor, player, monsters,
+                                                 failures)
+        self.catalog_info["enemy_scan_stage"] = self.enemy_scan_stage
         refreshed = time.perf_counter()
         self._learn_motion(now)
         self.previous_monsters = tuple(
@@ -1300,9 +1302,6 @@ class TemplateDetector:
             finally:
                 self.verifying = False
         window = self._window(image, player_only=player_only)
-        if not player_only and self.enemy_scan_stage == "wide" and self.track is not None:
-            # Keep the small player search area and all boxes in frame coordinates.
-            window = Rect(0, 0, image.shape[1], image.shape[0])
         self.origin = (0, 0)
         if window is None:
             return self._observe_full(image, now, templates, floor)
@@ -1333,6 +1332,59 @@ class TemplateDetector:
                 found[2].append("Player not found near the last confirmed position")
             return found
         return self._observe_full(image, now, templates, floor)
+
+    def _scan_tile(self, image: Image, templates: list[Template], floor: float,
+                   player: Detection | None, monsters: list[Detection], failures: list[str],
+                   ) -> tuple[list[Detection], list[str]]:
+        """Monsters in the next grid cell outside this frame's search window.
+
+        Cells are padded by the largest active sprite so a monster on a cell edge is
+        still whole in one cell. The same candidate search and floor apply; only the
+        player and name-tag searches are skipped there.
+        """
+        window = self.search_window
+        height, width = image.shape[:2]
+        species = [template for template in templates if template.kind == "monster"]
+        if window is None or not species:
+            return monsters, failures
+        pad = min(120, max(max(template.image.shape[:2]) for template in species))
+        cells = []
+        for row in range(TILE_ROWS):
+            for column in range(TILE_COLUMNS):
+                x0, x1 = column * width // TILE_COLUMNS, (column + 1) * width // TILE_COLUMNS
+                y0, y1 = row * height // TILE_ROWS, (row + 1) * height // TILE_ROWS
+                if window.contains(Rect(x0, y0, x1 - x0, y1 - y0)):
+                    continue  # The window search already covers this cell.
+                left, top = max(0, x0 - pad), max(0, y0 - pad)
+                right, bottom = min(width, x1 + pad), min(height, y1 + pad)
+                cells.append((row * TILE_COLUMNS + column, Rect(left, top, right - left,
+                                                                bottom - top)))
+        if not cells:
+            return monsters, failures
+        index, cell = next(((key, cell) for key, cell in cells if key > self.enemy_tile),
+                           cells[0])
+        self.enemy_tile, self.enemy_scan_stage = index, f"tile {index + 1}/{len(cells)}"
+        crop = image[cell.y:cell.y + cell.height, cell.x:cell.x + cell.width]
+        cache, area = self.masked_cache, self.player_area
+        self.player_area = None
+        try:
+            found = self._candidates(crop, cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), species, floor)
+        finally:
+            # The window search keeps its native-crop cache; a cell is not searched again soon.
+            self.masked_cache, self.player_area = cache, area
+        extra = [replace(item, box=item.box.translated(cell.x, cell.y))
+                 for item in self._suppress(found) if item.kind == "monster"]
+        if not extra:
+            return monsters, failures
+        merged = [item for item in self._suppress([*monsters, *extra])
+                  if not player or item.box.iou(player.box) < 0.5]
+        failures = [failure for failure in failures if failure not in (
+            "No visible monster template matches", "Monster matches below confidence threshold")]
+        if not merged:
+            failures.append("No visible monster template matches")
+        elif not any(item.confidence >= self.config.confidence for item in merged):
+            failures.append("Monster matches below confidence threshold")
+        return merged, failures
 
     def _observe_in(
         self, image: Image, window: Rect, now: float, templates: list[Template], floor: float,
