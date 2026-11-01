@@ -63,7 +63,10 @@ class Track:
 
 
 class DisplayTracks:
-    LIFETIME = 1.0  # seconds since recognition last confirmed the track
+    # Seconds since a recognition result confirming the track reached the display. Counted
+    # from arrival, not capture: results arrive about 0.5 s late, so a capture-time clock
+    # expired boxes just before each refresh and made the overlay blink.
+    LIFETIME = 1.0
     VISIBLE = 0.5  # seconds since an image patch last confirmed the box
     SCORE = 0.6
     REFRESH = 0.8  # confident matches refresh the patch; recognition bounds any drift
@@ -125,6 +128,7 @@ class DisplayTracks:
         if frame["id"] == self.frame_id or frame.get("captured_at") is None:
             return
         self.frame_id, moment = frame["id"], frame["captured_at"]
+        arrival = self.time if self.time is not None and self.time > moment else moment
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         items = ([("player", drawing["player"])] if drawing.get("player") else []) + [
             ("monster", item) for item in drawing.get("monsters") or []]
@@ -189,11 +193,11 @@ class DisplayTracks:
                 if found is not None:
                     old.template, old.x, old.y, old.seen = template, found[0], found[1], self.time
                     old.history.append((self.time, old.x, old.y))
-                old.detection, old.identity, old.anchored = item, identity(item), moment
+                old.detection, old.identity, old.anchored = item, identity(item), arrival
                 tracks[key] = old
             else:
                 track = Track(key, kind, identity(item), item, template, float(left), float(top),
-                              moment, moment, moment)
+                              moment, arrival, moment)
                 track.history.append((moment, track.x, track.y))
                 if self.gray is not None and self.time is not None and self.time > moment:
                     # Bring the recognition box forward to the newest displayed frame.

@@ -120,6 +120,24 @@ def test_tracks_hide_without_image_support_and_expire_without_recognition():
     assert tracks.tracks == {} and tracks.items(2.1) == (None, [], None)
 
 
+def test_late_recognition_refreshes_boxes_before_they_expire():
+    # Recognition arrives about 0.5 s after its capture, every 0.55 s.
+    tracks = DisplayTracks()
+    image = scene([((300, 300), 1)])
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    arrivals = [1.5, 2.05, 2.6, 3.15]
+    shown = []
+    for step in range(int(1.5 * 30), int(3.4 * 30)):
+        now = step / 30
+        tracks.update(gray, now)
+        while arrivals and arrivals[0] <= now:
+            arrival = arrivals.pop(0)
+            item = {**monster(300, 300), "track_id": "enemy:1"}
+            tracks.anchor(drawing(f"r{arrival}", arrival - .52, [item]), image)
+        shown.append(len(tracks.items(now)[1]))
+    assert shown and all(count == 1 for count in shown)
+
+
 class FakeCapture:
     def __init__(self, frames):
         self.frames = frames
