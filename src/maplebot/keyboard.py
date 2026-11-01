@@ -376,6 +376,30 @@ class KeyboardController:
             if self.active and self.active.ticket == ticket:
                 self.release_all()
 
+    def running_movement(self, ticket: int | None) -> str | None:
+        """Report facing evidence only after this plan actually pressed a movement key."""
+        with self.lock:
+            plan = self.active
+            if (plan is not None and plan.ticket == ticket
+                    and ticket not in self.cancelled_tickets
+                    and plan.action in {"left", "right"}
+                    and getattr(self.config, plan.action) in self.held):
+                return plan.action
+        return None
+
+    def cancel_movement_plans(self) -> set[int]:
+        """Brake queued/active approach steps without canceling attack or potion plans."""
+        with self.lock:
+            with self.queue.mutex:
+                plans = [entry[2] for entry in self.queue.queue if entry[2] is not None]
+            if self.active is not None:
+                plans.append(self.active)
+            tickets = {plan.ticket for plan in plans if plan.action in {"left", "right"}}
+            for ticket in tickets:
+                self.cancel_ticket(ticket)
+            self.release_movement()
+            return tickets
+
     def _cancelled(self, item: _QueuedPlan) -> bool:
         return self._cancelled_generation(item.generation)
 

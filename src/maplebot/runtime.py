@@ -1570,6 +1570,9 @@ class Application:
                 farm.next_feed = time.perf_counter() + farm.settings["feed_seconds"]
                 self.combat_evidence.record("queued", "pet_food", ticket=submitted)
                 return "deferred: pet food queued; effect unconfirmed"
+        if combat.kind in {"attack", "skill"}:
+            for ticket in self.controller.cancel_movement_plans():
+                self.arbiter.finished(ticket)
         choice = self.arbiter.choose(
             sustain=suggestion if suggestion in self.sustain else None, combat=combat
         )
@@ -1768,14 +1771,11 @@ class Application:
         self.detector.taught_map = bool(fix and fix.canvas)
         self.detector.strip = (self.navigation.search_strip(image.shape[1])
                                if self.mode in {"navigation", "navigation_wait"} else None)
-        # Moving between platforms and idle map tracking never target a monster;
-        # skipping that search keeps position fresh enough to start a route.
-        # Combat and dry runs always search.
+        # Navigation/probes prioritize position freshness; idle view keeps enemy outlines.
         movement_probe = (self.mode.startswith("probe") and self.active_probe is not None
                           and self.active_probe.action in {"left", "right", "up", "down", "jump"})
         self.monster_search = not (
-            movement_probe or self.mode in {"navigation", "navigation_wait"}
-            or (self.mode == "capture" and self.position is not None))
+            movement_probe or self.mode in {"navigation", "navigation_wait"})
         perception_began = time.perf_counter()
         observation = self.detector.detect(image, now, monsters=self.monster_search)
         perception_ms = (time.perf_counter() - perception_began) * 1000
@@ -2001,6 +2001,11 @@ class Application:
             if uncertain and not self.player_uncertain and self.recorder.active:
                 self.recorder.trigger("Player detection uncertain", time.perf_counter())
             self.player_uncertain = uncertain
+            if self.policy_outcome.get("status") == "pending":
+                movement = self.controller.running_movement(self.policy_outcome.get("ticket"))
+                if movement is not None:
+                    self.policy_outcome = {**self.policy_outcome, "status": "held",
+                                           "action": movement, "result": f"{movement} held"}
             policy_input = PolicyInput(
                 observation, policy_now, self.policy_outcome, self.mp_percent
             )

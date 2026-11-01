@@ -1639,6 +1639,57 @@ def test_potion_deferred_attack_does_not_advance_and_rechecks_target(potion_app,
         assert [key for key, down in app.controller.backend.events if down] == ["insert"]
 
 
+def test_in_range_attack_brakes_a_running_step_without_an_extra_facing_frame(app, monkeypatch):
+    from threading import Event
+
+    from maplebot.perception import Detection, Observation
+
+    player = Detection("player", Rect(100, 100, 24, 28), 1.0)
+    observation = Observation(player, [Detection("monster", Rect(200, 100, 24, 28), 1.0)])
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: observation)
+    monkeypatch.setattr("maplebot.runtime.annotate", lambda image, *args: image.copy())
+    app.controller.planner.config = replace(app.controller.planner.config, enabled=False)
+    down = Event()
+    send = app.controller.backend.send
+
+    def record(key, pressed):
+        send(key, pressed)
+        if key == "right" and pressed:
+            down.set()
+
+    monkeypatch.setattr(app.controller.backend, "send", record)
+    app.mode = "live"
+    app.stop_requested.clear()
+    app.controller.enable()
+    app.agent.start()
+    app._process(app.image, time.perf_counter())
+    app._process(app.image, time.perf_counter())
+    movement = app.policy_outcome["ticket"]
+    assert down.wait(1)
+    observation = Observation(player, [Detection("monster", Rect(150, 100, 24, 28), 1.0)])
+    _, status = app._process(app.image, time.perf_counter())
+    assert status["decision"]["action"]["kind"] == "attack"
+    assert movement not in app.arbiter.in_flight
+    deadline = time.perf_counter() + 1
+    while ("z", False) not in app.controller.backend.events:
+        assert time.perf_counter() < deadline
+        time.sleep(.005)
+    assert app.controller.backend.events == [("right", True), ("right", False),
+                                              ("z", True), ("z", False)]
+
+
+def test_attack_preemption_keeps_potion_priority(app, monkeypatch):
+    from maplebot.decision import Action
+
+    app.arbiter.submitted(7, "combat")
+    app.arbiter.submitted(8, "hp")
+    monkeypatch.setattr(app.controller, "cancel_movement_plans", lambda: {7})
+    result = app._arbitrate(Action("attack", .06), None)
+    assert result == "deferred: Combat waits for the potion key"
+    assert app.arbiter.in_flight == {8: "hp"}
+    assert app.controller.backend.events == []
+
+
 def test_distant_approach_renews_without_repeat_keydown_and_loss_releases(app, monkeypatch):
     from maplebot.perception import Detection, Observation
 
@@ -1708,10 +1759,10 @@ def test_potion_preempts_renewed_movement_before_its_keypress(potion_app):
 
 @pytest.mark.parametrize("mode, tracking, search", [
     ("capture", False, True), ("live", True, True), ("dry_run", True, True),
-    ("navigation", False, False), ("navigation_wait", False, False), ("capture", True, False),
+    ("navigation", False, False), ("navigation_wait", False, False), ("capture", True, True),
     ("probe_confirm", False, False),
 ])
-def test_monster_search_is_skipped_while_tracking_idle_or_navigating(
+def test_idle_tracks_enemies_but_navigation_and_movement_probes_skip_search(
         app, monkeypatch, mode, tracking, search):
     from maplebot.perception import Observation
 

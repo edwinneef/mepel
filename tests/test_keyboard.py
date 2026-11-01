@@ -32,6 +32,27 @@ def controller():
     controller.close()
 
 
+def test_movement_facing_requires_key_down_and_cancel_preserves_potion(controller):
+    control, backend, _ = controller
+    control.planner.config = replace(control.planner.config, enabled=False)
+    control.enable()
+    with control.lock:
+        movement = control.submit(Action("right", .25))
+        assert control.running_movement(movement) is None
+    assert backend.down.wait(1)
+    assert control.running_movement(movement) == "right"
+    potion = control.submit(Action("hp_potion", .04), priority=1)
+    assert control.cancel_movement_plans() == {movement}
+    assert control.running_movement(movement) is None
+    assert potion not in control.cancelled_tickets
+    assert backend.events[:2] == [("right", True), ("right", False)]
+    deadline = time.perf_counter() + 1
+    while ("insert", False) not in backend.events:
+        assert time.perf_counter() < deadline
+        time.sleep(.005)
+    assert ("insert", True) in backend.events
+
+
 def test_disabled_input_and_replay_send_no_keys(controller):
     control, backend, _ = controller
     assert control.execute(Action("right", 0.02)).startswith("blocked")
