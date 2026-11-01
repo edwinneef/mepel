@@ -164,3 +164,48 @@ def test_frame_bounds_win_over_partial_navy_background():
     image[72:173, 6:81] = (100, 60, 30)
     cv2.rectangle(image, (3, 71), (208, 173), (255, 255, 255), 1)
     assert find_canvas(image) == Rect(4, 72, 204, 101)
+
+
+def scrolling_view(picture, top, dot=(50, 30)):
+    """A white-framed 135 x 70 minimap showing a taller picture scrolled to row `top`."""
+    image = np.full((768, 1366, 3), SKY, np.uint8)
+    image[71:143, 3:140] = 255
+    canvas = np.full((70, 135, 3), (100, 60, 30), np.uint8)
+    canvas[:, 30:30 + picture.shape[1]] = picture[-top:-top + 70, :, :3]
+    image[72:142, 4:139] = canvas
+    x, y = dot
+    image[72 + y:72 + y + 6, 4 + x:4 + x + 6][DOT_SHAPE] = (0, 220, 255)
+    return image
+
+
+def tall_picture(seed=12, rows=150):
+    picture = np.random.default_rng(seed).integers(40, 230, (rows, 60, 4), dtype=np.uint8)
+    picture[..., 3] = 255
+    return picture
+
+
+def test_scrolling_minimap_corrects_the_marker_to_the_reference_scroll():
+    picture = tall_picture()
+    reader = AreaMinimap(scrolling_view(picture, -40), picture)
+    assert reader.scroll == (30, -40)
+    reference = reader.read(scrolling_view(picture, -40))
+    # The player climbed: the window scrolled 15 rows up the map, the marker stayed put.
+    climbed = reader.read(scrolling_view(picture, -25))
+    assert reference.dot is not None and climbed.dot is not None
+    assert climbed.dot == pytest.approx((reference.dot[0], reference.dot[1] - 15), abs=.25)
+    assert "scroll corrected" in climbed.reason
+
+
+def test_scrolling_minimap_without_a_clear_scroll_has_no_marker():
+    picture = tall_picture()
+    reader = AreaMinimap(scrolling_view(picture, -40), picture)
+    other_map = scrolling_view(tall_picture(seed=99), -40)
+    assert reader.read(other_map).dot is None
+    # Terrain that repeats every 20 rows fits several scrolls equally well.
+    tile = tall_picture(seed=3, rows=20)
+    repeating = np.tile(tile, (8, 1, 1))
+    framed = scrolling_view(repeating, -40)
+    repeat_reader = AreaMinimap(scrolling_view(picture, -40), picture)
+    repeat_reader.picture = repeating
+    fix = repeat_reader.read(framed)
+    assert fix.dot is None and "scroll unclear" in fix.reason

@@ -20,6 +20,9 @@ DOT_SHAPE = np.array([
 SEARCH = (400, 300)  # the minimap is anchored in the top-left corner
 NAVY = ((80, 40, 15), (120, 80, 50))  # BGR minimap background
 MIN_AGREEMENT = 0.85
+# Scrolling minimap: Tree Dungeon frames score 0.45-0.49 at the true scroll and at most
+# 0.15 anywhere else; require a clear winner on both counts.
+SCROLL_MATCH, SCROLL_MARGIN = 0.35, 0.15
 MIN_TERRAIN_VALUE = 80
 SKY_HUE = (95, 130)  # OpenCV hue band of blue sky seen through the minimap
 
@@ -142,6 +145,11 @@ class AreaMinimap:
         # Use brighter terrain for identity; dark-only references must stay unknown.
         self.static = (~_markers(self.template) & ~background
                        & (hsv[..., 2] >= MIN_TERRAIN_VALUE))
+        # A map taller than its minimap window scrolls vertically to keep the player in
+        # view, so the marker's canvas row is not the player's height. Then the picture
+        # placement is measured on every frame and the marker is corrected back to the
+        # reference view's scroll.
+        self.scroll: tuple[int, int] | None = None
         if terrain is not None:
             from .public_map import picture_offset
 
@@ -154,6 +162,8 @@ class AreaMinimap:
                 (canvas.width, canvas.height), flags=cv2.INTER_NEAREST,
             ) > 0
             self.static = opaque & ~_markers(self.template)
+            if terrain.shape[0] > canvas.height:
+                self.picture, self.scroll = terrain, (round(x), round(y))
         if np.count_nonzero(self.static) < 200:
             raise ValueError("The reference minimap shows too little terrain to recognize the map")
         self.weights = self.static.astype(np.uint8)
@@ -181,9 +191,53 @@ class AreaMinimap:
         at = Rect(int(x), int(y), self.home.width, self.home.height)
         return at, self._agreement(image, at)
 
+    def _scroll_offset(self, crop: np.ndarray) -> tuple[int, float] | None:
+        """The picture's top row in this canvas, if one vertical placement clearly wins."""
+        assert self.scroll is not None
+        picture, (left, _) = self.picture, self.scroll
+        height, width = crop.shape[:2]
+        x0, x1 = max(0, left), min(width, left + picture.shape[1])
+        if x1 - x0 < 8 or picture.shape[0] <= height:
+            return None
+        # Slide this canvas's picture columns down the public picture; player markers
+        # are left out. Correlation tolerates the minimap's translucent colour blending.
+        strip = crop[:, x0:x1].astype(np.float32)
+        mask = (~_markers(crop)[:, x0:x1]).astype(np.uint8)
+        scores = cv2.matchTemplate(picture[..., :3].astype(np.float32), strip,
+                                   cv2.TM_CCOEFF_NORMED, mask=cv2.merge([mask] * 3))
+        scores = np.nan_to_num(scores[:, x0 - left], nan=-1, posinf=-1, neginf=-1)
+        row = int(np.argmax(scores))
+        rival = float(np.max(np.delete(scores, np.arange(max(0, row - 3), row + 4)),
+                             initial=-1))
+        # Repeating terrain can fit at two scrolls; then the height stays unknown.
+        if scores[row] < SCROLL_MATCH or scores[row] - rival < SCROLL_MARGIN:
+            return None
+        return -row, float(scores[row])
+
+    def _read_scrolled(self, image: np.ndarray, at: Rect) -> MinimapFix:
+        assert self.scroll is not None
+        crop = image[at.y:at.feet, at.x:at.x + at.width]
+        found = self._scroll_offset(crop) if crop.shape == self.template.shape else None
+        if found is None:
+            return MinimapFix(None, None, 0.0, 0,
+                              "Minimap scroll unclear: covered, repeating terrain or another map")
+        top, agreement = found
+        self.last = at
+        dots = _dots(crop)
+        if len(dots) != 1:
+            reason = "No player marker" if not dots else "Several player markers"
+            return MinimapFix(None, at, agreement, len(dots), reason)
+        x, y = dots[0]
+        return MinimapFix((x, y - (top - self.scroll[1])), at, agreement, 1,
+                          "Player marker on the taught map (scroll corrected)")
+
     def read(self, image: np.ndarray) -> MinimapFix:
         if image.shape[:2] != self.size:
             return MinimapFix(None, None, 0.0, 0, "Capture size differs from the taught view")
+        if self.scroll is not None:
+            # The window stays put while its content scrolls; identity comes from the
+            # picture match, not from the reference view's scroll position.
+            return self._read_scrolled(image, self.last)
         at, agreement = self._locate(image)
         if at is None or agreement < MIN_AGREEMENT:
             return MinimapFix(None, None, agreement, 0,
