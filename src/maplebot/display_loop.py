@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from .camera_motion import feature_translation
+from .camera_motion import feature_points, feature_translation
 from .capture import Calibration, Capture, Image
 from .display_terrain import DisplayTerrain
 from .geometry import Rect
@@ -383,14 +383,22 @@ class DisplayLoop:
         }
 
 
+# One recognition frame anchors ~a dozen display frames: find its features once.
+_anchor_features: dict = {"anchor": None, "gray": None, "points": None}
+
+
 def project_enemy_diagnostics(drawing, anchor, image, now):
     """Move diagnostic markers with verified scenery, without renewing their evidence age."""
     tracks = drawing.get("enemy_tracks") or []
     age = now - drawing["frame"]["captured_at"]
     if not tracks or not 0 <= age <= .5:
         return []
-    shift, confidence = feature_translation(cv2.cvtColor(anchor, cv2.COLOR_BGR2GRAY),
-                                             cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
+    if _anchor_features["anchor"] is not anchor:
+        gray = cv2.cvtColor(anchor, cv2.COLOR_BGR2GRAY)
+        _anchor_features.update(anchor=anchor, gray=gray, points=feature_points(gray))
+    shift, confidence = feature_translation(_anchor_features["gray"],
+                                             cv2.cvtColor(image, cv2.COLOR_BGR2GRAY),
+                                             points=_anchor_features["points"])
     if confidence < .6:
         return []
     dx, dy = shift

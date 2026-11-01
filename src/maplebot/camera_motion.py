@@ -4,17 +4,31 @@ import cv2
 import numpy as np
 
 
-def feature_translation(previous: np.ndarray, current: np.ndarray,
-                        hint: tuple | None = None) -> tuple[tuple, float]:
-    if previous.shape != current.shape or min(current.shape) < 40:
-        return (0, 0), 0
-    h, w = current.shape
-    mask = np.full_like(previous, 255)
+def feature_points(gray: np.ndarray) -> np.ndarray | None:
+    """Trackable scene corners outside the fixed HUD; the slowest step, so callers may cache.
+
+    The result depends only on `gray`, so a cached copy gives identical translations.
+    """
+    if min(gray.shape) < 40:
+        return None
+    h, w = gray.shape
+    mask = np.full_like(gray, 255)
     # Fixed game HUD pixels are not evidence of world motion.
     mask[h - min(140, h // 5):] = 0
     mask[:min(200, h // 3), :min(240, w // 4)] = 0
     mask[:min(180, h // 3), w - min(220, w // 4):] = 0
-    points = cv2.goodFeaturesToTrack(previous, 200, .02, 12, mask=mask)
+    return cv2.goodFeaturesToTrack(gray, 200, .02, 12, mask=mask)
+
+
+def feature_translation(previous: np.ndarray, current: np.ndarray,
+                        hint: tuple | None = None,
+                        points: np.ndarray | None = None) -> tuple[tuple, float]:
+    """`points` may be `feature_points(previous)` computed earlier; it is not modified."""
+    if previous.shape != current.shape or min(current.shape) < 40:
+        return (0, 0), 0
+    h, w = current.shape
+    if points is None:
+        points = feature_points(previous)
     if points is None or len(points) < 24:
         return (0, 0), 0
     # At ~3 fps, scrolling can move farther than an unseeded local search finds.

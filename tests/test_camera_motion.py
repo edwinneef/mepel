@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
-from maplebot.camera_motion import feature_translation
+from maplebot.camera_motion import feature_points, feature_translation
 from maplebot.perception import CameraTracker
 
 
@@ -71,3 +71,19 @@ def test_verified_features_correct_biased_high_correlation(monkeypatch):
     shift, confidence = tracker.update(image.copy())
     assert shift == pytest.approx((0, 0), abs=.05)
     assert confidence >= .60
+
+
+def test_precomputed_points_give_the_same_translation_and_tracker_result():
+    before = scene()
+    after = cv2.warpAffine(before, np.float32([[1, 0, -18], [0, 1, 4]]), (640, 400))
+    points = feature_points(before)
+    kept = points.copy()
+    assert feature_translation(before, after, points=points) == feature_translation(before, after)
+    assert np.array_equal(points, kept)  # Cached points are never modified.
+    frames = [cv2.cvtColor(cv2.warpAffine(before, np.float32([[1, 0, -6 * i], [0, 1, i]]),
+                                          (640, 400)), cv2.COLOR_GRAY2BGR) for i in range(4)]
+    cached, fresh = CameraTracker(), CameraTracker()
+    for frame in frames:
+        expected = fresh.update(frame)
+        fresh.points = None  # Forget the background points: compute them inline.
+        assert cached.update(frame) == expected

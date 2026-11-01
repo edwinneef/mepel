@@ -245,10 +245,20 @@ class CameraTracker:
         self.previous: np.ndarray | None = None
         self.window: np.ndarray | None = None
         self.previous_gray: np.ndarray | None = None
+        # This frame's feature points, found in the background for the next update: they
+        # depend only on the frame, so the next translation is unchanged, just earlier.
+        self.points: tuple[np.ndarray, Future] | None = None
+        self.features: ThreadPoolExecutor | None = None
 
     def update(self, image: Image) -> tuple[tuple[float, float], float]:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         previous_gray, self.previous_gray = self.previous_gray, gray
+        from .camera_motion import feature_points, feature_translation
+
+        pending = self.points if self.points and self.points[0] is previous_gray else None
+        if self.features is None:
+            self.features = ThreadPoolExecutor(max_workers=1, thread_name_prefix="camera")
+        self.points = (gray, self.features.submit(feature_points, gray))
         small = cv2.resize(gray, None, fx=0.5, fy=0.5).astype(np.float32)
         previous, self.previous = self.previous, small
         if previous is None or previous.shape != small.shape or float(small.std()) < 2:
@@ -257,12 +267,11 @@ class CameraTracker:
             self.window = cv2.createHanningWindow((small.shape[1], small.shape[0]), cv2.CV_32F)
         # OpenCV applies the window in place; keep next frame's reference unwindowed.
         (dx, dy), response = cv2.phaseCorrelate(previous.copy(), small.copy(), self.window)
-        from .camera_motion import feature_translation
-
         # Strong global correlation can still drift with animation/overlays. Prefer
         # distributed forward/backward-verified scene features when available.
         hint = (dx * 2, dy * 2) if np.isfinite([dx, dy]).all() else None
-        verified, confidence = feature_translation(previous_gray, gray, hint)
+        points = pending[1].result() if pending else None
+        verified, confidence = feature_translation(previous_gray, gray, hint, points)
         if confidence >= .60:
             return verified, confidence
         if not np.isfinite([dx, dy, response]).all() or response < 0.35:
@@ -1057,6 +1066,7 @@ class TemplateDetector:
                monsters: bool = True) -> Observation:
         """monsters=False searches only the player, for work that never targets an enemy."""
         now = time.monotonic() if now is None else now
+        began = time.perf_counter()
         # Camera motion only needs the frame, so it runs beside recognition.
         camera = self.pool.submit(self.camera.update, image)
         floor = max(0.5, self.config.confidence - 0.15)
@@ -1097,12 +1107,15 @@ class TemplateDetector:
             self.enemy_wide_at = now
         self.catalog_info["enemy_scan_stage"] = self.enemy_scan_stage
         self.catalog_info["enemy_empty_observations"] = self.enemy_empty_observations
+        waited = time.perf_counter()
         self._predict(*camera.result())
+        searched = time.perf_counter()
         predicted = self.track[0] if self.track else None
         search_enemies = monsters
         player, monsters, failures, tag_confidence = self._observe_window(
             image, now, templates, floor, player_only=not monsters
         )
+        refreshed = time.perf_counter()
         self._learn_motion(now)
         self.previous_monsters = tuple(
             item.box for item in monsters if item.confidence >= self.config.confidence
@@ -1110,6 +1123,7 @@ class TemplateDetector:
         if player and not player.tracked and tag_confidence >= REFRESH_TAG_CONFIDENCE:
             self._refresh_sprite(image, player, monsters, now)
         shift, response = camera.result()
+        tracked = time.perf_counter()
         context = (self.enemy_source, self.catalog_info["active_map"], image.shape,
                    search_enemies, paused)
         if context != self.enemy_context:
@@ -1124,6 +1138,12 @@ class TemplateDetector:
             monsters = self.enemy_tracker.update(monsters, now, partials)
         else:
             self.enemy_tracker.clear()
+        finished = time.perf_counter()
+        # Wall time per stage of this call, for profiling; never read by decisions.
+        self.stage_ms = {key: round(value * 1000, 1) for key, value in (
+            ("setup", waited - began), ("camera_wait", searched - waited),
+            ("search", refreshed - searched), ("refresh", tracked - refreshed),
+            ("enemies", finished - tracked))}
         return Observation(player, monsters, failures, shift, response,
                            self.enemy_tracker.snapshot(),
                            self._tracking_snapshot(player, predicted, now))

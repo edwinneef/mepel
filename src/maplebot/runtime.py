@@ -1884,6 +1884,7 @@ class Application:
         perception_began = time.perf_counter()
         self.processing_frame = {**self.processing_frame, "stage": "perception"}
         observation = self.detector.detect(image, now, monsters=self.monster_search)
+        pose_began = time.perf_counter()
         self.pose_collection.observe(
             image, self.detector, observation, now, captured_at,
             (self.session_id, self.source_generation),
@@ -1891,6 +1892,8 @@ class Application:
                           self.calibration.capture_verified and not self.calibrating),
         )
         perception_ms = (time.perf_counter() - perception_began) * 1000
+        perception_stages = {**getattr(self.detector, "stage_ms", {}),
+                             "pose": round((time.perf_counter() - pose_began) * 1000, 1)}
         evidence = summarize({
             "frame": {"id": f"{self.session_id}:{self.sequence}", "available": True,
                       "captured_at": captured_at},
@@ -2312,6 +2315,7 @@ class Application:
             "stage_timing": {
                 "map_ms": round(map_ms, 3),
                 "perception_ms": round(perception_ms, 3),
+                "perception_stages_ms": perception_stages,
                 "position_ms": round(position_ms, 3),
                 "policy_ms": round(policy_ms, 3),
                 "annotation_ms": round(annotation_ms, 3),
