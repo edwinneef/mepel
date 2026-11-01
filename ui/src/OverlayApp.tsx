@@ -40,7 +40,7 @@ export function OverlayApp({ client, dashboard }: { client: OverlayClient; dashb
   const wasRunning = useRef(false);
   const dataKey = useRef('');
   const currentToggle = useRef<() => void>(() => {});
-  const view = useViewport(client, s, state.connected && (panel || Boolean(dashboard)));
+  const view = useViewport(client, s, state.connected && (panel || Boolean(dashboard)), Boolean(dashboard && layers));
   const running = isRunning(s);
   // Status can arrive between timer ticks; don't compare a new frame against
   // the previous tick and incorrectly classify it as coming from the future.
@@ -142,23 +142,27 @@ export function OverlayApp({ client, dashboard }: { client: OverlayClient; dashb
   const game = gameBounds ?? { x: 0, y: 0, width: innerWidth, height: innerHeight };
   const recordingFull = Boolean(s?.recorder?.full);
   const recordLeft = s?.recorder?.full_remaining as number | null | undefined;
-  const previewDrawing = drawing && view.image && !view.frozen && drawingFresh
-    && drawing.frame.source_id === view.image.sourceId
-    && drawing.frame.width === view.image.width && drawing.frame.height === view.image.height
-    && Math.abs((drawing.frame.captured_at ?? 0) * 1000 - (view.image.capturedAt ?? 0) * 1000) <= 150
-    ? drawing : null;
-  const drawingLayers = (packet: NonNullable<typeof drawing>) => <>
+  // Keep the analyzed image and its observations together through loading of the
+  // next frame. Early drawing packets belong to the native overlay, not this image.
+  const analyzed = view.image?.observation;
+  const previewDrawing = analyzed && s?.frame.available && view.image && !view.frozen
+    && freshDetections(analyzed, state.connected && !state.needsReload && !dashboard?.disconnected, Math.max(now, Date.now()))
+    && drawing && drawing.frame.source_id === analyzed.frame.source_id
+    && analyzed.frame.source_id === s.frame.source_id && analyzed.frame.source_id === view.image.sourceId
+    && analyzed.frame.id === view.image.key ? analyzed : null;
+  const drawingLayers = (packet: NonNullable<typeof drawing>, paired = false) => <>
     {terrain && <SavedTerrainOverlay key={packet.frame.source_id} map={map} position={packet.position}
-      alignment={fastDrawing === undefined ? undefined : fastDrawing?.terrain ?? null} now={Math.max(now, Date.now())} />}
+      alignment={paired || fastDrawing === undefined ? undefined : fastDrawing?.terrain ?? null}
+      now={paired ? (packet.frame.captured_at ?? 0) * 1000 : Math.max(now, Date.now())} />}
     <LiveDetectionBoxes drawing={packet} />
     {attackRange && <AttackRangeOverlay player={packet.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
   </>;
   return <div className={`${dashboard ? 'dashboard-overlay' : 'native-overlay'} ${panel ? 'editing-layout' : ''}`}>
     {dashboard && <section className="dashboard-preview" aria-label="Dashboard game view">
-      <GameViewport image={view.image} frozen={Boolean(view.frozen)} stale={!fresh} selection={view.selection}
-        onSelection={view.setSelection} overlay={layers && previewDrawing ? drawingLayers(previewDrawing) : undefined}
+      <GameViewport image={view.image} frozen={Boolean(view.frozen)} stale={!fresh || (layers && !previewDrawing)} selection={view.selection}
+        onSelection={view.setSelection} overlay={layers && previewDrawing ? drawingLayers(previewDrawing, true) : undefined}
         onStop={() => void act(() => client.command('stop'))} />
-      <p>Live detections and saved terrain are drawn on the game picture. F8 always stops gameplay.</p>
+      <p>{layers ? 'Analyzed pictures and their matching drawings are shown together.' : 'Live game picture.'} F8 always stops gameplay.</p>
     </section>}
     {!dashboard && layers && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}

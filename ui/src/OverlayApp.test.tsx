@@ -2,11 +2,58 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, expect, it, vi } from 'vitest';
 import { OverlayApp } from './OverlayApp';
 import { OverlayClient } from './overlay';
+import { DashboardSession } from './dashboard';
 import type { OverlayEvent } from './overlay';
 import type { LiveDetections } from './contracts';
-import { json, snapshot } from './test-fixtures';
+import { deferred, json, snapshot } from './test-fixtures';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); delete window.mapleOverlay; });
+
+it('keeps dashboard drawings paired with the displayed analyzed picture while newer frames load', async () => {
+  vi.stubGlobal('Image', class { src = ''; decode = async () => {}; });
+  let imageNumber = 0;
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => `blob:frame-${++imageNumber}`) });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+  const first = snapshot();
+  first.frame = { ...first.frame, source_id: `${first.session_id}:source:1`,
+    captured_at: Date.now() / 1000 - 0.2, age_ms: 200 };
+  let current = { ...first, player: { ...first.player!, box: { x: 100, y: 200, width: 40, height: 50 } },
+    preview_frame: { ...first.frame, id: 'preview:1', captured_at: first.frame.captured_at! + 0.2 } };
+  const nextPicture = deferred<Response>();
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    if (url === '/api/v1/status') return json(current);
+    if (url === '/api/v1/drawings') return json({ frame: current.preview_frame,
+      player: { ...first.player!, box: { x: 900, y: 200, width: 40, height: 50 } } });
+    if (String(url).startsWith('/api/v1/frame')) {
+      return String(url).includes('next-frame') ? nextPicture.promise : new Response(new Blob(['first']));
+    }
+    if (String(url).startsWith('/api/v1/preview')) return new Response(new Blob(['preview']));
+    if (url === '/api/dashboard' || url === '/api/dashboard_disconnect') return json({ ok: true });
+    const command = JSON.parse(String(options?.body));
+    return json(command.name === 'area_list' ? { areas: [] } : { ok: true });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const client = new OverlayClient('token', fetcher);
+  render(<OverlayApp client={client} dashboard={new DashboardSession('token', fetcher)} />);
+  await waitFor(() => expect(screen.getByLabelText('Dashboard game view').querySelector('img')).not.toBeNull());
+  const box = () => screen.queryByLabelText('Detection boxes')?.querySelector('rect');
+  expect(box()?.getAttribute('x')).toBe('100');
+  const oldPicture = screen.getByAltText('Live game preview');
+  const oldUrl = oldPicture.getAttribute('src');
+  current = { ...current, frame: { ...first.frame, id: 'next-frame', sequence: 2 },
+    player: { ...current.player, box: { x: 200, y: 200, width: 40, height: 50 } } };
+  await act(async () => { await client.readStatus(); });
+  expect(box()?.getAttribute('x')).toBe('100');
+  expect(oldPicture.getAttribute('src')).toBe(oldUrl);
+  await act(async () => { nextPicture.resolve(new Response(new Blob(['second']))); });
+  await waitFor(() => expect(box()?.getAttribute('x')).toBe('200'));
+  expect(oldPicture.getAttribute('src')).not.toBe(oldUrl);
+  expect(client.getState().snapshot?.player?.box.x).toBe(200);
+  expect(fetcher.mock.calls.some(([, options]) => options?.body && /"name":"(arm|nav_start|probe)"/.test(String(options.body)))).toBe(false);
+  vi.spyOn(Date, 'now').mockReturnValue((first.frame.captured_at! + 2) * 1000);
+  await act(async () => { await client.readStatus(); });
+  expect(box()).toBeUndefined();
+});
 
 it('keeps settings closed until the native overlay explicitly opens them', async () => {
   let listener: (event: OverlayEvent) => void = () => {};

@@ -117,6 +117,26 @@ it('keeps the displayed frame until its replacement has decoded', async () => {
   await waitFor(() => expect(result.current.image?.key).toBe('test-session:2'));
 });
 
+it('switches picture modes without allowing an older in-flight request to replace the analyzed pair', async () => {
+  const pending = deferred<Response>();
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => String(url).startsWith('/api/v1/preview')
+    ? pending.promise.then(response => response.clone()) : new Response(new Blob(['analyzed'])));
+  vi.stubGlobal('fetch', fetcher);
+  const client = new EngineClient('token', fetcher);
+  const current = snapshot();
+  current.preview_frame = { ...current.frame };
+  let analyzed = false;
+  const { result, rerender } = renderHook(() => useViewport(client, current, true, analyzed));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+  act(() => { analyzed = true; rerender(); });
+  await waitFor(() => expect(result.current.image?.observation).toBe(current));
+  const displayed = result.current.image;
+  await act(async () => { pending.resolve(new Response(new Blob(['old-preview']))); });
+  expect(result.current.image).toBe(displayed);
+  act(() => { analyzed = false; rerender(); });
+  await waitFor(() => expect(result.current.image?.observation).toBeUndefined());
+});
+
 it('displays a loaded image even when a hidden tab defers decode', async () => {
   vi.stubGlobal('Image', class {
     onload: (() => void) | null = null;

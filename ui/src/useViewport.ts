@@ -2,9 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FrozenFrame, Rect, Selection, Snapshot } from './contracts';
 import { EngineClient } from './client';
 
-export interface ViewImage { url: string; width: number; height: number; key: string; capturedAt?: number; sourceId?: string }
+export interface ViewImage {
+  url: string; width: number; height: number; key: string; capturedAt?: number; sourceId?: string;
+  observation?: Snapshot;
+}
 
-export function useViewport(client: EngineClient, snapshot: Snapshot | null, connected: boolean) {
+export function useViewport(client: EngineClient, snapshot: Snapshot | null, connected: boolean, analyzed = false) {
   const [image, setImage] = useState<ViewImage | null>(null);
   const [frozen, setFrozen] = useState<FrozenFrame | null>(null);
   const [selection, setSelection] = useState<Rect | null>(null);
@@ -17,6 +20,7 @@ export function useViewport(client: EngineClient, snapshot: Snapshot | null, con
   const requested = useRef<string | null>(null);
   const pending = useRef<string | null>(null);
   const liveRequest = useRef<AbortController | null>(null);
+  const analyzedRef = useRef(analyzed);
 
   useEffect(() => () => { if (image) URL.revokeObjectURL(image.url); }, [image]);
   useEffect(() => () => { version.current += 1; liveRequest.current?.abort(); }, []);
@@ -40,7 +44,12 @@ export function useViewport(client: EngineClient, snapshot: Snapshot | null, con
   }, [snapshot?.session_id, snapshot?.frame.source_id, clear]);
 
   useEffect(() => {
-    const frame = snapshot?.preview_frame ?? snapshot?.frame;
+    if (analyzedRef.current !== analyzed) {
+      version.current += 1; liveRequest.current?.abort();
+      requested.current = null; pending.current = null;
+      analyzedRef.current = analyzed;
+    }
+    const frame = analyzed ? snapshot?.frame : snapshot?.preview_frame ?? snapshot?.frame;
     if (!connected || frozenRef.current || freezingRef.current) return;
     if (!frame?.available || !frame.id) {
       version.current += 1; requested.current = null; pending.current = null;
@@ -61,7 +70,7 @@ export function useViewport(client: EngineClient, snapshot: Snapshot | null, con
     void (async () => {
       let replacement: string | null = null;
       try {
-        const endpoint = snapshot?.preview_frame ? 'preview' : 'frame';
+        const endpoint = !analyzed && snapshot?.preview_frame ? 'preview' : 'frame';
         const response = await fetch(`/api/v1/${endpoint}?id=${encodeURIComponent(frameId)}`, {
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(3000)]), cache: 'no-store',
         });
@@ -80,16 +89,17 @@ export function useViewport(client: EngineClient, snapshot: Snapshot | null, con
         await (typeof decoded.decode === 'function' ? Promise.race([decoded.decode(), loaded]) : loaded);
         if (current !== version.current || frozenRef.current || freezingRef.current) return;
         setImage({ url: replacement, width: frame.width, height: frame.height, key: frameId,
-          capturedAt: frame.captured_at ?? 0, sourceId: frame.source_id });
+          capturedAt: frame.captured_at ?? 0, sourceId: frame.source_id,
+          observation: analyzed ? snapshot ?? undefined : undefined });
         replacement = null;
       } catch (error) {
         if (current === version.current) { requested.current = null; client.fail(error); }
       } finally {
         if (replacement) URL.revokeObjectURL(replacement);
-        if (pending.current === frameId) pending.current = null;
+        if (current === version.current && pending.current === frameId) pending.current = null;
       }
     })();
-  }, [snapshot, connected, frozen, freezing, client]);
+  }, [snapshot, connected, frozen, freezing, client, analyzed]);
 
   const freeze = async () => {
     const current = ++version.current;
