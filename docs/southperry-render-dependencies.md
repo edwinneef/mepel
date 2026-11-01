@@ -15,7 +15,7 @@ The map references eight exact logical artwork images:
 - `Map/Back/back_portTown.img`: 5 placements, 4 unique entries.
 
 These are **image records inside archives**, not eight physical `.wz` filenames.
-None of `Map/Tile`, `Map/Obj` or `Map/Back` is present in the nine-file copy receipt.
+None of `Map/Tile`, `Map/Obj` or `Map/Back` is present in the initial minimap copy receipt.
 The exact physical archive shards containing these records cannot be established
 from the current copies. Do not invent filenames such as `Obj_000.wz` or assume
 all referenced canvases occupy the first shard.
@@ -113,3 +113,49 @@ Recommended next action: copy the **three confirmed main archives** and their ca
 index metadata to a new folder with SHA-256 receipts, then inspect only the eight
 referenced Southperry artwork entries offline. That will identify which bitmap archive
 copies are actually necessary before copying the larger bitmap containers.
+
+## Main archives copied and picture links traced, 2026-11-01
+
+The operator authorized copying the three confirmed main archives and their indexes,
+then inspecting the copied Southperry artwork properties offline. This is complete.
+
+Copies: `artifacts/southperry-artwork-copies/`, containing the three main payloads,
+their three `.ini` files and three small base `.wz` index files: nine files, 37,509,708
+bytes. `asset-receipt.json` records absolute original/copy paths, sizes and SHA-256.
+Every original-before, copied-file and original-after hash matched. Originals were
+opened for reading only and were not changed. No bitmap archive was copied in this batch.
+
+The trace followed all 72 unique referenced tile/object/background entries. It found
+74 canvas records: 41 inline and 33 outlinks. Every outlink points into exactly one
+additional physical archive:
+
+`Map\Obj\_Canvas\_Canvas_000.wz` (61,310,435 bytes).
+
+Its target records are in `obj_acc1.img`, `obj_connect.img` and `obj_signboard.img`.
+All named targets and their physical container are backed by the previously observed
+directory index (`LastWzIndex|0`). The current Southperry reference trace found no
+links into the Tile or Back `_Canvas` containers, so they are not requested for copying.
+The remaining archive's image properties have not been parsed; further links inside
+those target properties remain unverified. This is the known missing frontier, not a
+claim of complete transitive bitmap closure or successful image decoding.
+
+The tracer reads only receipt-pinned staged copies. It opens the three fixed artwork
+categories, follows bounded local `_inlink`/UOL or same-category links, and records
+external bitmap targets without opening installed files. Invalid paths, map identity,
+hashes, source receipts, link cycles and unproven physical-container mappings refuse.
+It never opens a `Map/Map` image, decodes pixels, controls the game or downloads files.
+
+Command, with a new output filename:
+
+```powershell
+.venv\Scripts\python.exe -m tools.trace_southperry_artwork --source-root artifacts\southperry-artwork-copies --receipt artifacts\southperry-artwork-copies\asset-receipt.json --bundle artifacts\southperry-dependency-source --indexes artifacts\southperry-installed-artwork-indexes.json --extractor artifacts\classic-assets-parser-link-trace-v2\ClassicAssetExtractor.dll --output artifacts\southperry-artwork-links-new.json
+```
+
+Results: `artifacts/southperry-artwork-links-indexed.json`; run details including
+corrected failures: `artifacts/southperry-artwork-link-verification.md`.
+Implementation: `tools/trace_southperry_artwork.py`, the extractor's opt-in
+`--trace-artwork COPIES REFERENCES NEW_REPORT` mode, and
+`tests/test_southperry_artwork_trace.py`.
+
+No full-world image, independent position labels, native build compatibility, corpus
+admission or gameplay acceptance is established by this metadata-only trace.

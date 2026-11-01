@@ -114,10 +114,124 @@ internal static class Program
         throw new InvalidDataException("Canvas link depth exceeded");
     }
 
+    private static int TraceArtwork(string root, string references, string output)
+    {
+        if (File.Exists(output) || Directory.Exists(output)) throw new IOException("Output exists");
+        using var request = JsonDocument.Parse(File.ReadAllText(references));
+        if (request.RootElement.GetProperty("map_id").GetString() != "000000060")
+            throw new InvalidDataException("Southperry references only");
+        var queue = new Queue<(string Image, string Property, int Depth)>();
+        var allowed = new Dictionary<string, string>();
+        foreach (var category in new[] { "Tile", "Obj", "Back" })
+        {
+            var archive = $"Map/{category}/{category}_000.wz";
+            var file = new WzFile(Path.Combine(root, archive), 779, WzMapleVersion.BMS);
+            files.Add(archive, file);
+            if (file.ParseWzFile() != WzFileParseStatus.Success)
+                throw new InvalidDataException($"Cannot parse copied artwork: {archive}");
+            allowed.Add($"Map/{category}", archive);
+        }
+        foreach (var row in request.RootElement.GetProperty("core_scenery").EnumerateArray())
+            foreach (var entry in row.GetProperty("entries").EnumerateArray())
+                queue.Enqueue((row.GetProperty("image").GetString()!, entry.GetString()!, 0));
+        var visited = new HashSet<string>();
+        var branches = new List<object>();
+        var links = new List<object>();
+        var canvases = new List<object>();
+        string Normalize(string path)
+        {
+            var result = new List<string>();
+            foreach (var part in path.Split('/'))
+            {
+                if (part == "..")
+                {
+                    if (result.Count == 0) throw new InvalidDataException("UOL escapes image");
+                    result.RemoveAt(result.Count - 1);
+                }
+                else if (part != ".")
+                {
+                    if (part.Length == 0 || part.Contains('\\') || part.Contains(':'))
+                        throw new InvalidDataException("Unsafe artwork path");
+                    result.Add(part);
+                }
+            }
+            return string.Join('/', result);
+        }
+        void Scan(WzImageProperty property, string image, string path, int depth, int treeDepth = 0)
+        {
+            if (treeDepth > 32 || ++nodes > MaxNodes)
+                throw new InvalidDataException("Artwork property budget exceeded");
+            string? kind = null, target = null;
+            if (property is WzUOLProperty uol)
+            {
+                kind = "uol";
+                var parent = path.Contains('/') ? path[..path.LastIndexOf('/')] + "/" : "";
+                target = image + "/" + Normalize(parent + uol.Value);
+            }
+            else if (property is WzCanvasProperty canvas)
+            {
+                var props = canvas.WzProperties;
+                var declaredLinks = props.Where(p => p.Name is "_outlink" or "_inlink").ToArray();
+                if (declaredLinks.Length > 1) throw new InvalidDataException("Ambiguous canvas links");
+                if (declaredLinks.Length == 1)
+                {
+                    kind = declaredLinks[0].Name == "_outlink" ? "outlink" : "inlink";
+                    target = (kind == "inlink" ? image + "/" : "")
+                        + Normalize((string)declaredLinks[0].WzValue);
+                }
+                // Preserve origins without flattening duplicate unrelated collision properties.
+                canvases.Add(new { image, property = path, width = canvas.PngProperty.Width,
+                    height = canvas.PngProperty.Height, format = (int)canvas.PngProperty.Format,
+                    origins = props.Where(p => p.Name == "origin").Select(Dump).ToArray(),
+                    terminal_inline = target == null });
+            }
+            if (target != null)
+            {
+                var parts = target.Split('/');
+                var split = Array.FindIndex(parts, p => p.EndsWith(".img", StringComparison.Ordinal));
+                if (split < 2 || split == parts.Length - 1)
+                    throw new InvalidDataException("Invalid artwork link target");
+                var targetImage = string.Join('/', parts.Take(split + 1));
+                var targetPath = string.Join('/', parts.Skip(split + 1));
+                var prefix = string.Join('/', parts.Take(split));
+                var copied = allowed.ContainsKey(prefix);
+                if (!copied && !new[] { "Map/Tile/_Canvas", "Map/Obj/_Canvas", "Map/Back/_Canvas" }
+                    .Contains(prefix)) throw new InvalidDataException("Out-of-scope artwork link");
+                links.Add(new { image, property = path, kind, target, target_is_copied = copied });
+                if (copied) queue.Enqueue((targetImage, targetPath, depth + 1));
+            }
+            if (property is WzUOLProperty or WzCanvasProperty or WzVectorProperty)
+                return;
+            if (property.WzProperties != null)
+                foreach (var child in property.WzProperties)
+                    Scan(child, image, path + "/" + child.Name, depth, treeDepth + 1);
+        }
+        while (queue.Count > 0)
+        {
+            var item = queue.Dequeue();
+            if (item.Depth > 16 || visited.Count > 10000)
+                throw new InvalidDataException("Artwork link budget exceeded");
+            if (!visited.Add(item.Image + "/" + item.Property)) continue;
+            var slash = item.Image.LastIndexOf('/');
+            var category = item.Image[..slash];
+            if (!allowed.TryGetValue(category, out var archive))
+                throw new InvalidDataException("Only copied artwork categories allowed");
+            var image = Image(archive, item.Image[(slash + 1)..]);
+            branches.Add(new { image = item.Image, property = item.Property });
+            Scan(At(image, item.Property), item.Image, item.Property, item.Depth);
+        }
+        using var handle = new FileStream(output, FileMode.CreateNew, FileAccess.Write);
+        JsonSerializer.Serialize(handle, new { schema = 1, map_id = "000000060", branches, links, canvases,
+            pixels_decoded = false, native_acceptance = false, input_sent = false });
+        return 0;
+    }
+
     private static int Main(string[] args)
     {
         try
         {
+            if (args.Length == 4 && args[0] == "--trace-artwork")
+                return TraceArtwork(args[1], args[2], args[3]);
             if (args.Length == 3 && args[0] == "--artwork-indexes")
                 return ArtworkIndex.Run(args[1], args[2]);
             if (args.Length != 3 || args[1] != "60")

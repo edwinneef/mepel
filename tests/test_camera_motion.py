@@ -52,3 +52,22 @@ def test_large_three_fps_scroll_uses_hint_only_to_locate_verified_features():
     assert confidence >= .60
     unrelated = np.random.default_rng(10).integers(0, 256, before.shape, dtype=np.uint8)
     assert feature_translation(before, unrelated, (-60, 1)) == ((0, 0), 0)
+
+
+def test_stationary_camera_does_not_accumulate_windowing_drift():
+    image = np.random.default_rng(71).integers(0, 256, (400, 640, 3), dtype=np.uint8)
+    tracker = CameraTracker()
+    shifts = [tracker.update(image.copy())[0] for _ in range(12)]
+    assert np.sum(shifts, axis=0) == pytest.approx((0, 0), abs=.001)
+    expected = cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), None, fx=.5, fy=.5)
+    assert np.array_equal(tracker.previous, expected.astype(np.float32))
+
+
+def test_verified_features_correct_biased_high_correlation(monkeypatch):
+    image = cv2.cvtColor(scene(), cv2.COLOR_GRAY2BGR)
+    tracker = CameraTracker()
+    tracker.update(image)
+    monkeypatch.setattr(cv2, "phaseCorrelate", lambda *args: ((.8, -.6), .99))
+    shift, confidence = tracker.update(image.copy())
+    assert shift == pytest.approx((0, 0), abs=.05)
+    assert confidence >= .60

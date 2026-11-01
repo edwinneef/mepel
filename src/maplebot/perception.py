@@ -243,11 +243,18 @@ class CameraTracker:
             return (0, 0), 0
         if self.window is None or self.window.shape != small.shape:
             self.window = cv2.createHanningWindow((small.shape[1], small.shape[0]), cv2.CV_32F)
-        (dx, dy), response = cv2.phaseCorrelate(previous, small, self.window)
-        if not np.isfinite([dx, dy, response]).all() or response < 0.35:
-            from .camera_motion import feature_translation
+        # OpenCV applies the window in place; keep next frame's reference unwindowed.
+        (dx, dy), response = cv2.phaseCorrelate(previous.copy(), small.copy(), self.window)
+        from .camera_motion import feature_translation
 
-            return feature_translation(previous_gray, gray, (dx * 2, dy * 2))
+        # Strong global correlation can still drift with animation/overlays. Prefer
+        # distributed forward/backward-verified scene features when available.
+        hint = (dx * 2, dy * 2) if np.isfinite([dx, dy]).all() else None
+        verified, confidence = feature_translation(previous_gray, gray, hint)
+        if confidence >= .60:
+            return verified, confidence
+        if not np.isfinite([dx, dy, response]).all() or response < 0.35:
+            return (0, 0), 0
         if abs(dx * 2) > image.shape[1] * 0.2 or abs(dy * 2) > image.shape[0] * 0.2:
             return (0, 0), 0
         return (dx * 2, dy * 2), float(response)

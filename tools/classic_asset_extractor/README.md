@@ -67,3 +67,9 @@ and their `_Canvas` directories, uses BMS/779 conventions, and never parses imag
 properties or decodes pixels. It does not change the copied-only export path. See the
 installed-index section of `docs/southperry-render-dependencies.md` for observed filenames
 and the remaining bitmap-link uncertainty.
+
+The separate `--trace-artwork COPIES REFERENCES NEW_REPORT` mode follows Southperry
+artwork properties from the three copied main archives. Use the receipt-checking Python
+wrapper `python -m tools.trace_southperry_artwork`; the full command and observed missing
+bitmap archive are documented in `docs/southperry-render-dependencies.md`. No installed
+file is opened by that trace mode, and it never decodes pixels.
