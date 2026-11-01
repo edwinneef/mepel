@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 from concurrent.futures import Future
 from dataclasses import replace
@@ -285,6 +286,56 @@ def test_emergency_during_countdown_latches_and_never_sends_input(app):
     _, status = app._process(app.image, time.perf_counter())
     assert app.mode == "capture"
     assert status["state"] == "IDLE"
+    assert app.controller.backend.events == []
+
+
+@pytest.mark.parametrize("mode", ["pending_arm", "probe_wait"])
+def test_countdown_status_and_stop_complete_without_lock_inversion(app, monkeypatch, mode):
+    from maplebot.perception import Detection, Observation
+
+    player = Detection("player", Rect(10, 20, 20, 30), 1.0)
+    monkeypatch.setattr(app.detector, "detect", lambda image, now, **_: Observation(player, []))
+    app.mode, app.pending_at = mode, 0
+    attempted = [threading.Event(), threading.Event()]
+    errors = []
+    threads = []
+
+    def run(index, action):
+        attempted[index].set()
+        try:
+            action()
+        except Exception as error:
+            errors.append(error)
+
+    def enable():
+        # Fail before starting competitors on the old code, avoiding leaked
+        # deadlocked threads (including the fixture's controller shutdown).
+        assert app.stop_lock._is_owned()
+        assert app.controller.lock._is_owned()
+        for index, action in enumerate((app.snapshot, lambda: app.request("stop", {}))):
+            thread = threading.Thread(target=run, args=(index, action), daemon=True)
+            threads.append(thread)
+            thread.start()
+        assert all(event.wait(1) for event in attempted)
+        # Stop latches before waiting for locks; it must prevent enabling input.
+        assert app.stop_requested.wait(1)
+        raise RuntimeError("Stop arrived during countdown")
+
+    monkeypatch.setattr(app.controller, "enable", enable)
+    try:
+        if mode == "pending_arm":
+            with pytest.raises(RuntimeError, match="Stop arrived"):
+                app._process(app.image, time.perf_counter())
+        else:
+            app._process(app.image, time.perf_counter())
+    finally:
+        for thread in threads:
+            thread.join(2)
+    assert len(threads) == 2
+    assert not any(thread.is_alive() for thread in threads)
+    assert not errors
+    assert app.mode == "capture"
+    assert not app.controller.enabled
     assert app.controller.backend.events == []
 
 

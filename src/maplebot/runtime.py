@@ -1975,7 +1975,9 @@ class Application:
                 ):
                     raise RuntimeError("Player detection uncertain; input probe/arming canceled")
                 pending = self.mode
-                with self.controller.lock:
+                # Status takes stop_lock before controller.lock. Keep that order
+                # while enabling input and clearing the previous stop banner.
+                with self.stop_lock, self.controller.lock:
                     if self.stop_requested.is_set():
                         self._stop("OPERATOR_STOP", "Operator stopped pending input")
                         return self._process(image, now, captured_at=captured_at)
