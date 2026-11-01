@@ -15,9 +15,10 @@ def test_evaluation_labels_cannot_overwrite_predictions_or_other_maps():
     assert "truth_xy" not in apply_labels([{**result, "map_id": 60}], labels)[0]
 
 
-def test_duplicate_or_calibration_derived_labels_refuse():
+@pytest.mark.parametrize("method", ["saved_walk_calibration", "constructed_drawing_coordinates"])
+def test_duplicate_or_non_native_labels_refuse(method):
     result = {"map_id": 42, "sha256": "a" * 64, "predicted_xy": None}
-    label = {"map_id": 42, "sha256": "a" * 64, "method": "saved_walk_calibration"}
+    label = {"map_id": 42, "sha256": "a" * 64, "method": method}
     with pytest.raises(ValueError, match="independent"):
         apply_labels([result], [label])
     with pytest.raises(ValueError, match="Duplicate"):

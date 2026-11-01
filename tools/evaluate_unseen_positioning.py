@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -127,6 +128,11 @@ def evaluate(manifest_path, contract_path, areas, limit=8, labels_path=None):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "synthetic":
+        from tools.evaluate_alignment_corpus import main as synthetic_main
+
+        synthetic_main(sys.argv[2:])
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--contract", type=Path,
