@@ -384,3 +384,40 @@ def test_policy_input_round_trip_keeps_enemy_tracks_and_track_ids():
     restored = PolicyInput.from_dict(PolicyInput(observation, 1.0, {"status": "none"}).to_dict())
     assert restored.observation.monsters[0].track_id == "enemy:7"
     assert restored.observation.enemy_tracks == [hidden_track(152)]
+
+
+def test_target_walking_toward_the_player_is_awaited_then_attacked_without_refacing():
+    agent = Agent(AgentConfig(range_profile="custom", attack_min_range=0, attack_range=65))
+    agent.start()
+    agent.step(scene([entity(x=300)]), 0)  # acquired 200 px away
+    wait = agent.step(scene([entity(x=280)]), .2)  # it moved 20 px toward us
+    assert wait.action.kind == "right" and wait.action.seconds <= .035  # face once, no step
+    assert "approaching" in wait.reason
+    still = agent.step(scene([entity(x=240)]), .4)
+    assert still.action.kind == "release" and "waiting" in still.reason
+    assert agent.step(scene([entity(x=200)]), .6).action.kind == "release"
+    attack = agent.step(scene([entity(x=165)]), .8)  # now within 65 px
+    assert attack.action.kind == "attack"
+
+
+def test_a_stationary_target_is_still_approached_in_short_steps():
+    agent = Agent(AgentConfig(range_profile="custom", attack_min_range=0, attack_range=65))
+    agent.start()
+    agent.step(scene([entity(x=300)]), 0)
+    step = agent.step(scene([entity(x=300)]), .2)
+    assert step.action.kind == "right" and step.action.seconds == .12
+
+
+def test_a_clearly_nearer_target_replaces_the_current_one_instead_of_walking_through_it():
+    agent = Agent(AgentConfig(range_profile="custom", attack_min_range=0, attack_range=65))
+    agent.start()
+    agent.step(scene([entity(x=300)]), 0)
+    both = scene([entity(x=300), entity(x=200, confidence=.95)])
+    switched = agent.step(both, .2)
+    assert "retargeting" in switched.reason and switched.target.box.x == 200
+    assert switched.action.kind == "release"
+    # A candidate only slightly nearer than the margin does not cause flip-flopping.
+    agent = Agent(AgentConfig(range_profile="custom", attack_min_range=0, attack_range=65))
+    agent.start()
+    agent.step(scene([entity(x=300)]), 0)
+    assert "retargeting" not in agent.step(scene([entity(x=300), entity(x=290)]), .2).reason

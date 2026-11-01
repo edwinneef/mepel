@@ -35,6 +35,15 @@ def test_session_uses_no_pet_and_always_stops(tmp_path):
     assert json.loads((tmp_path / "run/result.json").read_text())["after"]["mode"] == "capture"
 
 
+def test_consumables_sustain_with_potions_instead_of_stopping_and_exclude_checkpoints(tmp_path):
+    api = Api()
+    run(api, tmp_path / "run", area="island", consumables=True)
+    assert api.calls[0][1]["farming"]["no_consumables"] is False
+    assert api.calls[0][1]["farming"]["pet_recovery"] is False
+    with pytest.raises(ValueError, match="Checkpoints run without consumables"):
+        run(Api(), tmp_path / "other", area="island", consumables=True, checkpoint_seconds=5)
+
+
 def test_timeout_stops_and_records_failure(tmp_path):
     api = Api(finish=False)
     ticks = iter([0, 911, 912])

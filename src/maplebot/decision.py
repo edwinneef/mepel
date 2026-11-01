@@ -13,6 +13,11 @@ from .perception import Detection, Observation
 # A target hidden under the player, another player or an effect may still be attacked in
 # place, from its tracker position, for this long after the policy last matched it.
 OCCLUDED_ATTACK_SECONDS = 1.0
+# A target whose own (camera-compensated) motion closes on the player by at least this much
+# per observation is left to walk into range instead of being met mid-way.
+APPROACHING_PX = 4
+# Switch to another same-platform target only when it is clearly nearer than the current one.
+RETARGET_MARGIN = 20
 
 
 class State(StrEnum):
@@ -118,12 +123,13 @@ class Agent:
         self.stalled_steps = 0
         self.skill_ready = False
         self.target_seen_at: float | None = None
+        self.ready_facing = False
 
     def stop(self, reason: str) -> Decision:
         self.state, self.target, self.facing = State.IDLE, None, None
         self.attempts, self.missing_frames = 0, 0
         self.last_distance, self.stalled_steps = None, 0
-        self.skill_ready, self.target_seen_at = False, None
+        self.skill_ready, self.target_seen_at, self.ready_facing = False, None, False
         return Decision(self.state, Action(), reason)
 
     def start(self) -> None:
@@ -141,6 +147,7 @@ class Agent:
         for name in ("facing", "verify_until", "attempts", "last_distance", "stalled_steps",
                      "skill_ready"):
             setattr(self, name, before[name])
+        self.ready_facing = before.get("ready_facing", False)
 
     def _result(self, reason: str, action: Action | None = None) -> Decision:
         return Decision(self.state, action or Action(), reason, self.target)
@@ -162,6 +169,7 @@ class Agent:
             "stalled_steps": self.stalled_steps,
             "skill_ready": self.skill_ready,
             "target_seen_at": self.target_seen_at,
+            "ready_facing": self.ready_facing,
         }
 
     def restore(self, snapshot: dict[str, Any]) -> None:
@@ -184,6 +192,7 @@ class Agent:
                 else None
             )
             self.target_seen_at = snapshot.get("target_seen_at")
+            self.ready_facing = bool(snapshot.get("ready_facing", False))
             self.facing = snapshot["facing"]
             self.verify_until = float(snapshot["verify_until"])
             self.attempts = int(snapshot["attempts"])
@@ -252,9 +261,21 @@ class Agent:
                     return self._result("Target absent; awaiting further visual evidence")
                 return self._search("Target absent for 3 frames after attack; kill unconfirmed")
             return self._search("Target missing or below confidence; waiting for a fresh target")
-        self.target, self.missing_frames, self.target_seen_at = match, 0, now
+        previous, self.target = expected, match
+        self.missing_frames, self.target_seen_at = 0, now
         dx = match.box.center[0] - player.box.center[0]
         direction = "right" if dx >= 0 else "left"
+        if self.state == State.APPROACH:
+            nearer = [item for item in candidates if item is not match and abs(
+                item.box.center[0] - player.box.center[0]) < abs(dx) - RETARGET_MARGIN]
+            if nearer:
+                # Never walk through a closer enemy to reach the original one.
+                self.target = min(nearer, key=lambda item: abs(
+                    item.box.center[0] - player.box.center[0]))
+                self.attempts, self.last_distance, self.stalled_steps = 0, None, 0
+                self.ready_facing = False
+                self.acquisitions += 1
+                return self._result("Nearer same-platform target; retargeting")
         if self.state == State.VERIFY:
             if now < self.verify_until:
                 return self._result("Observing target after attack; no outcome assumed")
@@ -265,6 +286,19 @@ class Agent:
         if abs(dx) < self.config.attack_min_range:
             return self.stop("Target inside minimum attack range; reposition manually")
         if abs(dx) > self.config.attack_range:
+            # Camera-compensated motion of the target itself, positive when closing in.
+            closing = (previous.center[0] - match.box.center[0]) * (1 if dx >= 0 else -1)
+            if self.state == State.APPROACH and closing >= APPROACHING_PX:
+                self.last_distance, self.stalled_steps = abs(dx), 0
+                if self.facing != direction:
+                    self.facing, self.ready_facing = direction, True
+                    return self._result(
+                        "Target approaching; face it and wait",
+                        Action(direction, min(0.035, self.config.movement_seconds)),
+                    )
+                self.ready_facing = True
+                return self._result("Target approaching; waiting for it to enter range")
+            self.ready_facing = False
             if self.last_distance is not None and self.last_distance - abs(dx) < 1.5:
                 self.stalled_steps += 1
             else:
@@ -286,7 +320,8 @@ class Agent:
             and outcome.get("action") == direction
             and outcome.get("result") == f"{direction} {outcome.get('status')}"
         )
-        if (self.state == State.APPROACH and not approached_facing_target
+        waited_facing = self.ready_facing and self.facing == direction
+        if (self.state == State.APPROACH and not approached_facing_target and not waited_facing
                 or self.facing != direction):
             self.last_distance, self.stalled_steps = None, 0
             self.state = State.ATTACK
