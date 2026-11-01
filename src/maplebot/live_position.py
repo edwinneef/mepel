@@ -2,7 +2,9 @@
 
 The minimap marker places the player; the fused MinimapTracker confirms platforms.
 Walk calibration pairs the marker with name-tag feet registered against the
-reference view. Registration is slow, so it runs on one background thread.
+reference view. Registration is slow, so it runs on one background thread. While the
+operator walks an uncalibrated area with input idle, the same pairs are collected
+passively; they are saved only when they pass the same fit and a one-marker-pixel residual.
 """
 
 import math
@@ -32,6 +34,9 @@ from .profiles import AreaStore
 
 STALE_SECONDS = 0.5
 MAX_PAIRS = 400
+# Passive pairs are unattended, so they need more evidence than the operator's walk.
+PASSIVE_MIN_PAIRS = 20
+PASSIVE_FIT_EVERY = 5
 
 
 def platforms(profile: dict) -> tuple[Platform, ...]:
@@ -70,14 +75,20 @@ class LivePosition:
         self.samples: list[tuple[tuple[float, float], tuple[float, float]]] | None = None
         self.pending: Future | None = None
         self.rejected = 0
+        self.passive: list[tuple[tuple[float, float], tuple[float, float]]] = []
+        self.passive_pending: Future | None = None
+        self.passive_rejected = 0
+        self.passive_fitted = 0
+        self.passive_reason = "Off"
         self._load(area_id)
 
     def _load(self, area_id: str) -> None:
         self.set_supplement(False)
         profile = self.store.load(area_id)["profile"]
         calibration = profile.get("minimap_calibration")
-        automatic = profile.get("automatic_alignment")
-        basis = automatic or calibration
+        # A saved walk calibration is the verified basis; it supersedes automatic alignment.
+        automatic = None if calibration else profile.get("automatic_alignment")
+        basis = calibration or automatic
         view = next((item for item in profile["views"]
                      if basis and item["id"] == basis["view_id"]),
                     profile["views"][0])
@@ -166,11 +177,13 @@ class LivePosition:
                now: float, *, captured_at: float | None = None,
                allow_supplement: bool = False, input_timing: dict | None = None,
                movement_keys: tuple[str, str] = ("left", "right"),
-               observation_context: tuple | None = None) -> dict:
+               observation_context: tuple | None = None,
+               passive_calibration: bool = False) -> dict:
         captured_at = time.time() if captured_at is None else captured_at
         player = observation.player
         shift = observation.camera_shift if observation.camera_confidence >= 0.35 else None
         self._collect(image, fix, player)
+        learned = self._learn(image, fix, player) if passive_calibration else None
         if self.tracker is None:
             location = Location("unknown", None, None, "Walk calibration needed")
         else:
@@ -267,7 +280,7 @@ class LivePosition:
                        "height": canvas.height} if canvas else None,
             "marker": list(fix.dot) if fix.dot else None,
             "calibrated": self.tracker is not None,
-            "calibration": self._calibration_status(),
+            "calibration": {**self._calibration_status(), "learned": learned},
             "map_alignment": alignment_status,
             "movement_learning": movement,
             "captured_at": captured_at,
@@ -277,21 +290,63 @@ class LivePosition:
     def _collect(self, image: np.ndarray, fix: MinimapFix, player: Detection | None) -> None:
         if self.samples is None:
             return
-        if self.pending is not None and self.pending.done():
+        self.pending, lost = self._gather(self.samples, self.pending, image, fix, player)
+        self.rejected += lost
+
+    def _gather(self, samples: list, pending: Future | None, image: np.ndarray,
+                fix: MinimapFix, player: Detection | None) -> tuple[Future | None, int]:
+        lost = 0
+        if pending is not None and pending.done():
             try:
-                pair = self.pending.result()
+                pair = pending.result()
             except Exception:  # a failed registration is just a lost pair
                 pair = None
             if pair is None:
-                self.rejected += 1
+                lost = 1
             else:
-                self.samples.append(pair)
-            self.pending = None
-        if (self.pending is None and fix.dot is not None and _fresh(player)
-                and len(self.samples) < MAX_PAIRS):
+                samples.append(pair)
+            pending = None
+        if (pending is None and fix.dot is not None and _fresh(player)
+                and len(samples) < MAX_PAIRS):
             assert player is not None
             dot, screen = fix.dot, (player.box.center[0], float(player.box.feet))
-            self.pending = self.pool.submit(self._register, image.copy(), dot, screen)
+            pending = self.pool.submit(self._register, image.copy(), dot, screen)
+        return pending, lost
+
+    def _learn(self, image: np.ndarray, fix: MinimapFix,
+               player: Detection | None) -> dict | None:
+        """Collect pairs while input is idle; save only a fit within one marker pixel."""
+        if self.calibration is not None or self.samples is not None:
+            self.passive, self.passive_pending = [], None
+            self.passive_reason = "Off: walk calibration saved or in progress"
+            return None
+        self.passive_pending, lost = self._gather(self.passive, self.passive_pending,
+                                                  image, fix, player)
+        self.passive_rejected += lost
+        count = len(self.passive)
+        if count < PASSIVE_MIN_PAIRS:
+            self.passive_reason = f"Collecting pairs while you walk ({count}/{PASSIVE_MIN_PAIRS})"
+            return None
+        if count - self.passive_fitted < PASSIVE_FIT_EVERY and count < MAX_PAIRS:
+            return None
+        self.passive_fitted = count
+        try:
+            calibration = self._fit(self.passive)
+        except ValueError as error:
+            self.passive_reason = f"Keep walking: {error}"
+            return None
+        limit = calibration["transform"]["scale_x"]  # one minimap marker pixel
+        residual = calibration["residual_px"]
+        if residual["x"]["p95"] > limit or residual["y"]["p95"] > limit:
+            self.passive_reason = (
+                f"Pairs disagree (p95 x {residual['x']['p95']:.1f} / y "
+                f"{residual['y']['p95']:.1f} px, limit {limit:g}); "
+                + ("use walk calibration" if count >= MAX_PAIRS else "still collecting"))
+            return None
+        result = self._save_calibration(calibration)
+        self.passive, self.passive_pending, self.passive_fitted = [], None, 0
+        self.passive_reason = "Learned from passive pairs"
+        return result
 
     def _register(self, image: np.ndarray, dot: tuple[float, float],
                   screen: tuple[float, float]):
@@ -306,6 +361,8 @@ class LivePosition:
             "active": self.samples is not None,
             "pairs": len(self.samples) if self.samples is not None else 0,
             "rejected": self.rejected,
+            "passive": {"pairs": len(self.passive), "rejected": self.passive_rejected,
+                        "reason": self.passive_reason},
             "saved": {key: saved[key] for key in ("residual_px", "pairs", "captured_at")}
             if saved else None,
         }
@@ -315,6 +372,7 @@ class LivePosition:
             raise ValueError("Public map uses automatic alignment; no walk calibration needed")
         self.set_supplement(False)
         self.samples, self.rejected = [], 0
+        self.passive, self.passive_pending = [], None
         return self._calibration_status()
 
     def cancel_calibration(self) -> dict:
@@ -324,7 +382,12 @@ class LivePosition:
     def finish_calibration(self) -> dict:
         if self.samples is None:
             raise ValueError("Begin walk calibration first")
-        samples = list(self.samples)
+        result = self._save_calibration(self._fit(self.samples))
+        self.samples, self.pending = None, None
+        return result
+
+    def _fit(self, pairs: list) -> dict:
+        samples = list(pairs)
         transform = MinimapTransform.fit([d for d, _ in samples], [f for _, f in samples])
         dots, feet = np.array([d for d, _ in samples]), np.array([f for _, f in samples])
         predicted = np.array([transform.to_area(*dot) for dot in dots])
@@ -339,10 +402,12 @@ class LivePosition:
             "pairs": len(samples),
             "captured_at": time.time(),
         }
+        return calibration
+
+    def _save_calibration(self, calibration: dict) -> dict:
         saved = self.store.save_calibration(
             self.profile["id"], self.profile["revision"], calibration
         )
-        self.samples, self.pending = None, None
         self._load(self.profile["id"])
         return {"calibration": calibration, "revision": saved["profile"]["revision"],
                 "warnings": saved["warnings"]}

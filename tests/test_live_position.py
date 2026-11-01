@@ -156,6 +156,77 @@ def test_live_position_applies_player_threshold_to_loaded_calibration(store):
         position.close()
 
 
+def walk_passively(position, offsets, start=0.0):
+    results = []
+    for index, (dx, error) in enumerate(offsets):
+        image = view(((dx, 20),))
+        results.append(position.update(image, position.read_map(image),
+                                       observe(8 * (dx + 2.5) + error), start + index * 0.3,
+                                       passive_calibration=True))
+        if position.passive_pending is not None:
+            position.passive_pending.result(timeout=5)
+    return results
+
+
+def test_passive_pairs_learn_walk_calibration_then_locate(store):
+    position = LivePosition(store, AREA)
+    try:
+        results = walk_passively(position, [(dx, 0) for dx in range(10, 200, 8)])
+        learned = [r["calibration"]["learned"] for r in results if r["calibration"]["learned"]]
+        assert len(learned) == 1 and learned[0]["calibration"]["pairs"] >= 20
+        assert learned[0]["calibration"]["residual_px"]["x"]["p95"] < 1
+        assert position.calibration is not None and position.samples is None
+        assert all(r["input_sent"] is False for r in results)
+        on_disk = json.loads((store.directory / f"{AREA}.json").read_text("utf-8"))
+        assert on_disk["minimap_calibration"]["pairs"] == learned[0]["calibration"]["pairs"]
+        located = [step(position, 60, 20 + index * 0.2) for index in range(3)]
+        assert located[-1]["kind"] == "platform" and located[-1]["surface_id"] == "floor"
+    finally:
+        position.close()
+
+
+def test_passive_pairs_never_save_without_opt_in_or_when_they_disagree(store):
+    position = LivePosition(store, AREA)
+    try:
+        for index, dx in enumerate(range(10, 200, 8)):
+            step(position, dx, index * 0.3)
+        assert position.passive == [] and position.calibration is None
+        noisy = [(dx, 40 if index % 2 else -40)
+                 for index, dx in enumerate(range(10, 200, 8))]
+        results = walk_passively(position, noisy)
+        assert not any(r["calibration"]["learned"] for r in results)
+        assert position.calibration is None
+        assert "Pairs disagree" in results[-1]["calibration"]["passive"]["reason"]
+        assert results[-1]["reason"] == "Walk calibration needed"
+    finally:
+        position.close()
+
+
+def test_passive_calibration_supersedes_unverified_automatic_alignment(store, monkeypatch):
+    profile = store.load(AREA)["profile"]
+    reference = profile["views"][0]
+    alignment = {"version": 1, "view_id": reference["id"], "view_image": reference["image"],
+                 "map_hash": "a" * 64, "magnification": 3, "uncertainty_px": 12,
+                 "picture_offset": [0, 0],
+                 "transform": {"scale_x": 8, "scale_y": 8, "offset_x": 0, "offset_y": 420}}
+    profile["public_map"] = {"id": 7, "sha256": "a" * 64, "world": {"x": [1, 0], "y": [1, 0]}}
+    profile["automatic_alignment"] = alignment
+    store.save(profile)
+    monkeypatch.setattr("maplebot.public_map.cached", lambda *args: ({"miniMap": {}}, "a" * 64))
+    monkeypatch.setattr("maplebot.public_map.picture", lambda *_: None)
+    monkeypatch.setattr("maplebot.live_position.align", lambda *args: alignment)
+    position = LivePosition(store, AREA)
+    try:
+        assert position.automatic is not None
+        walk_passively(position, [(dx, 0) for dx in range(10, 200, 8)])
+        assert position.automatic is None and position.calibration is not None
+        located = [step(position, 60, 20 + index * 0.2) for index in range(3)]
+        assert located[-1]["map_alignment"] is None
+        assert located[-1]["kind"] == "platform"
+    finally:
+        position.close()
+
+
 def test_calibration_needs_enough_fresh_pairs(store):
     position = LivePosition(store, AREA)
     try:

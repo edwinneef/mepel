@@ -1899,7 +1899,19 @@ class Application:
                                                 allow_supplement=self.capture_only
                                                 and self.mode == "capture" and not self.area_editing
                                                 and not self.calibrating
+                                                and self.active_probe is None,
+                                                passive_calibration=self.mode in {
+                                                    "capture", "dry_run"}
+                                                and not self.area_editing
+                                                and not self.calibrating
                                                 and self.active_probe is None)
+                learned = position["calibration"]["learned"]
+                if learned:
+                    residual = learned["calibration"]["residual_px"]
+                    self.note(
+                        f"Walk calibration learned passively: {learned['calibration']['pairs']} "
+                        f"pairs, residual p95 x {residual['x']['p95']:.1f} / "
+                        f"y {residual['y']['p95']:.1f} px")
             except (ValueError, cv2.error) as error:
                 position = {"kind": "unknown", "reason": f"Position unavailable: {error}",
                             "captured_at": captured_at, "input_sent": False}
