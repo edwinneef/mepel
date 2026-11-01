@@ -1,4 +1,6 @@
-from maplebot.geometry_anchors import GeometryAnchors
+import numpy as np
+
+from maplebot.geometry_anchors import GeometryAnchors, GeometryTracking
 from maplebot.structure_detection import Structure
 
 
@@ -43,3 +45,18 @@ def test_map_id_never_changes_detector_association():
     first = GeometryAnchors(data).locate(features(), (350, 400), (40, 200))
     data["id"] = 123456789
     assert GeometryAnchors(data).locate(features(), (350, 400), (40, 200)) == first
+
+
+def test_camera_propagation_is_bounded_and_identity_or_camera_loss_resets(monkeypatch):
+    monkeypatch.setattr("maplebot.geometry_anchors.detect", lambda *_: features())
+    tracker = GeometryTracking(source())
+    image = np.zeros((768, 1366, 3), np.uint8)
+    first = tracker.observe(image, (350, 400), (40, 200), 1., "player", (0, 0))
+    assert first["candidate_xy"] == [40, 200]
+    following = tracker.observe(image, (350, 400), (50, 200), 1.1, "player", (-10, 0))
+    assert following["candidate_xy"] == [50, 200] and following["xy"] is None
+    missing = tracker.observe(image, (350, 400), (50, 200), 1.2, "player", None)
+    assert missing["state"] == "uncertain" and tracker.last is None
+    tracker.observe(image, (350, 400), (40, 200), 2., "player", (0, 0))
+    monkeypatch.setattr("maplebot.geometry_anchors.detect", lambda *_: [])
+    assert tracker.observe(image, (350, 400), (40, 200), 2.1, "other", (0, 0))["xy"] is None

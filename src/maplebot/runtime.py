@@ -1791,6 +1791,8 @@ class Application:
                                                 input_timing=self.controller.timing_snapshot(),
                                                 movement_keys=(self.config.input.left,
                                                                self.config.input.right),
+                                                observation_context=(self.source_generation,
+                                                                     self.view_generation),
                                                 allow_supplement=self.capture_only
                                                 and self.mode == "capture" and not self.area_editing
                                                 and not self.calibrating

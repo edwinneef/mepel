@@ -4,6 +4,8 @@ import math
 
 import numpy as np
 
+from .structure_detection import detect
+
 
 def world_features(source):
     result = []
@@ -107,3 +109,39 @@ class GeometryAnchors:
                 "support": best["support"], "hypotheses": len(proposals),
                 "reason": "Geometric agreement; collision/true-feet offsets unverified",
                 "contact_verified": False}
+
+
+class GeometryTracking:
+    """Bounded observation-only propagation; no file-backed visual map references."""
+
+    def __init__(self, source):
+        self.model = GeometryAnchors(source)
+        self.reset()
+
+    def reset(self):
+        self.identity = self.last_at = self.anchor_at = self.last_screen = self.last = None
+        self.scanned_at = float("-inf")
+
+    def observe(self, image, screen, coarse, now, identity, camera, actors=()):
+        key = (identity, image.shape)
+        if (key != self.identity or self.last_at is not None
+                and (now <= self.last_at or now - self.last_at > .5)):
+            self.reset()
+        self.identity = key
+        if (camera is None or not all(math.isfinite(v) for v in (*screen, *coarse, *camera, now))):
+            self.reset()
+            return {"state": "uncertain", "xy": None, "reason": "Fresh camera/player required"}
+        if (now - self.scanned_at < .25 and self.last and self.anchor_at is not None
+                and now - self.anchor_at <= .5 and self.last.get("candidate_xy") is not None):
+            offset = [self.last_screen[i] - self.last["candidate_xy"][i] + camera[i]
+                      for i in (0, 1)]
+            candidate = [screen[i] - offset[i] for i in (0, 1)]
+            result = {**self.last, "candidate_xy": candidate, "xy": None,
+                      "uncertainty_xy": [v + 1 for v in self.last["uncertainty_xy"]],
+                      "reason": "Brief camera propagation; no fresh precision/contact proof"}
+        else:
+            result = self.model.locate(detect(image, actors), screen, coarse)
+            self.scanned_at = now
+            self.anchor_at = now if result.get("candidate_xy") is not None else None
+        self.last, self.last_screen, self.last_at = result, screen, now
+        return result
