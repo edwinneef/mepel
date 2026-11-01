@@ -14,6 +14,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $base = "http://127.0.0.1:$Port"
+# A session change makes the overlay exit deliberately. Remember it before shutdown
+# so a restart can replace it with a fresh renderer, token and input lease.
+$overlays = @(Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object {
+    $_.CommandLine -and $_.CommandLine.Replace('/', '\') -like "*$root\ui\overlay\main.cjs*"
+})
 
 function Test-Listening {
     [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
@@ -41,16 +46,16 @@ foreach ($launcher in $launchers) {
     }
 }
 
+# The engine has released input and stopped. Close only this project's old overlay;
+# never carry its queued actions or credentials into the replacement engine.
+foreach ($overlay in $overlays) {
+    try { Stop-Process -Id $overlay.ProcessId -Confirm:$false -ErrorAction Stop }
+    catch {
+        if ($_.CategoryInfo.Category -ne 'ObjectNotFound') { throw }
+    }
+}
+
 if ($StopOnly) {
-    # The overlay outlives its engine; close this project's overlay (started by
-    # tools/start_overlay.ps1). Its child processes exit with it. The elevated task's
-    # window closes by itself once its engine has stopped.
-    $overlays = Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object {
-        $_.CommandLine -and $_.CommandLine.Replace('/', '\') -like "*$root\ui\overlay\main.cjs*"
-    }
-    foreach ($overlay in $overlays) {
-        try { Stop-Process -Id $overlay.ProcessId -Confirm:$false } catch { }
-    }
     [pscustomobject]@{ stopped = $true; overlays_closed = @($overlays).Count; url = $base } |
         ConvertTo-Json -Compress
     return
@@ -80,9 +85,13 @@ while ((Get-Date) -lt $deadline -and -not $status) {
     try { $status = Invoke-RestMethod "$base/api/status" -TimeoutSec 2 } catch { }
 }
 if (-not $status) { throw "The engine did not answer on $base within 120 s; check its window" }
+if ($overlays.Count -gt 0) {
+    & "$PSScriptRoot/start_overlay.ps1" -WaitForEngine -Port $Port
+}
 [pscustomobject]@{
     window = if ($process) { $process.Id } else { 'MapleBot task (elevated)' }
     capture_only = $status.capture_only
     mode = $status.mode
+    overlay_restarted = $overlays.Count -gt 0
     url = $base
 } | ConvertTo-Json -Compress
