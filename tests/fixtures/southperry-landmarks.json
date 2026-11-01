@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "map_id": 60,
+  "reference": "00000108.png",
+  "annotation_uncertainty_px": 2,
+  "landmarks": [
+    {
+      "name": "upper ladder shaft centre",
+      "box": [964, 220, 52, 260],
+      "screen_x": 991,
+      "world_x": 405,
+      "foreground_hsv": [[8, 45, 25], [38, 255, 235]],
+      "source": "ladderRopes[3].x; shaft midpoint between visible rails near x973 and x1009"
+    },
+    {
+      "name": "left rope of the hanging pair",
+      "box": [940, 550, 100, 65],
+      "screen_x": 950,
+      "world_x": 364,
+      "foreground_hsv": [[8, 45, 25], [38, 255, 235]],
+      "source": "ladderRopes[1].x; right companion at screen x1028/world x442 confirms 78px spacing"
+    }
+  ]
+}
