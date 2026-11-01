@@ -3,7 +3,7 @@ import json
 import pytest
 
 from maplebot.farming import CHECKPOINT_STOP
-from tools.farming_check import combat_progress, run
+from tools.farming_check import combat_progress, rotation_blocker, run
 
 
 class Api:
@@ -14,8 +14,12 @@ class Api:
 
     def status(self):
         return {"session_id": "s", "mode": "live" if self.running else "capture",
-                "focused": True, "position": {"area_id": "island"},
-                "navigation": {"map": {"nodes": []}}, "player": {"confidence": 1},
+                "focused": True, "position": {"area_id": "island", "surface_id": "a",
+                                               "feet": [0, 0]},
+                "navigation": {"map": {"nodes": [
+                    {"id": "a", "kind": "platform"}, {"id": "b", "kind": "platform"}],
+                    "edges": [{"from": "a", "to": "b", "proven": True}]}},
+                "player": {"confidence": 1},
                 "autopotter": {"readings": {r: {"percent": 80, "confidence": 1}
                                            for r in ("hp", "mp")}}}
 
@@ -237,3 +241,30 @@ def test_existing_health_policy_is_checked_before_arming_from_safe_staging(tmp_p
         run(api, tmp_path / "run", area="island", single_platform=True,
             checkpoint_seconds=10)
     assert not api.calls
+
+
+@pytest.mark.parametrize("stale", [True, False])
+def test_rotation_preflight_refuses_stale_or_disconnected_origin_without_commands(tmp_path, stale):
+    class Blocked(Api):
+        def status(self):
+            status = super().status()
+            status["position"]["stale"] = stale
+            status["navigation"]["map"]["edges"] = []
+            return status
+
+    api = Blocked()
+    with pytest.raises(RuntimeError, match="fresh mapped|No proven rotation route"):
+        run(api, tmp_path / "run", area="island")
+    assert api.calls == []
+
+
+def test_rotation_connectivity_does_not_use_unproven_edges_or_loop_as_destination():
+    status = Api().status()
+    graph = status["navigation"]["map"]
+    graph["nodes"].append({"id": "upper", "kind": "platform", "unproven": True})
+    graph["edges"] = [{"from": "a", "to": "upper", "proven": True},
+                      {"from": "upper", "to": "a", "proven": True},
+                      {"from": "upper", "to": "b", "proven": False}]
+    assert "No proven rotation route" in rotation_blocker(status)
+    graph["edges"][-1]["proven"] = True
+    assert rotation_blocker(status) is None

@@ -33,6 +33,29 @@ def combat_progress(samples: list[dict]) -> dict:
             "hits_confirmed": None, "kills_confirmed": None}
 
 
+
+def rotation_blocker(status: dict) -> str | None:
+    """Reject impossible rotation connectivity; engine planning still owns route safety."""
+    position = status.get("position") or {}
+    if position.get("stale") or position.get("held") or not position.get("feet"):
+        return "Wait for a fresh mapped position before rotation"
+    graph = (status.get("navigation") or {}).get("map") or {}
+    origin = position.get("surface_id")
+    nodes = {node["id"]: node for node in graph.get("nodes", [])}
+    if origin not in nodes or nodes[origin].get("excluded"):
+        return "Rotation origin is outside the usable map"
+    targets = {key for key, node in nodes.items() if key != origin
+               and node.get("kind") == "platform"
+               and not node.get("excluded") and not node.get("unproven")}
+    reached, frontier = {origin}, {origin}
+    for _ in range(8):
+        frontier = {edge["to"] for edge in graph.get("edges", [])
+                    if edge.get("proven") and edge["from"] in frontier} - reached
+        if frontier & targets:
+            return None
+        reached |= frontier
+    return "No proven rotation route from this platform; move to a connected combat platform"
+
 def run(api, output: Path, *, area: str, single_platform=False, session_minutes=15,
         checkpoint_seconds=None, consumables=False, clock=time.monotonic, sleep=time.sleep):
     if type(session_minutes) is not int or not 1 <= session_minutes <= 120:
@@ -63,6 +86,8 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
     player = before.get("player") or {}
     if player.get("tracked") or player.get("confidence", 0) < .9:
         raise RuntimeError("Player not freshly recognized; no farming started")
+    if not single_platform and (problem := rotation_blocker(before)):
+        raise RuntimeError("No farming started: " + problem)
     settings = {"session_minutes": session_minutes, "pet_recovery": False,
                 "no_consumables": not consumables}
     if single_platform:
