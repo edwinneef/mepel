@@ -7,6 +7,17 @@ import { snapshot } from './test-fixtures';
 
 afterEach(() => cleanup());
 
+it('shows automatic uncertainty without offering calibration or implying gameplay readiness', () => {
+  const { command } = setup({ ...tracked, kind: 'unknown', surface_id: null,
+    map_alignment: { mode: 'automatic', state: 'uncertain', precision_verified: false,
+      uncertainty_px: 16, reason: 'Absolute precision awaits validation' } });
+  expect(screen.getByText('Position uncertain')).toBeTruthy();
+  expect(screen.getByText(/No walking calibration is needed/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /Start walk calibration|Recalibrate/ })).toBeNull();
+  expect(screen.getByRole('status').textContent).toContain('gameplay remains locked');
+  expect(command).not.toHaveBeenCalled();
+});
+
 const tracked: LivePosition = {
   area_id: 'a'.repeat(32), area_name: 'Floor', kind: 'platform', surface_id: 'floor', feet: [500, 600],
   reason: 'Marker and name tag agree; contact not verified', map: 'Player marker on the taught map',

@@ -60,6 +60,7 @@ export function PositionPanel({ snapshot: s, client, act, disabled, areas }: Pan
   const position = s.position;
   const calibration = position?.calibration;
   const calibrating = Boolean(calibration?.active);
+  const automatic = position?.map_alignment?.mode === 'automatic';
   const mapId = chosenArea || position?.area_id || '';
   const command = (action: string, payload: Record<string, unknown> = {}) => act(() => client.command(action, payload));
   let title = 'Choose a map';
@@ -71,6 +72,12 @@ export function PositionPanel({ snapshot: s, client, act, disabled, areas }: Pan
   if (calibrating) {
     title = 'Learning how the map scrolls';
     instruction = `Walk left and right on one floor · ${calibration?.pairs ?? 0} samples (${calibration?.rejected ?? 0} rejected). Finish once you have covered the floor; no game keys are sent.`;
+  }
+  if (automatic && position?.map_alignment) {
+    const alignment = position.map_alignment;
+    title = alignment.state === 'aligning' ? 'Aligning map'
+      : alignment.precision_verified && position.kind === 'platform' ? 'Ready' : 'Position uncertain';
+    instruction = `${alignment.reason}. Estimated uncertainty: ±${alignment.uncertainty_px.toFixed(1)} px. No walking calibration is needed.`;
   }
   return <section className="teaching-panel" aria-label="Map setup">
     <div className="teaching-summary">
@@ -89,13 +96,17 @@ export function PositionPanel({ snapshot: s, client, act, disabled, areas }: Pan
       </div>}
     </div>
     <p className="saved-map-note">Platforms, ropes and moves come from public map data. Save a new map once with a reference view (Advanced: draw by hand), then stop the engine and run <code>maplebot import-map "&lt;map name&gt;"</code> and start the engine again.</p>
-    <details className="teaching-options" open={calibrating || undefined}><summary>Walk calibration</summary>
+    {automatic ? <div className="saved-map-note" role="status">
+      <p>Automatic alignment · gameplay remains locked until position precision is verified.</p>
+      <p>Observing normal movement · {position?.movement_learning?.samples ?? 0} samples.
+        Movement settings remain unchanged while the model is unverified.</p>
+    </div> : <details className="teaching-options" open={calibrating || undefined}><summary>Walk calibration</summary>
       <p>{s.health?.reason ?? position?.reason ?? 'Track a map to see position status.'}</p>
       <p>{calibration?.saved ? `${calibration.saved.pairs} saved calibration samples` : 'This map has no walk calibration yet.'}</p>
       <div className="button-grid">{calibrating ? <>
         <button disabled={disabled} onClick={() => void command('walk_calibration_finish')}>Finish calibration</button>
         <button disabled={disabled} onClick={() => void command('walk_calibration_cancel')}>Cancel calibration</button>
       </> : <button disabled={disabled || !position} onClick={() => void command('walk_calibration_begin')}>{calibration?.saved ? 'Recalibrate' : 'Start walk calibration'}</button>}</div>
-    </details>
+    </details>}
   </section>;
 }

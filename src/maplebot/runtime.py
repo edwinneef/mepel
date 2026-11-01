@@ -270,7 +270,7 @@ class Application:
     def _display_source(self) -> DisplaySource:
         position = self.position
         terrain = None
-        if position is not None:
+        if position is not None and not getattr(position, "automatic", None):
             terrain = (position.profile["id"], position.profile["revision"], position.reference,
                        position.view.x, position.view.y, position.view.scale)
         with self.lock:
@@ -1788,6 +1788,9 @@ class Application:
             try:
                 position = self.position.update(image, fix, observation, now,
                                                 captured_at=captured_at,
+                                                input_timing=self.controller.timing_snapshot(),
+                                                movement_keys=(self.config.input.left,
+                                                               self.config.input.right),
                                                 allow_supplement=self.capture_only
                                                 and self.mode == "capture" and not self.area_editing
                                                 and not self.calibrating

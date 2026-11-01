@@ -134,6 +134,8 @@ class NavigationRuntime:
         app = self.app
         if app.capture_only:
             return "Capture-only session: navigation input locked"
+        if getattr(app.position, "automatic", None):
+            return "Automatic alignment precision is not verified; navigation input locked"
         if (app.position is not None and map_hash(app.position.profile) != self.graph.fingerprint):
             return "Stop tracking and reload the changed map before navigation"
         if app.area_editing or app.calibrating or app.active_probe is not None:
@@ -426,6 +428,8 @@ class NavigationRuntime:
                 + json.dumps(value, sort_keys=True))
 
     def _trusted_feedback(self, f, now: float) -> bool:
+        if getattr(getattr(self.app, "position", None), "automatic", None):
+            return False
         if not f or now - f.now > .5:
             return False
         agent = self.agent

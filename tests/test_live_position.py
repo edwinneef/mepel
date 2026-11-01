@@ -63,6 +63,36 @@ def test_uncalibrated_area_reports_why_and_sends_no_input(store):
         position.close()
 
 
+def test_automatic_tracking_observes_without_walk_samples_or_precision_claim(store, monkeypatch):
+    profile = store.load(AREA)["profile"]
+    view = profile["views"][0]
+    alignment = {"version": 1, "view_id": view["id"], "view_image": view["image"],
+                 "map_hash": "a" * 64, "magnification": 3, "uncertainty_px": 12,
+                 "picture_offset": [0, 0],
+                 "transform": {"scale_x": 8, "scale_y": 8, "offset_x": 0, "offset_y": 420}}
+    profile["public_map"] = {"id": 7, "sha256": "a" * 64,
+                             "world": {"x": [1, 0], "y": [1, 0]}}
+    profile["automatic_alignment"] = alignment
+    store.save(profile)
+    monkeypatch.setattr("maplebot.public_map.cached", lambda *args: ({"miniMap": {}}, "a" * 64))
+    monkeypatch.setattr("maplebot.public_map.picture", lambda *_: None)
+    monkeypatch.setattr("maplebot.live_position.align", lambda *args: alignment)
+    position = LivePosition(store, AREA)
+    try:
+        for i in range(4):
+            result = step(position, 60, i * .2)
+        assert position.samples is None and position.calibration is None
+        assert result["map_alignment"]["mode"] == "automatic"
+        assert result["map_alignment"]["precision_verified"] is False
+        assert result["kind"] == "unknown" and result["surface_id"] is None
+        assert result["input_sent"] is False and result["feet"] is not None
+        assert result["movement_learning"]["parameters"] == {}
+        with pytest.raises(ValueError, match="no walk calibration"):
+            position.begin_calibration()
+    finally:
+        position.close()
+
+
 def test_public_identity_requires_setup_cache_without_network(store):
     with pytest.raises(ValueError, match="Cache the public layout"):
         LivePosition(store, AREA, map_id=101010102)

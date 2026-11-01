@@ -53,7 +53,13 @@ class PositionInterval:
                 or (camera is not None and not all(math.isfinite(v) for v in camera))):
             self.reset()
             raise ValueError("Invalid position observation")
-        bounds = np.array([[v - uncertainty, v + uncertainty] for v in feet], dtype=float)
+        if self.at is not None and now <= self.at:
+            self.reset()
+            return None
+        # Cross-map marker bias is systematic. Repeated frames cannot average it away.
+        systematic = min(8., uncertainty)
+        quantized = uncertainty - systematic
+        bounds = np.array([[v - quantized, v + quantized] for v in feet], dtype=float)
         if (self.bounds is not None and camera is not None and self.at is not None
                 and 0 < now - self.at <= .5):
             delta = np.array(screen) - self.screen - np.array(camera)
@@ -66,4 +72,5 @@ class PositionInterval:
                 self.reset()
                 return None
         self.bounds, self.screen, self.at = bounds, np.array(screen), now
-        return tuple(bounds.mean(axis=1)), float(np.max(np.diff(bounds, axis=1)) / 2)
+        return (tuple(bounds.mean(axis=1)),
+                float(np.max(np.diff(bounds, axis=1)) / 2) + systematic)

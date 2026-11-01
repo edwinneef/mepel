@@ -16,6 +16,16 @@ from maplebot.navigation_runtime import POSE_COVERAGE
 app, controller = _app, _controller
 
 
+def test_automatic_alignment_cannot_authorize_input_before_precision_acceptance(app):
+    from types import SimpleNamespace
+
+    nav = preview(app)
+    app.position = SimpleNamespace(automatic={"version": 1})
+    assert "precision is not verified" in nav._gate(set())
+    assert not nav.trusted()
+    assert app.controller.backend.events == []
+
+
 @pytest.mark.parametrize(("threshold", "trusted"), [(.85, True), (.90, False)])
 def test_navigation_motion_uses_configured_player_threshold(app, monkeypatch, threshold, trusted):
     import json

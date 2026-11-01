@@ -138,6 +138,8 @@ def alignment_record(value: dict, public: dict, views: list) -> dict:
                  for k in ("scale_x", "offset_x", "scale_y", "offset_y")}
     MinimapTransform(**transform)
     uncertainty = number(value["uncertainty_px"])
+    if len(value["picture_offset"]) != 2:
+        raise ValueError("Invalid automatic minimap picture offset")
     if (transform["scale_x"] != 2 ** zoom or transform["scale_y"] != 2 ** zoom
             or uncertainty < 2 ** zoom / 2 + 8):
         raise ValueError("Automatic alignment underestimates marker uncertainty")

@@ -53,6 +53,12 @@ export interface LivePosition {
   captured_at?: number;
   projection?: { x: number; y: number; scale: number; revision: number } | null;
   calibration?: WalkCalibration; input_sent: false;
+  map_alignment?: { mode: 'automatic'; state: 'aligning' | 'uncertain' | 'ready';
+    uncertainty_px: number; precision_verified: boolean; observed_surface?: string | null;
+    reason: string } | null;
+  movement_learning?: { state: string; samples: number; observed_speed_px_s: number | null;
+    parameters: Record<string, number>; unidentified: string[]; reason: string;
+    input_sent: false } | null;
   teaching?: TeachingSession;
   provisional?: boolean;
   supplement?: { available: boolean; enabled: boolean; reason: string; platform: AreaSegment | null };
