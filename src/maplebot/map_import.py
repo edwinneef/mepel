@@ -37,7 +37,7 @@ def candidates(catalog: Path, title: str) -> list[int]:
 
 def import_map(store: AreaStore, area: str, catalog: Path, *, map_id: int | None = None,
                dry_run: bool = False, fetch: Callable[[str], bytes] | None = None,
-               meowdb_source: Path | None = None, automatic: bool = True) -> dict:
+               meowdb_source: Path | None = None, automatic: bool = False) -> dict:
     match = next((item for item in store.list()["areas"] if area in (item["id"], item["name"])),
                  None)
     profile = store.load(match["id"] if match else area)["profile"]

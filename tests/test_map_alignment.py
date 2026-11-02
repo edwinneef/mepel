@@ -43,7 +43,7 @@ def test_dry_run_and_wrong_map_do_not_change_profile(tmp_path):
 
     saved.body = cv2.imencode(".png", wrong)[1].tobytes()
     with pytest.raises(ValueError, match="minimap|terrain"):
-        import_map(saved, "Test", tmp_path / "catalog", map_id=7)
+        import_map(saved, "Test", tmp_path / "catalog", map_id=7, automatic=True)
     assert saved.saved is None
 
 
@@ -68,3 +68,16 @@ def test_stale_or_missing_camera_never_propagates_a_precise_estimate():
     assert fusion.update((200., 0.), (20., 20.), None, 1., 16.) is None
     with pytest.raises(ValueError):
         fusion.update((float("nan"), 0.), (0., 0.), None, 3., 16.)
+
+
+def test_reimport_keeps_the_walk_calibration_unless_automatic_is_requested(tmp_path):
+    saved, body = store(tmp_path)
+    original = copy.deepcopy(saved.profile["minimap_calibration"])
+    import_map(saved, "Test", tmp_path / "catalog", map_id=7, fetch=lambda _: body)
+    kept, _ = validate_profile(saved.saved)
+    assert kept["minimap_calibration"] == original
+    assert "automatic_alignment" not in kept
+    import_map(saved, "Test", tmp_path / "catalog", map_id=7, fetch=lambda _: body,
+               automatic=True)
+    switched, _ = validate_profile(saved.saved)
+    assert "minimap_calibration" not in switched and "automatic_alignment" in switched
