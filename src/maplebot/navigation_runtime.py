@@ -9,7 +9,7 @@ from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
 from .move_proofs import MoveProofs
 from .moves import Move, generate
-from .navigation import RouteMap, map_hash, pose_gaps, required_poses
+from .navigation import Route, RouteMap, map_hash, pose_gaps, required_poses
 from .navigation_executor import EdgeStep, Feedback, Navigator, distance
 from .navigation_replay import recorded_step
 from .reacquisition import RECOVERY_SECONDS
@@ -265,28 +265,36 @@ class NavigationRuntime:
         self.reason = "Focus the game; navigation countdown is bounded and cancelable"
         return self.snapshot()
 
-    def handoff(self, target: str, now: float, *, explore: bool = False) -> str | None:
+    def handoff(self, target: str, now: float, *,
+                explore: tuple[str, ...] | None = None) -> str | None:
         """Armed combat found its platform clear: route on without a new countdown.
 
-        With `explore`, the route is one unproven move to a neighbour; replans still use
-        proven moves only. Returns why the move was refused; the caller stops safely
-        instead of retrying.
+        With `explore`, the route is exactly those moves: one unproven move, or a move onto
+        a rope and one off it. Replans still use proven moves only. Returns why the move
+        was refused; the caller stops safely instead of retrying.
         """
         f = self.feedback
         if not self.graph or not f or not f.surface:
             return "Rotation: current platform unknown"
         try:
-            self.route = (self.graph.plan(f.surface, target, max_edges=1, origin_feet=f.feet)
-                          if explore else
-                          self.graph.plan(f.surface, target, trusted_only=True,
-                                          origin_feet=f.feet))
-        except ValueError as error:
+            if explore:
+                edges = tuple(self.graph.edges[key] for key in explore)
+                if (edges[0].source != f.surface or edges[-1].target != target
+                        or any(a.target != b.source
+                               for a, b in zip(edges, edges[1:], strict=False))):
+                    raise ValueError("Explore moves do not lead from here to the target")
+                self.route = Route(self.graph.profile["id"], self.graph.profile["revision"],
+                                   self.graph.fingerprint, f.surface, target, edges)
+            else:
+                self.route = self.graph.plan(f.surface, target, trusted_only=True,
+                                             origin_feet=f.feet)
+        except (KeyError, ValueError) as error:
             return f"Rotation: {error}"
         blocker = self.blocker()
         if blocker:
             return f"Rotation: {blocker}"
         self._release()
-        self.exploring, self.miss = (self.route.edges[0].id if explore else None), None
+        self.exploring, self.miss = (tuple(explore) if explore else None), None
         self.agent = Navigator(self.graph, self.route, now,
                                pulse=min(.12, self.app.config.input.max_action_seconds),
                                trusted_only=True)
@@ -686,10 +694,13 @@ class NavigationRuntime:
         app, agent = self.app, self.agent
         if (self.exploring is None or not self.resume_combat or not app.learning_moves
                 or app.farming is None or len(self.misses) >= MISS_LIMIT
-                or not isinstance(agent, Navigator) or agent.completed):
+                or not isinstance(agent, Navigator) or agent.index >= len(agent.route.edges)):
             return False
+        failed = agent.route.edges[agent.index].id
+        if failed not in self.exploring or failed in self.graph.proven:
+            return False  # a proven move failing is an ordinary navigation failure
         self._release()
-        self.miss = {"edge": self.exploring, "reason": agent.reason, "since": now,
+        self.miss = {"edge": failed, "reason": agent.reason, "since": now,
                      "surface": None, "feet": None, "settled_at": None}
         self.reason = f"Move missed ({agent.reason}); waiting for a safe landing"
         app.note(self.reason)

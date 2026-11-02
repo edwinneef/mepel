@@ -60,6 +60,9 @@ def main(argv: list[str] | None = None, *, api=None) -> int:
                           (after.get("navigation") or {}).get("learning") or {}).get("misses", [])],
                       "input_state": after.get("input_state"), "stop": after.get("stop"),
                       "command_seconds": round(time.monotonic() - started, 2)}), flush=True)
+    if result.get("outcome") == "nothing_left":
+        print("Nothing left to do from here; stopped cleanly. No alarm.", flush=True)
+        return 0
     if result.get("outcome") != "functional_success":
         print("Control returned to operator. Move to safety; no retry.", flush=True)
         if not (after.get("alarm") or {}).get("active"):

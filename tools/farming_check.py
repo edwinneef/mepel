@@ -170,6 +170,8 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
                         raise RuntimeError("Session ended without bounded repeated-combat evidence")
                     result["outcome"] = "functional_success"
                     result["full_session_passed"] = True
+                elif stop.get("code") == "FARMING_DONE":
+                    result["outcome"] = "nothing_left"
                 elif (stop.get("code") == "OPERATOR_STOP" or
                       stop.get("code") == "FARMING_STOP" and message in {
                     "HP low; no consumables available, stopped",

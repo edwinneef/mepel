@@ -39,8 +39,10 @@ LEARN_MAX_FALL_PX = 100
 
 
 def unproven_neighbours(graph: RouteMap, surface: str, *,
-                        max_fall: float = LEARN_MAX_FALL_PX) -> dict[str, str]:
-    """Platforms one unproven computed move away: target -> edge.
+                        max_fall: float = LEARN_MAX_FALL_PX) -> dict[str, tuple[str, ...]]:
+    """Platforms reachable by unproven computed moves: target -> the moves to try.
+
+    A path is one move, or a move onto a rope and one off it; at least one is unproven.
 
     From inside the round-trip map only platforms outside it count. From a platform with
     no proven way back, moves into the map count too: proving one connects this platform
@@ -50,15 +52,30 @@ def unproven_neighbours(graph: RouteMap, surface: str, *,
     leave the visible play area before the camera catches up.
     """
     known, platforms = set(routable(graph)), {p["id"] for p in graph.profile["platforms"]}
+    ropes = {r["id"] for r in graph.profile["ropes"]}
     if surface not in known:
         known = set()
-    found: dict[str, str] = {}
-    for edge in sorted(graph.edges.values(), key=lambda e: e.id):
-        if (edge.source == surface and edge.id not in graph.proven and edge.target != surface
-                and edge.target in platforms and edge.target not in known
-                and edge.target not in graph.excluded and edge.trace
-                and max(y for _, y in edge.trace) - edge.trace[0][1] <= max_fall):
-            found.setdefault(edge.target, edge.id)
+
+    def usable(edge) -> bool:
+        return (edge.target not in graph.excluded and bool(edge.trace)
+                and max(y for _, y in edge.trace) - edge.trace[0][1] <= max_fall)
+
+    def wanted(target: str) -> bool:
+        return target != surface and target in platforms and target not in known
+
+    edges = sorted(graph.edges.values(), key=lambda e: e.id)
+    found: dict[str, tuple[str, ...]] = {}
+    for edge in edges:
+        if edge.source == surface and edge.id not in graph.proven and wanted(edge.target) \
+                and usable(edge):
+            found.setdefault(edge.target, (edge.id,))
+    for grab in edges:  # onto a rope, then off it: the only way up much of a tall map
+        if grab.source != surface or grab.target not in ropes or not usable(grab):
+            continue
+        for leave in edges:
+            if (leave.source == grab.target and wanted(leave.target) and usable(leave)
+                    and {grab.id, leave.id} - graph.proven):
+                found.setdefault(leave.target, (grab.id, leave.id))
     return found
 
 
@@ -68,10 +85,13 @@ class Rotation:
         self.visited: dict[str, float] = {}
         self.clear_since: float | None = None
         self.destination: str | None = None
+        # Clear for the full wait with nowhere to go: no proven route and nothing to try.
+        self.stranded = False
         self.reason = "Rotation off"
 
     def reset(self, reason: str) -> None:
         self.visited, self.clear_since, self.destination = {}, None, None
+        self.stranded = False
         self.reason = reason
 
     def arrived(self, surface: str, now: float) -> None:
@@ -81,12 +101,13 @@ class Rotation:
     def step(self, now: float, *, searching: bool, surface: str | None,
              platforms: list[str], visible: dict[str, int],
              edges: dict[str, int] | None = None,
-             explore: dict[str, str] | None = None) -> str | None:
+             explore: dict[str, tuple[str, ...]] | None = None) -> str | None:
         """Return a destination after `clear_seconds` of searching on a known platform.
 
         `explore` lists neighbours reachable by one unproven move; one is tried before
         proven destinations, so a supervised batch grows the round-trip map.
         """
+        self.stranded = False
         if not searching or surface not in platforms:
             self.clear_since = None
             self.reason = ("Platform unknown or outside the round-trip map; staying"
@@ -98,6 +119,7 @@ class Rotation:
         explore = explore or {}
         others = [key for key in platforms if key != surface]
         if not others and not explore:
+            self.stranded = now - self.clear_since >= self.clear_seconds
             self.reason = "No other routable platform; staying"
             return None
         if now - self.clear_since < self.clear_seconds:

@@ -163,7 +163,7 @@ def test_destinations_beyond_the_route_budget_are_never_chosen(app, monkeypatch)
 def test_unproven_neighbours_are_one_move_platforms_outside_the_round_trip_map():
     profile, evidence = fixture()
     assert unproven_neighbours(RouteMap(profile, evidence, proven=set()), "floor") == {
-        "ledge": "up"}
+        "ledge": ("up",)}
     assert unproven_neighbours(RouteMap(profile, evidence), "floor") == {}
 
 
@@ -173,14 +173,14 @@ def test_unproven_neighbours_skip_falls_that_leave_the_visible_play_area():
     up = graph.edges["up"]
     # Launch at y=400; a trace dipping 100 px is still tried, 101 px is not.
     graph.edges["up"] = replace(up, trace=((150, 400), (180, 500), (280, 300)))
-    assert unproven_neighbours(graph, "floor") == {"ledge": "up"}
+    assert unproven_neighbours(graph, "floor") == {"ledge": ("up",)}
     graph.edges["up"] = replace(up, trace=((150, 400), (180, 501), (280, 300)))
     assert unproven_neighbours(graph, "floor") == {}
 
 
 def test_a_clear_platform_tries_an_unproven_neighbour_without_routable_platforms():
     rotation = Rotation(1)
-    explore = {"b": "a-to-b"}
+    explore = {"b": ("a-to-b",)}
     assert rotation.step(0, searching=True, surface="a", platforms=["a"], visible={},
                          explore=explore) is None
     assert rotation.step(1, searching=True, surface="a", platforms=["a"], visible={},
@@ -222,6 +222,60 @@ def test_a_stranded_platform_explores_unproven_moves_back_into_the_round_trip_ma
     profile, evidence = fixture()
     graph = RouteMap(profile, evidence, proven={"up"})
     assert "ledge" not in routable(graph)  # one-way: the ledge has no proven way back
-    assert unproven_neighbours(graph, "ledge") == {"floor": "back"}
+    assert unproven_neighbours(graph, "ledge") == {"floor": ("back",)}
     both = RouteMap(profile, evidence, proven={"up", "back"})
     assert unproven_neighbours(both, "ledge") == {}  # inside the map: only new platforms
+
+
+def rope_map():
+    def flat(key, x0, x1, y):
+        return {"id": key, "name": key, "start": {"x": x0, "y": y}, "end": {"x": x1, "y": y}}
+
+    return {"id": "c" * 32, "revision": 1, "zones": [], "links": [],
+            "boundary": {"x": 0, "y": 200, "width": 1100, "height": 500},
+            "platforms": [flat("floor", 0, 1000, 600), flat("top", 400, 700, 300)],
+            "ropes": [{"id": "rope", "name": "Rope", "start": {"x": 500, "y": 292},
+                       "end": {"x": 500, "y": 608}}],
+            "public_map": {"id": 1, "sha256": "c" * 64, "world": {"x": [1, 0], "y": [1, 0]}}}
+
+
+def test_learning_climbs_a_rope_to_reach_a_platform_it_cannot_jump_to():
+    graph = RouteMap.computed(rope_map())
+    assert unproven_neighbours(graph, "floor")["top"] == ("m_floor_rope", "m_rope_top")
+    proven = RouteMap.computed(rope_map(), {"m_floor_rope", "m_rope_top"})
+    assert "top" not in unproven_neighbours(proven, "floor")  # nothing left to prove
+
+
+def test_an_explored_rope_path_runs_exactly_those_moves(app):
+    nav = app.navigation
+    nav.graph = RouteMap.computed(rope_map())
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (500, 600),
+                            "floor", True)
+    app.probed.update({"left", "right", "jump", "up", "down"})
+    app.mode = "live"
+    path = ("m_floor_rope", "m_rope_top")
+    assert nav.handoff("top", time.perf_counter(), explore=path) is None
+    assert [e.id for e in nav.route.edges] == list(path) and nav.exploring == path
+    assert "do not lead" in nav.handoff("floor", time.perf_counter(), explore=path)
+
+
+def test_a_farming_batch_with_nothing_left_to_do_stops_cleanly(app):
+    from maplebot.farming import Farming
+
+    profile, evidence = fixture()
+    nav = app.navigation
+    nav.graph = RouteMap(profile, evidence, proven={"up"})  # ledge: no proven way back
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (300, 300),
+                            "ledge", True)
+    app.mode, app.rotating, app.rotation = "live", True, Rotation(1)
+    app.farming = Farming({"no_consumables": True, "pet_recovery": False})
+    observation = Observation(Detection("player", Rect(500, 300, 40, 60), .95), [])
+    now = time.perf_counter()
+    assert app._rotate(SEARCH, observation, now) is None  # still inside the clear wait
+    message = app._rotate(SEARCH, observation, now + 1)
+    assert message.startswith("Nothing left to do on ledge")
+    assert app.stop_record.code == "FARMING_DONE" and not app.alarm.snapshot()["active"]
+    # A preview never stops for this.
+    app.farming, app.mode, app.rotation = None, "dry_run", Rotation(1)
+    app._rotate(SEARCH, observation, now)
+    assert app._rotate(SEARCH, observation, now + 1) is None

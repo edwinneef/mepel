@@ -131,6 +131,8 @@ STOP_REASONS = {
     "CALIBRATION": StopReason(StopSeverity.SILENT, True),
     "POLICY_STOP": StopReason(StopSeverity.SILENT),
     "FARMING_STOP": StopReason(StopSeverity.ALARM),
+    # Nothing left to do from here: no enemy, no proven route and no new move to try.
+    "FARMING_DONE": StopReason(StopSeverity.SILENT),
     "NAVIGATION_FAILURE": StopReason(StopSeverity.ALARM),
     "DRY_RUN_STOP": StopReason(StopSeverity.SILENT),
 }
@@ -1600,6 +1602,12 @@ class Application:
             platforms=platforms, visible=visible, edges=edges, explore=explore,
         )
         if target is None:
+            if self.rotation.stranded and self.farming is not None and self.mode == "live":
+                here = nav.graph.nodes[f.surface].get("name", f.surface)
+                message = (f"Nothing left to do on {here}: no enemy, no proven route "
+                           "and no new move to try")
+                self._stop("FARMING_DONE", message)
+                return message
             return None
         name = nav.graph.nodes[target].get("name", target)
         trying = target in explore
@@ -1609,7 +1617,7 @@ class Application:
         for ticket, lane in tuple(self.arbiter.in_flight.items()):
             if lane == "combat":
                 self.controller.cancel_ticket(ticket)
-        blocker = nav.handoff(target, now, explore=trying)
+        blocker = nav.handoff(target, now, explore=explore.get(target))
         if blocker:
             self._stop("POLICY_STOP", blocker)
             return blocker

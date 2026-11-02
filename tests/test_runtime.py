@@ -905,6 +905,7 @@ def test_stop_reason_registry_classifies_every_declared_safety_path():
         "CALIBRATION",
         "POLICY_STOP",
         "DRY_RUN_STOP",
+        "FARMING_DONE",
     }
     alarm_codes = {
         code for code, reason in STOP_REASONS.items() if reason.severity is StopSeverity.ALARM
