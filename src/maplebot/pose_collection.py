@@ -31,6 +31,8 @@ class PoseCollection:
         self.writer = None
         self.deadline = 0.0
         self.candidates = []
+        self.rejection_reasons = {}
+        self.last_rejection = ""
 
     def configure(self, identity: str = "", outfit: str = "") -> dict:
         with self.lock:
@@ -67,6 +69,8 @@ class PoseCollection:
             self.examples, self.saved = examples, len(examples)
             self.candidates = candidates
             self.duplicates = self.rejected = 0
+            self.rejection_reasons = {}
+            self.last_rejection = ""
             self.last_sample = float("-inf")
             self.deadline = time.monotonic() + 30
             self.enabled = self.saved < self.limit
@@ -80,12 +84,15 @@ class PoseCollection:
             return dict(enabled=self.enabled, identity=self.identity, outfit=self.outfit,
                         saved=self.saved, duplicates=self.duplicates, rejected=self.rejected,
                         pending=self.jobs.unfinished_tasks, limit=self.limit, reason=self.reason,
-                        candidates=list(self.candidates))
+                        candidates=list(self.candidates), last_rejection=self.last_rejection,
+                        rejection_reasons=dict(self.rejection_reasons))
 
     def reject(self, reason: str) -> None:
         with self.lock:
             self.previous = None
             self.rejected += 1
+            self.last_rejection = reason
+            self.rejection_reasons[reason] = self.rejection_reasons.get(reason, 0) + 1
             self.reason = reason
 
     def observe(self, image, detector, observation, now: float, captured_at: float,
@@ -121,6 +128,7 @@ class PoseCollection:
                 return
             if any(body.iou(monster.box) > 0 for monster in observation.monsters) or any(
                 other.name != self.identity and
+                not (found.box == match.box and np.array_equal(other.text, tag.text)) and
                 abs(found.box.center[0] - match.box.center[0]) < 120 and
                 abs(found.box.center[1] - match.box.center[1]) < 120
                 for other, found in matches

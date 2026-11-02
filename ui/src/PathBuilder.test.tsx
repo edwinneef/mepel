@@ -23,32 +23,34 @@ function add(id: string) { fireEvent.change(screen.getByLabelText('Add a platfor
 it('authors, reorders, undoes, saves and validates a three-platform circuit before selection', async () => {
   const { command, onSelect } = setup();
   await waitFor(() => expect(command).toHaveBeenCalledWith('farm_route_list', { area_id: 'map' }));
+  fireEvent.click(screen.getByText('Saved paths and editing tools'));
   add('a'); add('b'); add('c');
   fireEvent.click(screen.getByRole('button', { name: 'Move stop 3 up' }));
   expect(screen.getByRole('list', { name: 'Farming stops' }).textContent).toMatch(/Platform a.*Platform c.*Platform b/);
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
   expect(screen.getByRole('list', { name: 'Farming stops' }).textContent).toMatch(/Platform a.*Platform b.*Platform c/);
-  expect(screen.getByRole('button', { name: 'Use for farming' }).hasAttribute('disabled')).toBe(true);
-  fireEvent.click(screen.getByRole('button', { name: 'Save circuit' }));
-  await screen.findByText(/Circuit saved/);
-  fireEvent.click(screen.getByRole('button', { name: 'Validate circuit' }));
+  expect(screen.getByRole('button', { name: 'Select for farming' }).hasAttribute('disabled')).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Check and save path' }));
+  await screen.findByText(/Path checked and saved/);
   await screen.findByText(/connections ready/);
-  fireEvent.click(screen.getByRole('button', { name: 'Use for farming' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Select for farming' }));
   expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ stops: ['a', 'b', 'c'], loop: true, revision: 1 }));
   add('a');
   expect(onSelect).toHaveBeenLastCalledWith(null);
-  expect(screen.getByRole('button', { name: 'Use for farming' }).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByRole('button', { name: 'Select for farming' }).hasAttribute('disabled')).toBe(true);
 });
 it('reloads a saved circuit and reports stale geometry without enabling farming', async () => {
   const command = vi.fn(async (name: string) => name === 'farm_route_list' ? { routes: [{ version: 1, revision: 2, id: 'saved', name: 'Old circuit', area_id: 'map', map_hash: 'b'.repeat(64), stops: ['a', 'b'], loop: true }] }
     : { valid: false, errors: ['Map geometry changed'], legs: [] });
   render(<PathBuilder profile={profile} mapHash={hash} client={{ command } as unknown as EngineClient} disabled={false} />);
+  fireEvent.click(screen.getByText('Saved paths and editing tools'));
   await screen.findByRole('option', { name: 'Old circuit' });
-  fireEvent.change(screen.getByLabelText('Saved circuit'), { target: { value: 'saved' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Validate circuit' }));
+  fireEvent.change(screen.getByLabelText('Saved path'), { target: { value: 'saved' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Check and save path' }));
   await screen.findByText('Map geometry changed');
-  expect(screen.getByRole('button', { name: 'Use for farming' }).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByRole('button', { name: 'Select for farming' }).hasAttribute('disabled')).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Bind draft to current map' }));
   expect(screen.getByText('Unsaved changes')).toBeTruthy();
 });
+
 

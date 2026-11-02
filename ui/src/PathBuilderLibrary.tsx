@@ -14,8 +14,8 @@ export function PathBuilderLibrary({ client, disabled, initialArea, onSelect }: 
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   return <section aria-label="Saved farming circuits">
-    <h3>Farming paths</h3>
-    <p>Build a circuit on any saved map while the bot is Off. Editing does not track that map or move your character.</p>
+    <h3>1. Choose a map</h3>
+    <p>Pick the map you want to farm. Then add the platforms you want to visit, in order. You can build this path while the bot is Off.</p>
     <div className="path-toolbar"><button disabled={disabled || busy} onClick={() => {
       setBusy(true); setMessage('');
       void client.command<{ areas: { id: string; name: string }[] }>('area_list')

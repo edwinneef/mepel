@@ -21,7 +21,7 @@ from .config import PerceptionConfig
 from .enemy_tracking import EnemyTrack, EnemyTracker, partial_enemies
 from .geometry import Rect
 from .map_filter import MapFilter
-from .reacquisition import RECOVERY_SECONDS, ConfirmedSprites
+from .reacquisition import CHAIN_RADIUS, CHAIN_SPEED, RECOVERY_SECONDS, ConfirmedSprites
 
 
 @dataclass(frozen=True)
@@ -335,6 +335,7 @@ class TemplateDetector:
     def reload(self) -> None:
         self.enemy_scan_context = None
         self.masked_cache.clear()
+        self.dark_templates: dict[int, Template] = {}
         self.enemy_tracker = EnemyTracker(self.config)
         self.enemy_context = None
         self.enemy_geometry_ready = False
@@ -1497,6 +1498,9 @@ class TemplateDetector:
         kept = self._suppress(candidates)
         players = [item for item in kept if item.kind == "player"]
         tags = self._nametag_candidates(gray, searches)
+        if (not any(p.confidence >= self.config.confidence for p in players)
+                and not any(m.confidence >= self.config.nametag_confidence for m, _ in tags)):
+            players = self._suppress(players + self._dark_player_candidates(image, gray, now))
         failures: list[str] = []
         player, tag_confidence, conflict = self._resolve(players, tags, failures, gray, now)
         if player is None and not conflict and self.fresh:
@@ -1539,6 +1543,45 @@ class TemplateDetector:
         elif not any(item.confidence >= self.config.confidence for item in monsters):
             failures.append("Monster matches below confidence threshold")
         return player, monsters, failures, tag_confidence
+
+    def _dark_player_candidates(self, image: Image, gray: Image, now: float) -> list[Detection]:
+        """Match the dim damage pose only for a recently name-confirmed appearance."""
+        previous = self.confirmed_sprites.last
+        if previous is None or now - self.lookalike_at < RECOVERY_SECONDS:
+            return []
+        identity, box, at = previous
+        elapsed = now - at
+        if not 0 <= elapsed < RECOVERY_SECONDS:
+            return []
+        radius = min(TRACK_MAX_RADIUS, CHAIN_RADIUS + CHAIN_SPEED * elapsed)
+        box = box.translated(-self.origin[0], -self.origin[1])
+        left, top = max(0, int(box.x - radius)), max(0, int(box.y - radius))
+        right = min(image.shape[1], math.ceil(box.x + box.width + radius))
+        bottom = min(image.shape[0], math.ceil(box.feet + radius))
+        if right <= left or bottom <= top:
+            return []
+        crop, crop_gray = image[top:bottom, left:right], gray[top:bottom, left:right]
+        templates = [t for t in self.templates if t.kind == "player"]
+        templates += [t for group in self.fresh for t in group]
+        active = {id(t) for t in templates}
+        for key in set(self.dark_templates) - active:
+            self.masked_cache.pop(id(self.dark_templates.pop(key)), None)
+        found = []
+        for template in templates:
+            if (template.anchor is None or template.mask is None
+                    or self.confirmed_sprites.names.get(template.name) != identity):
+                continue
+            dark = self.dark_templates.get(id(template))
+            if dark is None:
+                pixels = (template.image.astype(np.uint16) // 2).astype(np.uint8)
+                dark = replace(template, image=pixels,
+                               gray=cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY), signature=None)
+                self.dark_templates[id(template)] = dark
+            for candidate in self._anchor_candidates(crop, crop_gray, dark, self.config.confidence):
+                candidate = replace(candidate, box=candidate.box.translated(left, top))
+                if math.dist(candidate.box.center, box.center) <= radius:
+                    found.append(candidate)
+        return found
 
     def _refresh_sprite(
         self, image: Image, player: Detection, monsters: list[Detection], now: float

@@ -74,16 +74,16 @@ export function PathBuilder({ profile, mapHash, client, disabled, onSelect }: Pr
     try { await operation(); } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   };
-  const validate = async () => {
-    const current = epoch.current;
-    const value = await client.command<Validation>('farm_route_validate', { route });
-    if (current === epoch.current) { setResult(value); setConnections(value.connections ?? []); }
-  };
   const save = async () => {
-    const value = await client.command<{ route: FarmingRoute }>('farm_route_save', { route });
+    const checked = await client.command<Validation>('farm_route_validate', { route });
+    setResult(checked); setConnections(checked.connections ?? []);
+    if (!checked.valid) { setMessage('Fix the connection problems below, then check this path again.'); return; }
+    const value = dirty || route.revision === 0
+      ? await client.command<{ route: FarmingRoute }>('farm_route_save', { route }) : { route };
     setRoute(value.route); setDirty(false); setResult(null); onSelect?.(null);
     setSaved(previous => [...previous.filter(item => item.id !== value.route.id), value.route]);
-    setMessage('Circuit saved. Validate it before selecting it for farming.');
+    setResult({ ...checked, route: value.route });
+    setMessage('Path checked and saved. Select it for farming when you are ready.');
   };
   const move = (index: number, delta: number) => {
     const stops = [...route.stops];
@@ -96,18 +96,23 @@ export function PathBuilder({ profile, mapHash, client, disabled, onSelect }: Pr
   const pairs = route.stops.slice(1).map((target, index) => [route.stops[index], target]);
   if (route.loop && route.stops.length > 1) pairs.push([route.stops.at(-1)!, route.stops[0]]);
   return <section className="path-builder" aria-label="Farming path builder">
-    <div className="path-heading"><div><h3>Build your farming circuit</h3><p>Choose platforms in the order you want to farm them. Connecting moves use the current navigation limits.</p></div>
+    <div className="path-heading"><div><h3>2. Add farming stops</h3><p>Click a platform on the map, or choose one below it. Each number is a place to farm: clear stop 1, travel to stop 2, then continue in order.</p></div>
       <span>{dirty ? 'Unsaved changes' : `Revision ${route.revision}`}</span></div>
     <fieldset disabled={frozen}>
-      <div className="path-toolbar">
-        <label>Saved circuit <select value={saved.some(item => item.id === route.id) ? route.id : ''} onChange={event => { const found = saved.find(item => item.id === event.target.value); if (found) replace(found); }}>
-          <option value="">Choose a saved circuit</option>{saved.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+      <details><summary>Saved paths and editing tools</summary><div className="path-toolbar">
+        <label>Saved path <select value={saved.some(item => item.id === route.id) ? route.id : ''} onChange={event => { const found = saved.find(item => item.id === event.target.value); if (found) replace(found); }}>
+          <option value="">Choose a saved path</option>{saved.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select></label>
-        <button onClick={() => replace(fresh())}>New circuit</button>
+        <button onClick={() => replace(fresh())}>New path</button>
         <button onClick={() => change({ ...route, id: crypto.randomUUID(), revision: 0, name: `${route.name} copy` })}>Duplicate</button>
         <button disabled={!history.length} onClick={() => { epoch.current++; onSelect?.(null); setFuture([route, ...future]); setRoute(history.at(-1)!); setHistory(history.slice(0, -1)); setDirty(true); setResult(null); }}>Undo</button>
         <button disabled={!future.length} onClick={() => { epoch.current++; onSelect?.(null); setHistory([...history, route]); setRoute(future[0]); setFuture(future.slice(1)); setDirty(true); setResult(null); }}>Redo</button>
       </div>
+      </details>
+      <p className="path-next" role="status">{route.stops.length < 2
+        ? `Add ${2 - route.stops.length} more ${route.stops.length ? 'stop' : 'stops'} to make a path.`
+        : dirty || !result?.valid ? `${route.stops.length} stops chosen. Next: check and save your path.`
+          : 'Your path is ready. Select it for farming below.'}</p>
       <div className="path-workspace">
         <div><div className="path-toolbar"><label>Zoom <input aria-label="Circuit zoom" type="range" min="1" max="4" step="0.25" value={zoom} onChange={event => setZoom(Number(event.target.value))} /></label>
           <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Fit map</button>
@@ -126,32 +131,35 @@ export function PathBuilder({ profile, mapHash, client, disabled, onSelect }: Pr
           </svg>
           <label>Add a platform <select value="" onChange={event => change({ ...route, stops: [...route.stops, event.target.value] })}><option value="">Choose a farming stop</option>{profile.platforms.map(p => <option key={p.id} value={p.id}>{p.name || p.id}</option>)}</select></label>
         </div>
-        <div className="path-stops"><label>Circuit name <input maxLength={100} value={route.name} onChange={event => change({ ...route, name: event.target.value })} /></label>
+        <div className="path-stops"><label>Path name <input maxLength={100} value={route.name} onChange={event => change({ ...route, name: event.target.value })} /></label>
           <ol aria-label="Farming stops">{route.stops.map((id, index) => <li key={index}><strong>{names.get(id) ?? `${id} (missing)`}</strong><div>
             <button aria-label={`Move stop ${index + 1} up`} disabled={index === 0} onClick={() => move(index, -1)}>↑</button>
             <button aria-label={`Move stop ${index + 1} down`} disabled={index === route.stops.length - 1} onClick={() => move(index, 1)}>↓</button>
             <button aria-label={`Remove stop ${index + 1}`} onClick={() => change({ ...route, stops: route.stops.filter((_, i) => i !== index) })}>Remove</button></div></li>)}</ol>
           {!route.stops.length && <p>Add at least two platforms to begin.</p>}
           <label><input type="checkbox" checked={route.loop} onChange={event => change({ ...route, loop: event.target.checked })} /> Return to the first stop and repeat</label>
-          <p>Each stop is farmed until clear. Intermediate platforms are used for travel.</p>
-          {pairs.length > 0 && <label>Inspect connection <select value={leg} onChange={event => setLeg(Number(event.target.value))}>{pairs.map(([a, b], index) => <option key={index} value={index}>{index + 1}: {names.get(a) ?? a} → {names.get(b) ?? b}</option>)}</select></label>}
+          <p>The bot fights on each numbered stop until no enemies remain, then follows the next connection. Other platforms along the way are travel only.</p>
+          <details><summary>Advanced movement details</summary>{pairs.length > 0 && <label>Inspect connection <select value={leg} onChange={event => setLeg(Number(event.target.value))}>{pairs.map(([a, b], index) => <option key={index} value={index}>{index + 1}: {names.get(a) ?? a} → {names.get(b) ?? b}</option>)}</select></label>}
           {result?.legs[leg] && <ol aria-label="Connection movements">{result.legs[leg].edges.map(edge => <li key={edge.id}>{edge.kind}: {edge.from} → {edge.to}<small>Launch {edge.launch.join(', ')}; land {edge.landing.join(', ')}</small></li>)}</ol>}
           {connections.length > 0 && <details><summary>Edit directed movement connections</summary><p>Allow or exclude computed moves, then validate the circuit again.</p>
             {connections.map(edge => <label key={edge.id}><input type="checkbox" checked={!route.disabled_edges?.includes(edge.id)} onChange={event => change({ ...route, disabled_edges: event.target.checked ? (route.disabled_edges ?? []).filter(id => id !== edge.id) : [...(route.disabled_edges ?? []), edge.id] })} />{edge.kind}: {edge.from} → {edge.to}<small>Launch {edge.launch.join(', ')}; land {edge.landing.join(', ')}</small></label>)}</details>}
-        </div>
+        </details></div>
       </div>
-      <div className="path-toolbar"><button disabled={!dirty || route.stops.length < 2} onClick={() => void run(save)}>Save circuit</button>
-        <button disabled={route.stops.length < 2} onClick={() => void run(validate)}>Validate circuit</button>
-        <button disabled={dirty || !result?.valid || route.revision === 0} onClick={() => { onSelect?.(route); setMessage('Selected for farming. Review the selected activity and session limits before using the normal Start or On control.'); }}>Use for farming</button>
-        <button onClick={() => { const blob = new Blob([JSON.stringify(route, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${route.id}.json`; a.click(); URL.revokeObjectURL(url); }}>Export JSON</button>
+      <h3>3. Check and save</h3><div className="path-toolbar"><button className="primary" disabled={route.stops.length < 2} onClick={() => void run(save)}>Check and save path</button>
+        
+        <button disabled={dirty || !result?.valid || route.revision === 0} onClick={() => { onSelect?.(route); setMessage('Selected for farming. Review the selected activity and session limits before using the normal Start or On control.'); }}>Select for farming</button>
+        <details><summary>Import or export a path</summary><button onClick={() => { const blob = new Blob([JSON.stringify(route, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${route.id}.json`; a.click(); URL.revokeObjectURL(url); }}>Export JSON</button>
         <button onClick={() => input.current?.click()}>Import JSON</button>
         <input ref={input} hidden type="file" accept="application/json,.json" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; void run(async () => { if (file.size > 64000) throw new Error('Route file is too large'); const value = JSON.parse(await file.text()) as FarmingRoute; if (value.version !== 1 || !Array.isArray(value.stops) || value.stops.some(id => typeof id !== 'string')) throw new Error('Unsupported route file'); if (replace({ ...value, id: crypto.randomUUID(), revision: 0 })) setDirty(true); }); }} />
-        {route.map_hash !== mapHash && <button onClick={() => change({ ...route, area_id: profile.id, map_hash: mapHash })}>Bind draft to current map</button>}
+        </details>{route.map_hash !== mapHash && <button onClick={() => change({ ...route, area_id: profile.id, map_hash: mapHash })}>Bind draft to current map</button>}
       </div>
     </fieldset>
+    <p>Selecting a path does not start the bot. Review the activity and time limit, then use the dashboard�s On control.</p>
     {result && <div role="status">{result.valid ? `${result.legs.length} connections ready within current movement limits.` : <ul>{result.errors.map((error, index) => <li key={index}>{error}</li>)}</ul>}</div>}
     {message && <p role="status">{message}</p>}
   </section>;
 }
+
+
 
 

@@ -159,3 +159,29 @@ def test_capture_timeout_and_preview(store):
     assert not store.snapshot()["enabled"]
     assert store.snapshot()["reason"] == "Capture complete"
     assert store.snapshot()["candidates"][0]["crop"]
+
+
+@pytest.mark.parametrize("duplicate", [True, False])
+def test_duplicate_name_templates_do_not_count_as_another_player(store, duplicate):
+    store.configure("alice", "first")
+    detector, observation = fixture_observation()
+    tag = detector.nametags[0]
+    tag.text = np.ones((10, 70), np.uint8)
+    other = SimpleNamespace(name="alias", text=tag.text.copy())
+    detector.nametags.append(other)
+    original = detector.nametag_matches
+    other_box = Rect(10 if duplicate else 80, 90, 70, 10)
+    detector.nametag_matches = lambda gray, taught, score: (
+        original(gray, taught, score) if taught is tag else
+        [Detection("nametag", other_box, 1, "alias")])
+    image = np.full((160, 200, 3), 100, np.uint8)
+    for now in (1, 1.1):
+        store.observe(image, detector, observation, now, time.time(), 1, eligible=True)
+    settle(store)
+    assert store.saved == int(duplicate)
+    if not duplicate:
+        store.deadline = time.monotonic() - 1
+        status = store.snapshot()
+        assert not status["enabled"]
+        assert status["last_rejection"] == "Nearby appearance overlaps collection"
+        assert status["rejection_reasons"][status["last_rejection"]] == 2
