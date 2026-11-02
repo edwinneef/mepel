@@ -3,7 +3,13 @@ import json
 import pytest
 
 from maplebot.farming import CHECKPOINT_STOP
-from tools.farming_check import combat_progress, rotation_blocker, run
+from tools.farming_check import (
+    checked_circuit,
+    circuit_progress,
+    combat_progress,
+    rotation_blocker,
+    run,
+)
 
 
 class Api:
@@ -46,6 +52,59 @@ def test_consumables_sustain_with_potions_instead_of_stopping_and_exclude_checkp
     assert api.calls[0][1]["farming"]["pet_recovery"] is False
     with pytest.raises(ValueError, match="Checkpoints run without consumables"):
         run(Api(), tmp_path / "other", area="island", consumables=True, checkpoint_seconds=5)
+
+
+class CircuitApi(Api):
+    def __init__(self, **change):
+        super().__init__()
+        self.route = {"id": "loop", "revision": 2, "area_id": "island", "loop": True,
+                      "stops": ["a", "b"]} | change
+        self.valid = True
+
+    def command(self, name, payload=None):
+        if name == "farm_route_list":
+            self.calls.append((name, payload))
+            return {"routes": [self.route]}
+        if name == "farm_route_validate":
+            self.calls.append((name, payload))
+            return {"valid": self.valid, "errors": ["Map geometry changed"]}
+        return super().command(name, payload)
+
+
+@pytest.mark.parametrize("change,message", [
+    ({"revision": 3}, "changed"), ({"loop": False}, "looping"),
+    ({"area_id": "elsewhere"}, "this map"),
+])
+def test_saved_circuit_refusals_never_arm(change, message):
+    api = CircuitApi(**change)
+    with pytest.raises(ValueError, match=message):
+        checked_circuit(api, "island", {"id": "loop", "revision": 2})
+    assert not any(name == "arm" for name, _ in api.calls)
+
+
+def test_changed_geometry_refuses_and_verified_revision_reaches_arm(tmp_path):
+    api = CircuitApi()
+    api.valid = False
+    with pytest.raises(ValueError, match="geometry"):
+        checked_circuit(api, "island", {"id": "loop", "revision": 2})
+    api.valid = True
+    run(api, tmp_path / "run", area="island", consumables=True,
+        circuit={"id": "loop", "revision": 2})
+    arm = next(payload for name, payload in api.calls if name == "arm")
+    assert arm["circuit"] == {"id": "loop", "revision": 2}
+    assert arm["farming"]["no_consumables"] is False
+    assert api.calls[-1][0] == "stop"
+
+
+def test_circuit_progress_needs_new_combat_after_an_observed_arrival():
+    first = {"mode": "live", "position": {"surface_id": "a"},
+             "combat_evidence": {"events": events()}}
+    travel = {"mode": "navigation", "position": {"surface_id": None}}
+    arrived = {"mode": "live", "position": {"surface_id": "b"},
+               "combat_evidence": {"events": events()}}
+    assert not circuit_progress([first, travel, arrived], ["a", "b"])["combat_after_arrival"]
+    arrived["combat_evidence"]["events"] += events(2, 2)
+    assert circuit_progress([first, travel, arrived], ["a", "b"])["combat_after_arrival"]
 
 
 def test_timeout_stops_and_records_failure(tmp_path):
@@ -130,6 +189,43 @@ def test_session_outcomes_are_distinct(tmp_path, message, combat, expected):
                  session_minutes=1, clock=lambda: api.now, sleep=lambda _: None)
     assert result["outcome"] == expected
     assert api.calls[0][1]["farming"]["single_platform"] is True
+
+
+@pytest.mark.parametrize("move,expected", [(False, "failure"), (True, "functional_success")])
+def test_circuit_expiry_requires_travel_and_combat_then_confirms_release(tmp_path, move, expected):
+    class LoopApi(CircuitApi):
+        now = 0
+        polls = 0
+        armed = False
+
+        def command(self, name, payload=None):
+            if name in {"arm", "stop"}:
+                self.armed = name == "arm"
+            return super().command(name, payload)
+
+        def status(self):
+            sample = super().status()
+            sample["input_state"] = {"enabled": self.armed, "held_keys": []}
+            if self.armed:
+                self.polls += 1
+                self.now = (20, 30, 40, 62)[self.polls - 1]
+                sample["mode"] = ("live", "navigation" if move else "live",
+                                  "live", "capture")[self.polls - 1]
+                sample["position"]["surface_id"] = "b" if move and self.polls >= 3 else "a"
+                sample["combat_evidence"] = {"run": 1, "session_id": "s", "activity": "combat",
+                    "events": events() + (events(2, 2) if self.polls >= 3 else [])}
+                if self.polls == 4:
+                    sample["stop"] = {"code": "FARMING_STOP",
+                                      "message": "Farming session limit reached; restart manually"}
+            return sample
+
+    api = LoopApi()
+    result = run(api, tmp_path / "run", area="island", session_minutes=1, consumables=True,
+                 circuit={"id": "loop", "revision": 2}, clock=lambda: api.now, sleep=lambda _: None)
+    assert result["outcome"] == expected
+    assert result["full_session_passed"] is move
+    assert api.calls[-1][0] == "stop"
+    assert result["after"]["input_state"] == {"enabled": False, "held_keys": []}
     assert api.calls[-1][0] == "stop"
     assert result["after"]["mode"] == "capture"
 

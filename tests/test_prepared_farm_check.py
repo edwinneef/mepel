@@ -96,3 +96,20 @@ def test_single_platform_mode_farms_in_place_with_potions(capsys, monkeypatch):
     assert kwargs == {"area": "tree", "session_minutes": 15, "single_platform": True,
                       "consumables": True}
     assert "15-minute single-platform farm from fh308" in capsys.readouterr().out
+
+
+def test_saved_circuit_keeps_selected_revision_duration_and_sustain(capsys, monkeypatch):
+    monkeypatch.setattr(prepared_farm_check, "settle", lambda api, status, *a: (status, True))
+    seen = []
+
+    def run(api, output, **kwargs):
+        seen.append(kwargs)
+        return {"outcome": "functional_success", "after": api.status()}
+
+    monkeypatch.setattr(prepared_farm_check, "run", run)
+    assert prepared_farm_check.main([
+        "--run", "--area", "tree", "--origin", "fh308", "--minutes", "1",
+        "--circuit", "lower-loop", "--revision", "2", "--consumables"], api=Api("fh308")) == 0
+    assert seen == [{"area": "tree", "session_minutes": 1,
+                     "circuit": {"id": "lower-loop", "revision": 2},
+                     "consumables": True, "require_enemy": True}]

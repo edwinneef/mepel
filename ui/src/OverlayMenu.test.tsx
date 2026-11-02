@@ -52,3 +52,27 @@ it('says in one line whether the map has a saved path', () => {
   expect(screen.getByTitle(/1 saved for this map: Lower loop/).textContent).toBe('PathLower loop');
   cleanup();
 });
+
+it('starts only the chosen looping revision with the displayed duration', () => {
+  const calls: unknown[] = [];
+  const route = { version: 1 as const, revision: 2, id: 'lower-loop', name: 'Lower loop',
+    area_id: 'area', map_hash: 'a'.repeat(64), stops: ['a', 'b'], loop: true };
+  render(<OverlayMenu s={{ position: { area_id: 'area' } } as never} status="OFF"
+    game={{ x: 0, y: 0, width: 600, height: 400 }} layers={false} attackRange={false} names={false}
+    setLayers={() => {}} setAttackRange={() => {}} setNames={() => {}} batch={{ running: false }}
+    canBatch paths={{ state: 'ready', names: ['Lower loop'], routes: [route] }}
+    onStart={(...args) => calls.push(args)} onStop={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+  const start = screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement;
+  expect(start.disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Farming circuit'), { target: { value: 'lower-loop' } });
+  expect(start.disabled).toBe(false);
+  fireEvent.click(start);
+  fireEvent.change(screen.getByLabelText('Run duration'), { target: { value: '15' } });
+  fireEvent.click(start);
+  expect(calls).toEqual([
+    ['learn', { id: 'lower-loop', revision: 2 }, 1],
+    ['learn', { id: 'lower-loop', revision: 2 }, 15],
+  ]);
+  cleanup();
+});

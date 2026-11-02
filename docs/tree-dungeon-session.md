@@ -38,8 +38,9 @@ proofs support it. This avoids the failing rope/upper segment. It remains a nati
 acceptance candidate, not a proven farming loop. Fresh map/player/enemy gates
 still decide whether a batch can start.
 
-The existing `Whole map` saved circuit has a stale geometry fingerprint. Preserve
-it; do not silently rebind it or auto-start it. Save the small candidate separately.
+The existing `Whole map` saved circuit validates against the current geometry.
+Preserve it; do not auto-start it. Save the small candidate separately so the
+first acceptance batch does not traverse the historical failing segment.
 
 ## Acceptance still required
 
@@ -49,3 +50,34 @@ one minute, then fifteen minutes. Require combat -> movement -> combat, observed
 HP/MP recovery when needed, and Off/disabled/released input at expiry. Stop at the
 first hard failure, save the clip, sound the alarm and hand control back. Setup
 time is separate from active gameplay. No unattended testing is authorized.
+
+## Installed controls
+
+`Tree lower acceptance`, revision 1, is saved separately in
+`data/areas/farming-routes/tree-lower-acceptance.json`. Offline geometry validation
+and before/after hashes are in `artifacts/tree-dungeon-20261102/offline-circuit.json`.
+
+After separate batch authorization, with the dashboard connected and the widget
+open: stand on fh308 or fh315 in Tree Dungeon, open the widget menu, choose
+**Farming circuit: Tree lower acceptance · r1**, set **Run duration: 1 minute**,
+then click **Start run**. Fresh player/map/enemy and normal gates must pass.
+Use the 15-minute choice only after the first batch passes and it is separately
+authorized. HP/MP use confirmed potion keys; food uses the existing F/10-minute
+setting. A key press does not prove a potion or food was consumed.
+
+The prepared checker rejects changed revisions, invalid geometry, non-looping
+routes and starts outside the selected stops. A circuit pass also needs observed
+navigation, two mapped circuit stops and renewed completed combat dispatches after
+arrival, followed by disabled/released input at expiry. Native hits and recovery
+still require clip evidence.
+
+Offline checks: 156 navigation/decision/rotation tests and lint
+(`artifacts/dev-cycle/20261102-143723-9347123/result.json`); 131 farming/runner tests
+and lint (`20261102-144436-9295446/result.json`); 28 affected UI/host tests and
+production build (`20261102-144441-5327586/result.json`), plus the updated 13-test
+OverlayApp suite. The UI build saved its previous bundle in `workbench-backup`.
+
+Installed via `restart-input.ps1`: engine and widget restarted, browser dashboard
+opened. `artifacts/tree-dungeon-20261102/install.json` confirms capture mode, input
+disabled, no held/active/queued keys and input sequence 0. No gameplay ran. No map
+is currently tracked; both live acceptance phases remain pending.

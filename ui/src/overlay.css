@@ -12,6 +12,9 @@ html:has(.native-overlay), body:has(.native-overlay), body:has(.native-overlay) 
 .overlay-menu-state.state-blocked, .overlay-menu-state.state-disconnected { color: #ffb36b; }
 .overlay-menu-fps { margin-left: auto; color: #aab6c3; font-variant-numeric: tabular-nums; }
 .overlay-menu p { margin: 6px 0; color: #c9d3dd; }
+.overlay-menu > label { display: block; margin: 6px 0; }
+.overlay-menu > label select { display: block; box-sizing: border-box; width: 100%;
+  padding: 3px; color: inherit; background: #1d2833; font: inherit; }
 .overlay-menu-switches { display: grid; gap: 2px; }
 .overlay-menu-switches label { display: flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; }
 .overlay-menu-switches input[type=checkbox] { display: inline-block; width: auto; height: auto; margin: 0; }

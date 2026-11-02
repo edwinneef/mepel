@@ -79,7 +79,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     // when the player has moved to another map.
     const area = pathArea;
     void client.command<{ routes?: FarmingRoute[] }>('farm_route_list', { area_id: area })
-      .then(value => { if (pathRead.current.area === area) setPaths({ state: 'ready', names: (value.routes ?? []).map(route => route.name) }); })
+      .then(value => { if (pathRead.current.area === area) setPaths({ state: 'ready', names: (value.routes ?? []).map(route => route.name), routes: value.routes ?? [] }); })
       .catch(error => {
         if (pathRead.current.area !== area) return;
         pathRead.current.key = '';
@@ -179,9 +179,9 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const choose = (name: string, label: string) => setAction({ name, label, payload: {} });
   const selectCircuit = (route: FarmingRoute | null) => setAction(route ? {
     name: 'arm',
-    label: `${route.name} · revision ${route.revision} · ${route.stops.length} stops · 5 minutes`,
+    label: `${route.name} · revision ${route.revision} · ${route.stops.length} stops · 15 minutes · HP/MP potions`,
     payload: { circuit: { id: route.id, revision: route.revision }, farming: {
-      session_minutes: 5, no_consumables: true, pet_recovery: false,
+      session_minutes: 15, no_consumables: false, pet_recovery: false,
       hp_threshold: 50, mp_threshold: 50,
     } },
   } : { name: 'dry_run', label: 'Decision preview', payload: {} });
@@ -227,11 +227,11 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       batch={batch} canBatch={Boolean(window.mapleOverlay?.batch) && controllerReady} paths={paths}
       startBlocker={window.mapleOverlay?.companion && !controllerReady
         ? 'Open the browser dashboard to enable starting. Stop and F8 remain available.' : undefined}
-      onStart={kind => void act(async () => {
+      onStart={(kind, circuit, minutes) => void act(async () => {
         const area = s?.position?.area_id;
         const launch = window.mapleOverlay?.batch;
         if (!area || !launch) return;
-        const result = await launch({ kind, area });
+        const result = await launch({ kind, area, ...(circuit ? { circuit, minutes } : {}) });
         if (!result.started) setBatch({ running: false, output: JSON.stringify({ blocked: result.reason }) });
       })}
       capture={s && <PlayerCapture snapshot={s} client={client} act={act} disabled={disabled} />}

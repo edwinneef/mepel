@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from maplebot.farming import CHECKPOINT_STOP, Farming
+from maplebot.farming_routes import identifier
 from tools.navigation_check import Debugger, readiness
 
 
@@ -61,9 +62,54 @@ def rotation_blocker(status: dict, *, learn_moves: bool = False) -> str | None:
         reached |= frontier
     return "No rotation route from this platform; move to a connected combat platform"
 
+def circuit_progress(samples: list[dict], stops: list[str]) -> dict:
+    """Observed movement and subsequent dispatches; never native hit evidence."""
+    visited, completed = set(), set()
+    navigation = resumed = False
+    for sample in samples:
+        position = sample.get("position") or {}
+        surface = position.get("surface_id")
+        fresh = not any(position.get(key) for key in ("stale", "held", "provisional"))
+        if surface in stops and fresh:
+            visited.add(surface)
+        if sample.get("mode") == "navigation":
+            navigation = True
+        progress = combat_progress([sample])["completed_attacks"]
+        tickets = {event["ticket"] for event in (sample.get("combat_evidence") or {}).get(
+            "events", []) if event.get("kind") == "input_outcome"
+            and event.get("result") in {"attack completed", "skill completed"}
+            and type(event.get("ticket")) is int}
+        if (navigation and len(visited) >= 2 and surface in stops
+                and fresh and sample.get("mode") == "live" and progress and tickets - completed):
+            resumed = True
+        completed.update(tickets)
+    return {"visited_stops": sorted(visited), "navigation_observed": navigation,
+            "combat_after_arrival": resumed}
+
+
+def checked_circuit(api, area: str, circuit: dict) -> dict:
+    """Resolve a saved revision and validate it without granting input authority."""
+    route_id = identifier(circuit.get("id"))
+    revision = circuit.get("revision")
+    if type(revision) is not int or revision < 1:
+        raise ValueError("Select a saved circuit revision")
+    routes = api.command("farm_route_list", {"area_id": area}).get("routes", [])
+    route = next((route for route in routes if route["id"] == route_id), None)
+    if route is None or route["area_id"] != area:
+        raise ValueError("Circuit is not saved for this map")
+    if route["revision"] != revision:
+        raise ValueError("Circuit changed; reload and select it again")
+    if not route["loop"]:
+        raise ValueError("Timed farming needs a looping circuit")
+    checked = api.command("farm_route_validate", {"route": route})
+    if not checked.get("valid"):
+        raise ValueError("; ".join(checked.get("errors", [])) or "Circuit is not valid")
+    return route
+
+
 def run(api, output: Path, *, area: str, single_platform=False, session_minutes=15,
         checkpoint_seconds=None, consumables=False, require_enemy=False, learn_moves=False,
-        clock=time.monotonic, sleep=time.sleep):
+        circuit=None, clock=time.monotonic, sleep=time.sleep):
     if type(session_minutes) is not int or not 1 <= session_minutes <= 120:
         raise ValueError("session_minutes must be an integer between 1 and 120")
     if checkpoint_seconds is not None and (
@@ -73,6 +119,8 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
         raise ValueError("Checkpoints run without consumables")
     if learn_moves and single_platform:
         raise ValueError("learn_moves needs platform rotation, not single_platform")
+    if circuit is not None and (single_platform or learn_moves):
+        raise ValueError("A saved circuit cannot be combined with single-platform or exploration")
     # Reserve evidence storage before reading readiness or sending any commands.
     output.mkdir(parents=True, exist_ok=False)
     before = api.status()
@@ -98,6 +146,23 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
         raise RuntimeError("Player not freshly recognized; no farming started")
     if not single_platform and (problem := rotation_blocker(before, learn_moves=learn_moves)):
         raise RuntimeError("No farming started: " + problem)
+    route = None
+    if circuit is not None:
+        route = checked_circuit(api, area, circuit)
+        circuit = {"id": route["id"], "revision": route["revision"]}
+        # Route reads can take time; reacquire all preflight evidence before arm.
+        before = api.status()
+        if problem := readiness(before):
+            raise RuntimeError(problem)
+        if (before.get("position") or {}).get("area_id") != area:
+            raise RuntimeError("Wrong map; no farming started")
+        if problem := rotation_blocker(before):
+            raise RuntimeError(problem)
+        if (before.get("position") or {}).get("surface_id") not in route["stops"]:
+            raise RuntimeError("Stand on a selected circuit stop before starting")
+        player = before.get("player") or {}
+        if player.get("tracked") or player.get("confidence", 0) < .9:
+            raise RuntimeError("Player not freshly recognized; no farming started")
     if require_enemy:
         box = player.get("box") or {}
         feet = box.get("y", 0) + box.get("height", 0)
@@ -121,12 +186,15 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
         raise RuntimeError("No farming started: " + problem)
     result = {"before": before, "samples": [], "error": None, "stop_error": None,
               "outcome": "failure", "checkpoint_seconds": checkpoint_seconds,
-              "full_session_passed": False}
+              "full_session_passed": False, "circuit": circuit, "settings": settings}
     previous_run = (before.get("combat_evidence") or {}).get("run", 0)
     run_id = None
     started = clock()
     try:
-        api.command("arm", {"farming": settings})
+        payload = {"farming": settings}
+        if circuit is not None:
+            payload["circuit"] = circuit
+        api.command("arm", payload)
         deadline = checkpoint_seconds + 5 if checkpoint_seconds else session_minutes * 60 + 10
         while clock() - started < deadline:
             sample = api.status()
@@ -199,7 +267,7 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
             if result["after"].get("mode") != "capture":
                 result["stop_error"] = "Engine did not confirm Off after Stop"
             state = result["after"].get("input_state")
-            if state is not None or checkpoint_seconds is not None:
+            if state is not None or checkpoint_seconds is not None or circuit is not None:
                 if (not isinstance(state, dict) or state.get("enabled") is not False
                         or state.get("held_keys") != []):
                     result["stop_error"] = "Engine did not confirm disabled input and released keys"
@@ -209,6 +277,13 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
             result["outcome"] = "failure"
             result["full_session_passed"] = False
         result["combat_progress"] = combat_progress(result["samples"])
+        if route is not None:
+            result["circuit_progress"] = circuit_progress(result["samples"], route["stops"])
+            if (result["outcome"] == "functional_success"
+                    and not result["circuit_progress"]["combat_after_arrival"]):
+                result["outcome"] = "failure"
+                result["full_session_passed"] = False
+                result["error"] = "Circuit did not demonstrate navigation and renewed combat"
         # Moves a learn_moves batch missed but landed safely from; it kept farming.
         result["learning"] = ((result.get("after") or {}).get("navigation") or {}).get("learning")
         result["seconds"] = clock() - started

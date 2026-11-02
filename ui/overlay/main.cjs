@@ -74,6 +74,12 @@ async function startBatch(request) {
     return { started: false, reason: 'Invalid batch request' };
   }
   if (batch) return { started: false, reason: 'A batch is already running' };
+  const circuit = request?.circuit;
+  if (kind === 'learn' && (!circuit || !/^[A-Za-z0-9_-]{1,80}$/.test(circuit.id)
+      || !Number.isInteger(circuit.revision) || circuit.revision < 1
+      || ![1, 15].includes(request.minutes))) {
+    return { started: false, reason: 'Choose a saved circuit revision and a 1 or 15 minute run' };
+  }
   if (Date.now() - lastPaint >= 1200) {
     return { started: false, reason: 'Widget renderer is not fresh' };
   }
@@ -84,7 +90,9 @@ async function startBatch(request) {
   if (batch) return { started: false, reason: 'A batch is already running' };
   const root = path.resolve(__dirname, '..', '..');
   const args = ['-m', 'tools.prepared_farm_check', '--area', area, '--run', '--focus',
-    '--minutes', kind === 'single' ? '15' : '5', ...(kind === 'single' ? ['--single'] : [])];
+    '--minutes', kind === 'single' ? '15' : String(request.minutes),
+    ...(kind === 'single' ? ['--single'] : ['--circuit', circuit.id,
+      '--revision', String(circuit.revision), '--consumables'])];
   let output = '';
   const child = spawn(path.join(root, '.venv', 'Scripts', 'python.exe'), args,
     { cwd: root, windowsHide: true });

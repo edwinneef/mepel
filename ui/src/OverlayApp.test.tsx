@@ -392,9 +392,13 @@ it('recovers platform names after a failed map load without cycling Map', async 
 it('shows the bot menu in game and starts batches through the overlay host', async () => {
   const current = snapshot({ position: { area_id: 'a'.repeat(32), kind: 'platform', surface_id: 'fh320',
     reason: 'Matched', input_sent: false }, fps: 6 });
-  const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
     if (url === '/api/v1/status') return json(current);
     if (url === '/api/v1/drawings') return json(null);
+    if (JSON.parse(String(options?.body ?? '{}')).name === 'farm_route_list') return json({ routes: [{
+      version: 1, id: 'lower-loop', revision: 2, name: 'Lower loop', area_id: 'a'.repeat(32),
+      map_hash: 'b'.repeat(64), stops: ['fh320', 'fh315'], loop: true,
+    }] });
     return json({ areas: [] });
   });
   vi.stubGlobal('fetch', fetcher);
@@ -426,6 +430,11 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
   fireEvent.click(names);
   expect(names.checked).toBe(false);
   await waitFor(() => expect((screen.getByText('Start single platform') as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Lower loop · r2' })).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Farming circuit'), { target: { value: 'lower-loop' } });
+    fireEvent.click(screen.getByText('Start run'));
+    await waitFor(() => expect(batch).toHaveBeenCalledWith({ kind: 'learn', area: 'a'.repeat(32),
+      circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 }));
   fireEvent.click(screen.getByText('Start single platform'));
   await waitFor(() => expect(batch).toHaveBeenCalledWith({ kind: 'single', area: 'a'.repeat(32) }));
   act(() => listener({ type: 'batch', value: { running: true, kind: 'single', line: 'Starting one guarded batch' } }));

@@ -53,7 +53,13 @@ def main(argv: list[str] | None = None, *, api=None) -> int:
     parser.add_argument("--minutes", type=int, choices=range(1, 31), default=5)
     parser.add_argument("--single", action="store_true",
                         help="Farm only the start platform, sustained by the verified potion keys")
+    parser.add_argument("--circuit", help="Saved looping circuit ID")
+    parser.add_argument("--revision", type=int, help="Expected saved circuit revision")
+    parser.add_argument("--consumables", action="store_true",
+                        help="Use verified HP/MP potion keys during rotation")
     args = parser.parse_args(argv)
+    if bool(args.circuit) != (args.revision is not None) or args.single and args.circuit:
+        parser.error("Provide --circuit and --revision together, without --single")
     started = time.monotonic()
     api = api or Debugger()
     try:
@@ -70,17 +76,20 @@ def main(argv: list[str] | None = None, *, api=None) -> int:
     if problem:
         print(json.dumps({"blocked": problem, "input_sent": False}), flush=True)
         return 1
-    kind = "single" if args.single else "farm"
+    kind = "single" if args.single else "circuit" if args.circuit else "farm"
     output = (Path(__file__).resolve().parents[1] / "artifacts" / "farming-checks"
               / f"prepared-{kind}-{args.origin}-{time.time_ns()}")
     before = proven(status)
+    activity = "circuit" if args.circuit else "single-platform" if args.single else "learn_moves"
     print(f"Starting one {args.minutes}-minute "
-          f"{'single-platform' if args.single else 'learn_moves'} farm from {args.origin}",
+          f"{activity} farm from {args.origin}",
           flush=True)
     try:
-        result = run(api, output, area=args.area, session_minutes=args.minutes,
-                     **({"single_platform": True, "consumables": True} if args.single
-                        else {"learn_moves": True}))
+        settings = ({"single_platform": True, "consumables": True} if args.single else
+                    {"circuit": {"id": args.circuit, "revision": args.revision},
+                     "consumables": args.consumables, "require_enemy": True} if args.circuit else
+                    {"learn_moves": True, **({"consumables": True} if args.consumables else {})})
+        result = run(api, output, area=args.area, session_minutes=args.minutes, **settings)
     except Exception as error:
         print(json.dumps({"error": str(error), "result": str(output)}), flush=True)
         result = {"outcome": "failure", "error": str(error)}

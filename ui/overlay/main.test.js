@@ -127,8 +127,13 @@ it('starts one guarded batch tool at a time from the in-game menu, validating th
   child.handlers.close(0);
   expect(win.webContents.send).toHaveBeenLastCalledWith('overlay-event', { type: 'batch',
     value: { running: false, kind: 'single', code: 0, output: '{"outcome": "nothing_left"}\n' } });
-  expect(await launch(own, { kind: 'learn', area: 'a'.repeat(32) })).toEqual({ started: true });
-  expect(spawn.mock.calls[1][1]).toContain('5');
+  expect((await launch(own, { kind: 'learn', area: 'a'.repeat(32) })).started).toBe(false);
+  expect((await launch(own, { kind: 'learn', area: 'a'.repeat(32),
+    circuit: { id: '../x', revision: 2 }, minutes: 1 })).started).toBe(false);
+  expect(await launch(own, { kind: 'learn', area: 'a'.repeat(32),
+    circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 })).toEqual({ started: true });
+  expect(spawn.mock.calls[1][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', 'a'.repeat(32),
+    '--run', '--focus', '--minutes', '1', '--circuit', 'lower-loop', '--revision', '2', '--consumables']);
 });
 
 
@@ -154,7 +159,8 @@ it('registers only companion health and refuses batch input without a live dashb
   expect(requests.some(request => request.url.endsWith('/api/overlay_companion'))).toBe(true);
   electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: win.webContents });
   const launch = electron.ipcMain.handle.mock.calls.find(([name]) => name === 'overlay-batch')[1];
-  expect(await launch({ sender: win.webContents }, { kind: 'learn', area: 'a'.repeat(32) }))
+  expect(await launch({ sender: win.webContents }, { kind: 'learn', area: 'a'.repeat(32),
+    circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 }))
     .toEqual({ started: false, reason: 'Connect the browser dashboard before starting a batch' });
   expect(spawn).not.toHaveBeenCalled();
   expect(win.webContents.send).toHaveBeenCalledWith('overlay-event', { type: 'controller', value: false });

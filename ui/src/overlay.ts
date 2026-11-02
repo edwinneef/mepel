@@ -8,7 +8,8 @@ declare global {
     mapleOverlay?: {
       companion?: boolean;
       settings(open: boolean): Promise<void>; quit(): Promise<void>; heartbeat(): void;
-      batch?(request: { kind: 'learn' | 'single'; area: string }): Promise<{ started: boolean; reason?: string }>;
+      batch?(request: { kind: 'learn' | 'single'; area: string;
+        circuit?: { id: string; revision: number }; minutes?: number }): Promise<{ started: boolean; reason?: string }>;
       interactive?(rects: { x: number; y: number; width: number; height: number }[]): void;
       subscribe(callback: (event: OverlayEvent) => void): () => void;
     };

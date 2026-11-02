@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Snapshot } from './contracts';
+import type { FarmingRoute } from './PathBuilder';
 
 /** Saved farming paths for the map the player is on, as the widget last read them. */
 export type PathAvailability =
   | { state: 'unknown' } | { state: 'loading' } | { state: 'error'; message: string }
-  | { state: 'ready'; names: string[] };
+  | { state: 'ready'; names: string[]; routes?: FarmingRoute[] };
 
 /** One line: whether this map has a saved path, in words as well as colour. */
 export function pathSummary(paths: PathAvailability | undefined, area: string | null | undefined) {
@@ -22,7 +23,7 @@ export interface BatchState { running: boolean; kind?: string; line?: string; ou
 type Rect = { x: number; y: number; width: number; height: number };
 
 const WIDTH = 236;
-const HEIGHT = 250;  // generous: the open menu is about 230 px tall
+const HEIGHT = 360;
 
 /** Where the menu goes: beside the game view, never over it.
 
@@ -77,9 +78,13 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   layers: boolean; attackRange: boolean; names: boolean;
   setLayers(value: boolean): void; setAttackRange(value: boolean): void; setNames(value: boolean): void;
   batch: BatchState; canBatch: boolean;
-  onStart(kind: 'learn' | 'single'): void; onStop(): void;
+  onStart(kind: 'learn' | 'single', circuit?: { id: string; revision: number }, minutes?: number): void; onStop(): void;
 }) {
   const [open, setOpen] = useState(false);
+  const [selectedRoute, setSelectedRoute] = useState('');
+  const [minutes, setMinutes] = useState(1);
+  const routes = paths?.state === 'ready' ? (paths.routes ?? []).filter(route => route.loop) : [];
+  const circuit = routes.find(route => route.id === selectedRoute && route.area_id === s?.position?.area_id);
   const menu = useRef<HTMLElement>(null);
   const reported = useRef('');
   const [offset, setOffset] = useState<{ left: number; top: number } | null>(null);
@@ -135,9 +140,19 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
         <label><input type="checkbox" checked={attackRange} onChange={e => setAttackRange(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">◎</span><span>Range</span></label>
         <label><input type="checkbox" checked={names} onChange={e => setNames(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">▧</span><span>Map</span></label>
       </div>
+      <label>Farming circuit<select aria-label="Farming circuit" value={circuit?.id ?? ''} disabled={busy}
+        onChange={event => setSelectedRoute(event.target.value)}>
+        <option value="">Choose a saved loop</option>
+        {routes.map(route => <option key={route.id} value={route.id}>{route.name} · r{route.revision}</option>)}
+      </select></label>
+      <label>Run duration<select aria-label="Run duration" value={minutes} disabled={busy}
+        onChange={event => setMinutes(Number(event.target.value))}>
+        <option value={1}>1 minute</option><option value={15}>15 minutes</option>
+      </select></label>
+      <p className="overlay-menu-result">HP/MP potions · food F every 10 min</p>
       <div className="overlay-menu-actions">
-        <button disabled={!ready} onClick={() => onStart('learn')}
-          title="5 minutes; learns new moves while farming; no potions, stops at 50% HP/MP">Start run</button>
+        <button disabled={!ready || !circuit} onClick={() => circuit && onStart('learn', { id: circuit.id, revision: circuit.revision }, minutes)}
+          title="Follow the selected loop using confirmed HP/MP potion keys">Start run</button>
         <button disabled={!ready} onClick={() => onStart('single')}
           title="15 minutes on the platform you stand on; uses your confirmed potion keys">Start single platform</button>
       </div>
