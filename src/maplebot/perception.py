@@ -6,7 +6,7 @@ import math
 import os
 import time
 from collections import deque
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, field, replace
 from functools import cached_property
 from itertools import combinations, pairwise
@@ -395,6 +395,8 @@ class TemplateDetector:
         self.world_step, self.predicted, self.track_tag = (0.0, 0.0), None, None
         self.previous_monsters = ()
         self.camera = CameraTracker()
+        # A frame's camera motion started by begin_frame(), with the frame it is for.
+        self.pending_camera: tuple[Image, Future] | None = None
         self.catalog_info = {
             "nametags": len(self.nametags),
             "species": len(catalog_names),
@@ -1072,13 +1074,29 @@ class TemplateDetector:
         else:
             self.enemy_empty_observations += 1
 
+    def begin_frame(self, image: Image) -> None:
+        """Start this frame's camera motion now, beside work done before detect(image)."""
+        self._settle_camera()
+        self.pending_camera = (image, self.pool.submit(self.camera.update, image))
+
+    def _settle_camera(self) -> None:
+        """Finish an unused early camera update; two of one tracker never run at once."""
+        pending, self.pending_camera = self.pending_camera, None
+        if pending is not None:
+            wait([pending[1]])
+
     def detect(self, image: Image, now: float | None = None, *,
                monsters: bool = True) -> Observation:
         """monsters=False searches only the player, for work that never targets an enemy."""
         now = time.monotonic() if now is None else now
         began = time.perf_counter()
         # Camera motion only needs the frame, so it runs beside recognition.
-        camera = self.pool.submit(self.camera.update, image)
+        pending = self.pending_camera
+        if pending is not None and pending[0] is image:
+            self.pending_camera, camera = None, pending[1]
+        else:
+            self._settle_camera()
+            camera = self.pool.submit(self.camera.update, image)
         floor = max(0.5, self.config.confidence - 0.15)
         allowed = self.map_filter.select(image, self.taught_map)
         # Searching every catalog species costs seconds per frame; wait for a readable map.

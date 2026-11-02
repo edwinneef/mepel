@@ -576,6 +576,21 @@ def run_moving_capture(app, monkeypatch, failures, *, bursts=1):
     return seen_alarms, waits
 
 
+def test_camera_motion_starts_before_the_minimap_read(app, monkeypatch):
+    from types import SimpleNamespace
+
+    order = []
+    monkeypatch.setattr(app.detector, "begin_frame",
+                        lambda image: order.append(("camera", image is app.image)))
+    app.position = SimpleNamespace(
+        read_map=lambda image: order.append(("map", image is app.image)))
+    try:
+        app._process(app.image, time.perf_counter())
+    finally:
+        app.position = None
+    assert order == [("camera", True), ("map", True)]
+
+
 def paced(app, monkeypatch, during=None):
     """Seconds the capture loop waits after a frame that began at 0, on a fake clock."""
     from types import SimpleNamespace

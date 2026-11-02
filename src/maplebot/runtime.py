@@ -1894,6 +1894,8 @@ class Application:
             "sequence": self.sequence, "capture_clock": now, "stage": "map",
             "source_generation": self.source_generation, "view_generation": self.view_generation,
         }
+        # Camera motion needs only the frame; start it beside the minimap read.
+        self.detector.begin_frame(image)
         map_began = time.perf_counter()
         captured_at = time.time() if captured_at is None else captured_at
         fix = self.position.read_map(image) if self.position is not None else None

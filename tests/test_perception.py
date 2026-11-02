@@ -132,6 +132,37 @@ def test_camera_tracks_global_translation_and_rejects_flat_frames():
     assert tracker.update(np.zeros_like(frame)) == ((0, 0), 0)
 
 
+def test_early_camera_start_gives_the_same_shifts_and_never_overlaps_updates(tmp_path):
+    import time
+
+    base = np.random.default_rng(9).integers(0, 255, (200, 320, 3), dtype=np.uint8)
+    frames = [cv2.warpAffine(base, np.float32([[1, 0, -6 * i], [0, 1, 2 * i]]), (320, 200))
+              for i in range(4)]
+    plain = TemplateDetector(tmp_path, PerceptionConfig())
+    expected = [plain.detect(frame, i).camera_shift for i, frame in enumerate(frames)]
+    early = TemplateDetector(tmp_path, PerceptionConfig())
+    shifts = []
+    for i, frame in enumerate(frames):
+        early.begin_frame(frame)
+        shifts.append(early.detect(frame, i).camera_shift)
+    assert shifts == expected
+
+    running, original = [], early.camera.update
+
+    def update(image):
+        assert not running, "two camera updates ran at once"
+        running.append(image)
+        time.sleep(.05)
+        running.pop()
+        return original(image)
+
+    early.camera.update = update
+    early.begin_frame(frames[0])  # a frame detect() never sees
+    early.begin_frame(frames[1])  # waits for that one first
+    early.detect(frames[2], 9)  # another frame: settles frames[1], then runs its own
+    assert early.pending_camera is None
+
+
 def test_flat_templates_rejected():
     with pytest.raises(ValueError, match="textured sprite"):
         TemplateDetector.validate(np.full((24, 24, 3), 90, dtype=np.uint8))
