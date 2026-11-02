@@ -189,6 +189,14 @@ def test_rope_beyond_the_platform_end_is_jumped_at_from_the_launch_without_walki
     assert nav.stage == "flight" and nav.reason != "Aligning with rope before jumping"
     assert [hold.action for hold in motion.holds] == ["jump"]
     assert motion.vertical == "up" and motion.horizontal == "right"
+    # Live (SHG III fh158 -> rope9): flight dropped the sideways key one frame after
+    # takeoff and the jump fell about 70 px short. Steer until within 12 px of the rope.
+    for now, feet, surface in ((.8, (200, 400), "floor"), (1.0, (212, 375), None)):
+        motion = nav.step(replace(f, now=now, feet=feet, surface=surface))
+        assert nav.stage == "flight" and not motion.holds
+        assert motion.vertical == "up" and motion.horizontal == "right"
+    motion = nav.step(replace(f, now=1.2, feet=(222, 360), surface=None))
+    assert motion.vertical == "up" and motion.horizontal is None and not motion.holds
 
 
 def test_rope_to_platform_approaches_recorded_height_before_entering_its_corridor():

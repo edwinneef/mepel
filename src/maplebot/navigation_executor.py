@@ -422,7 +422,14 @@ class Navigator:
             if target_rope:
                 # A grab jump can pass its waypoint before the rope catches. Keep its
                 # climb direction without another jump or sideways steering in flight.
-                return Motion(vertical="up" if edge.landing[1] < edge.launch[1] else "down")
+                vertical = "up" if edge.landing[1] < edge.launch[1] else "down"
+                # Except toward a rope beyond the platform end: live (SHG III fh158 ->
+                # rope9) dropping Left one frame after takeoff fell about 70 px short.
+                if (abs(f.feet[0] - rope_x) > 12
+                        and not self.graph.on_surface(edge.source, (rope_x, edge.launch[1]))):
+                    return Motion(vertical=vertical,
+                                  horizontal="right" if rope_x > f.feet[0] else "left")
+                return Motion(vertical=vertical)
             if not target_rope and abs(f.feet[1] - edge.landing[1]) <= 16:
                 if abs(f.feet[0] - edge.landing[0]) > 12:
                     return self._walk(f.feet[0], edge.landing[0])
