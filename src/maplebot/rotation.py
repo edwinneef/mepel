@@ -95,3 +95,59 @@ class Rotation:
     def snapshot(self) -> dict:
         return {"destination": self.destination, "clear_since": self.clear_since,
                 "reason": self.reason}
+
+class CircuitRotation(Rotation):
+    """Follow an immutable stop order; only observed arrival advances its cursor."""
+
+    def __init__(self, clear_seconds: float, route: dict):
+        super().__init__(clear_seconds)
+        self.route = route
+        self.index = 0
+        self.complete = False
+        self.entered = False
+
+    def arrived(self, surface: str, now: float) -> None:
+        super().arrived(surface, now)
+        if surface == self.route["stops"][self.index]:
+            self.entered = True
+
+    def step(self, now: float, *, searching: bool, surface: str | None,
+             platforms: list[str], visible: dict[str, int],
+             edges: dict[str, int] | None = None) -> str | None:
+        self.stranded = False
+        target = self.route["stops"][self.index]
+        if surface is None or surface not in platforms:
+            self.clear_since = None
+            return None
+        if surface != target:
+            self.clear_since = None
+            if target not in platforms:
+                self.stranded = True
+                self.reason = f"Circuit stop {target} is no longer reachable"
+                return None
+            self.destination = target
+            self.reason = f"Moving to circuit stop {self.index + 1}: {target}"
+            return target
+        self.entered = True
+        if not searching:
+            self.clear_since = None
+            self.reason = f"Farming stop {self.index + 1}: {target}"
+            return None
+        if self.clear_since is None:
+            self.clear_since = now
+        if now - self.clear_since < self.clear_seconds:
+            return None
+        if self.index == len(self.route["stops"]) - 1 and not self.route["loop"]:
+            self.complete = True
+            self.reason = "Farming circuit complete"
+            return None
+        self.index = (self.index + 1) % len(self.route["stops"])
+        self.clear_since = None
+        return self.step(now, searching=searching, surface=surface,
+                         platforms=platforms, visible=visible, edges=edges)
+
+    def snapshot(self) -> dict:
+        return {**super().snapshot(), "circuit": self.route["name"],
+                "route_id": self.route["id"], "revision": self.route["revision"],
+                "stop_index": self.index, "stops": self.route["stops"],
+                "complete": self.complete}

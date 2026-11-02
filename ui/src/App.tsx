@@ -11,6 +11,7 @@ import { PositionOverlay, PositionPanel } from './PositionPanel';
 import { MapTab } from './MapTab';
 import { NavigationPanel } from './NavigationPanel';
 import { GoBar } from './GoBar';
+import type { FarmingRoute } from './PathBuilder';
 
 export function App({ client }: { client: EngineClient }) {
   const state = useSyncExternalStore(client.subscribe, client.getState);
@@ -19,6 +20,10 @@ export function App({ client }: { client: EngineClient }) {
   const [runMode, setRunMode] = useState<'preview' | 'live' | 'navigation' | 'farming'>('preview');
   const [navigationTab, setNavigationTab] = useState<'map' | 'routes' | 'setup'>('map');
   const [farmMinutes, setFarmMinutes] = useState(15);
+  const [circuit, setCircuit] = useState<FarmingRoute | null>(null);
+  useEffect(() => {
+    if (circuit && s?.position?.area_id && circuit.area_id !== s.position.area_id) setCircuit(null);
+  }, [circuit, s?.position?.area_id]);
   const [feedSeconds, setFeedSeconds] = useState('');
   const [farmHp, setFarmHp] = useState(50);
   const [farmMp, setFarmMp] = useState(50);
@@ -60,7 +65,10 @@ export function App({ client }: { client: EngineClient }) {
       setSupervised(false); // A started route consumes the opt-in; a refused start keeps it.
       return result;
     }
-    return client.command(runMode === 'preview' ? 'dry_run' : 'arm', runMode === 'farming' ? { farming: { session_minutes: farmMinutes, feed_seconds: Number(feedSeconds), hp_threshold: farmHp, mp_threshold: farmMp, learn_moves: learnMoves } } : {});
+    return client.command(runMode === 'preview' ? 'dry_run' : 'arm', runMode === 'farming' ? {
+      farming: { session_minutes: farmMinutes, feed_seconds: Number(feedSeconds), hp_threshold: farmHp, mp_threshold: farmMp, learn_moves: learnMoves },
+      ...(circuit ? { circuit: { id: circuit.id, revision: circuit.revision } } : {}),
+    } : {});
   });
   const stop = (name: 'stop' | 'pause') => act(async () => {
     await client.command(name);
@@ -92,6 +100,8 @@ export function App({ client }: { client: EngineClient }) {
       {!canStart && state.connected && <p className="run-blocker">{gate?.ready ? 'Waiting for steady fresh recognition' : gate?.reason}</p>}
     </header>
     {runMode === 'farming' && <section className="go-bar" aria-label="Farming settings">
+      <span>{circuit ? `${circuit.name} · revision ${circuit.revision} · ${circuit.stops.length} stops${circuit.loop ? ' · loop' : ''}` : 'Automatic platform rotation'}</span>
+      {circuit && <button onClick={() => setCircuit(null)}>Use automatic rotation</button>}
       <label>Session minutes <input type="number" min="1" max="120" value={farmMinutes} onChange={e => setFarmMinutes(Number(e.target.value))} /></label>
       <label>Feed every (seconds) <input type="number" min="1" max="3600" value={feedSeconds} placeholder="Required" onChange={e => setFeedSeconds(e.target.value)} /></label>
       <label>Pet HP trigger % <input type="number" min="1" max="95" value={farmHp} onChange={e => setFarmHp(Number(e.target.value))} /></label>
@@ -147,7 +157,7 @@ export function App({ client }: { client: EngineClient }) {
             <button aria-pressed={navigationTab === 'routes'} onClick={() => setNavigationTab('routes')}>Routes</button>
             <button aria-pressed={navigationTab === 'setup'} onClick={() => setNavigationTab('setup')}>Setup</button>
           </nav>
-          <div hidden={navigationTab !== 'map'}>{props && <MapTab snapshot={props.snapshot} client={client} act={act} disabled={props.disabled}
+          <div hidden={navigationTab !== 'map'}>{props && <MapTab snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} onCircuit={setCircuit}
             onPreview={() => { setRouteCurrent(true); setSupervised(false); setRunMode('navigation'); setNavigationTab('routes'); }} />}</div>
           <div hidden={navigationTab !== 'routes'}>{props && <NavigationPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled}
             onInvalidate={() => { setRouteCurrent(false); setSupervised(false); }} onPreview={() => { setRouteCurrent(true); setRunMode('navigation'); }} supervised={supervised} onSupervised={setSupervised} areas={area.areas} />}</div>

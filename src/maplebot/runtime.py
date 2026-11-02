@@ -34,6 +34,7 @@ from .contracts import (
 from .decision import Action, Agent, Decision, PolicyInput
 from .display_loop import DisplayLoop, DisplaySource
 from .farming import CHECKPOINT_STOP, Farming
+from .farming_routes import FarmingRouteStore, compile_route, restrict_graph
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
 from .keyboard import (
@@ -54,7 +55,7 @@ from .probe_store import ProbeStore
 from .profiles import AreaStore
 from .reacquisition import Reacquisition
 from .recorder import SessionRecorder
-from .rotation import Rotation, routable, visible_by_surface
+from .rotation import CircuitRotation, Rotation, routable, visible_by_surface
 from .scheduler import SUSTAIN, Arbiter
 from .windows import Window, Windows
 
@@ -372,6 +373,22 @@ class Application:
             return self.areas.list()
         if name == "area_load":
             return self.areas.load(payload.get("area_id"))
+        if name.startswith("farm_route_"):
+            with self.stop_lock:
+                if context is not None:
+                    context.validate(self.command_epoch)
+                control = self.controller.state_snapshot()
+                if (self.mode != "capture" or control["held_keys"] or control["active"]
+                        or control["queued"] or control["enabled"] or self.area_editing
+                        or self.active_probe is not None or self.calibrating):
+                    raise ValueError("Stop gameplay and release input before editing routes")
+                store = FarmingRouteStore(self.areas.directory)
+                if name == "farm_route_list":
+                    return store.list(payload.get("area_id"))
+                if name == "farm_route_save":
+                    return {"route": store.save(payload.get("route"))}
+                self.navigation.refresh()
+                return compile_route(payload.get("route"), self.navigation.graph)
         if name in {"area_begin", "area_capture", "area_save", "area_end"}:
             with self.stop_lock:
                 if context is not None:
@@ -1402,6 +1419,8 @@ class Application:
         if name == "dry_run":
             self._stop("DRY_RUN_STOP", "Dry run: no keyboard input")
             farming = Farming(payload["farming"]) if "farming" in payload else None
+            if payload.get("circuit") is not None and farming is None:
+                raise ValueError("Circuits require a bounded farming session")
             if farming and not all(r in self.potter.bars for r in ("hp", "mp")):
                 raise ValueError("Farming needs calibrated HP and MP bars")
             if farming and not farming.pet_recovery and not farming.no_consumables:
@@ -1412,7 +1431,8 @@ class Application:
                     raise ValueError("Potion thresholds must cover farming recovery thresholds")
             self._prepare_rotation((not farming.single_platform) if farming else
                                    payload.get("rotate") is True,
-                                   learn=bool(farming and farming.learn_moves))
+                                   learn=bool(farming and farming.learn_moves),
+                                   circuit=payload.get("circuit"))
             with self.stop_lock:
                 if self.area_editing:
                     raise ValueError("Finish area editing before starting preview decisions")
@@ -1447,6 +1467,8 @@ class Application:
             if missing:
                 raise ValueError("Confirm required probes first: " + ", ".join(missing))
             farming = Farming(payload["farming"]) if "farming" in payload else None
+            if payload.get("circuit") is not None and farming is None:
+                raise ValueError("Circuits require a bounded farming session")
             if farming and not all(r in self.potter.bars for r in ("hp", "mp")):
                 raise ValueError("Farming needs calibrated HP and MP bars")
             if farming and not farming.pet_recovery and not farming.no_consumables:
@@ -1457,7 +1479,8 @@ class Application:
                     raise ValueError("Potion thresholds must cover farming recovery thresholds")
             self._prepare_rotation((not farming.single_platform) if farming else
                                    payload.get("rotate") is True,
-                                   learn=bool(farming and farming.learn_moves))
+                                   learn=bool(farming and farming.learn_moves),
+                                   circuit=payload.get("circuit"))
             with self.stop_lock:
                 if self.alarm.snapshot()["active"]:  # raised during this arming, not before
                     raise ValueError("A new alarm was raised while arming; start again")
@@ -1632,7 +1655,8 @@ class Application:
                                  x + end[0] * scale, y + end[1] * scale))
         return tuple(segments)
 
-    def _prepare_rotation(self, enabled: bool, *, learn: bool = False) -> None:
+    def _prepare_rotation(self, enabled: bool, *, learn: bool = False,
+                          circuit: dict | None = None) -> None:
         """Opt-in platform rotation needs a tracked map with two round-trip platforms.
 
         Operator rule (2026-11-02): rotation routes over computed moves without a prior
@@ -1640,12 +1664,26 @@ class Application:
         existing tools and the workbench keep working.
         """
         self.rotating = self.learning_moves = False
+        self.rotation = Rotation(self.config.agent.clear_seconds)
         self.navigation.misses, self.navigation.miss = [], None
         self.rotation.reset("Rotation off" if not enabled else "Waiting for a clear platform")
         if not enabled:
+            if circuit is not None:
+                raise ValueError("A circuit requires platform rotation")
             return
         self.navigation.refresh()
         graph = self.navigation.graph
+        if circuit is not None:
+            if (not isinstance(circuit, dict) or type(circuit.get("revision")) is not int):
+                raise ValueError("Select a saved circuit revision")
+            route = FarmingRouteStore(self.areas.directory).load(circuit.get("id"))
+            if route["revision"] != circuit.get("revision"):
+                raise ValueError("Circuit changed; reload and select it again")
+            compiled = compile_route(route, graph)
+            if not compiled["valid"]:
+                raise ValueError("; ".join(compiled["errors"]))
+            graph = self.navigation.graph = restrict_graph(route, graph)
+            self.rotation = CircuitRotation(self.config.agent.clear_seconds, route)
         if len(routable(graph)) < 2:
             raise ValueError("Rotation needs two platforms connected by computed round-trip moves")
         self.rotating, self.learning_moves = True, learn
@@ -1679,6 +1717,9 @@ class Application:
             platforms=platforms, visible=visible, edges=edges,
         )
         if target is None:
+            if isinstance(self.rotation, CircuitRotation) and self.rotation.complete:
+                self._stop("FARMING_DONE", "Farming circuit complete")
+                return "Farming circuit complete"
             if (self.rotation.stranded and self.farming is not None and self.mode == "live"
                     and any(p["id"] == f.surface for p in nav.graph.profile["platforms"])):
                 here = nav.graph.nodes[f.surface].get("name", f.surface)
@@ -2588,3 +2629,5 @@ class Application:
                 future.set_result(self._command(name, payload))
             except Exception as error:
                 future.set_exception(error)
+
+

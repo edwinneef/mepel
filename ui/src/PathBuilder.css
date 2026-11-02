@@ -1,0 +1,24 @@
+.path-builder { margin-top: 2rem; border-top: 2px solid var(--border, #c5d5d1); padding-top: 1.5rem; }
+.path-builder fieldset { border: 0; padding: 0; min-width: 0; }
+.path-heading, .path-toolbar { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+.path-heading { justify-content: space-between; }
+.path-heading p { max-width: 65ch; }
+.path-toolbar { margin: .75rem 0; }
+.path-workspace { display: grid; grid-template-columns: minmax(0, 2fr) minmax(230px, 1fr); gap: 1.5rem; }
+.path-builder label { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.path-builder input[type=text], .path-builder select { max-width: 100%; }
+.path-canvas { width: 100%; min-height: 320px; max-height: 65vh; background: #edf4f2; border: 1px solid #a5bcb4; touch-action: none; }
+.path-platform { cursor: pointer; }
+.path-platform polyline { stroke: #2c7160; stroke-width: 7; fill: none; }
+.path-platform:hover polyline { stroke: #df821f; stroke-width: 11; }
+.path-platform text { fill: #174e41; font-size: 20px; font-weight: 800; }
+.path-rope { stroke: #9c814d; stroke-width: 4; }
+.path-zone { fill: #e8999a; opacity: .5; }
+.path-leg line { stroke: #829a93; stroke-width: 3; stroke-dasharray: 8 5; }
+.path-leg text { fill: #49635b; font-size: 18px; }
+.path-leg.selected line { stroke: #d27618; stroke-width: 5; }
+.path-stops ol { padding-left: 1.5rem; }
+.path-stops li { padding: .5rem 0; border-bottom: 1px solid #c5d5d1; }
+.path-stops li div { display: flex; gap: .35rem; margin-top: .35rem; }
+.path-stops small { display: block; }
+@media (max-width: 850px) { .path-workspace { grid-template-columns: 1fr; } }

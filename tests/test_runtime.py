@@ -2110,3 +2110,41 @@ def test_player_examples_batch_validates_before_writing_and_is_repeatable(app, m
     assert len(set(target.glob("*.png")) - before) == 2
     assert all(candidate["added"] for candidate in app.snapshot()["pose_collection"]["candidates"])
     app.pose_collection.close()
+
+
+def test_saved_circuits_require_off_and_released_input(app):
+    from test_farming_routes import example
+
+    from maplebot.farming_routes import FarmingRouteStore
+    route = example()
+    store = FarmingRouteStore(app.areas.directory)
+    store.save(route)
+    listed = app.request("farm_route_list", {"area_id": route["area_id"]})
+    assert listed["routes"][0]["id"] == route["id"]
+    app.mode = "live"
+    with pytest.raises(ValueError, match="Stop gameplay"):
+        app.request("farm_route_save", {"route": route})
+    app.mode = "capture"
+    app.controller.enabled = True
+    with pytest.raises(ValueError, match="Stop gameplay"):
+        app.request("farm_route_validate", {"route": route})
+    assert store.load(route["id"])["revision"] == 1
+
+
+def test_circuit_arming_rejects_changed_revision_and_unsafe_return(app, monkeypatch):
+    from test_farming_routes import example
+    from test_navigation import fixture
+
+    from maplebot.farming_routes import FarmingRouteStore
+    from maplebot.navigation import RouteMap
+    profile, evidence = fixture()
+    graph = RouteMap(profile, evidence)
+    monkeypatch.setattr(app.navigation, "refresh", lambda: setattr(app.navigation, "graph", graph))
+    store = FarmingRouteStore(app.areas.directory)
+    route = store.save(example())
+    with pytest.raises(ValueError, match="changed"):
+        app._prepare_rotation(True, circuit={"id": route["id"], "revision": 0})
+    route = store.save(route | {"disabled_edges": ["back"]})
+    with pytest.raises(ValueError, match="ledge to floor"):
+        app._prepare_rotation(True, circuit={"id": route["id"], "revision": route["revision"]})
+    assert not app.controller.enabled

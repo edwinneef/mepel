@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EngineClient } from './client';
 import type { AreaPoint, AreaProfile, AreaSegment, Snapshot } from './contracts';
+import { PathBuilder } from './PathBuilder';
+import type { FarmingRoute } from './PathBuilder';
 
 type Segment = AreaSegment & { points?: AreaPoint[] };
 interface MapEdge { id: string; from: string; to: string; kind: string; proven: boolean }
@@ -14,6 +16,7 @@ interface Props {
   snapshot: Snapshot; client: EngineClient; disabled: boolean;
   act: (operation: () => Promise<unknown>) => Promise<void>;
   onPreview: () => void;
+  onCircuit?: (route: FarmingRoute | null) => void;
 }
 
 const line = (item: Segment) => (item.points ?? [item.start, item.end]).map(p => `${p.x},${p.y}`).join(' ');
@@ -63,7 +66,7 @@ function useSize(fallback: number) {
 }
 
 /** The whole saved map with every place named; picking a platform previews a route there. */
-export function MapTab({ snapshot: s, client, disabled, act, onPreview }: Props) {
+export function MapTab({ snapshot: s, client, disabled, act, onPreview, onCircuit }: Props) {
   const [profile, setProfile] = useState<AreaProfile | null>(null);
   const [error, setError] = useState('');
   const [showMoves, setShowMoves] = useState(false);
@@ -171,6 +174,8 @@ export function MapTab({ snapshot: s, client, disabled, act, onPreview }: Props)
       {ropes.map(rope => <li key={rope.id} className="map-place-rope"
         onMouseEnter={() => setFocus(rope.id)} onMouseLeave={() => setFocus(null)}>{rope.name}</li>)}
     </ol>
+    {map?.map_hash && <PathBuilder key={areaId} profile={profile} mapHash={map.map_hash}
+      client={client} disabled={disabled || Boolean(nav?.active) || s.mode !== 'capture'} onSelect={onCircuit} />}
     {large && <div className="map-dialog" role="dialog" aria-modal="true" aria-label={`Full map of ${profile.name}`}
       onKeyDown={e => { if (e.key === 'Escape') setLarge(false); }}>
       <div className="map-dialog-bar"><strong>{profile.name}</strong>
