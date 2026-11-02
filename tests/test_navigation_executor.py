@@ -165,6 +165,32 @@ def test_rope_grab_aligns_before_jumping_and_ignores_delayed_launch_feedback():
         assert motion.horizontal is None
 
 
+def test_rope_beyond_the_platform_end_is_jumped_at_from_the_launch_without_walking_off():
+    # MeowDB fh158 ends 89 px short of rope9; aligning with the rope's x walked toward the
+    # edge, then back to the launch, until the approach stalled.
+    profile, _ = fixture()
+    profile["ropes"] = [{"id": "rope", "start": {"x": 230, "y": 250},
+                         "end": {"x": 230, "y": 400}}]
+    profile["links"] = [{"id": key, "from": a, "to": b, "kind": "climb"}
+                        for key, a, b in (("up", "floor", "rope"), ("back", "rope", "floor"))]
+    evidence = {"area_id": profile["id"], "revision": 4, "map_hash": map_hash(profile),
+                "edges": {key: {**link, "source": "session", "missing_checks": 0, "max_gap": .2,
+                                "trace": trace}
+                          for key, link, trace in (
+                              ("up", profile["links"][0], [[200, 400], [230, 370], [230, 340]]),
+                              ("back", profile["links"][1], [[230, 340], [200, 400]]))}}
+    graph = RouteMap(profile, evidence)
+    nav = Navigator(graph, graph.plan("floor", "rope"), 0)
+    f = Feedback(0, graph.fingerprint, (200, 400), "floor", True)
+    for now in (0, .2, .4, .6):
+        motion = nav.step(replace(f, now=now))
+        if nav.stage == "flight":
+            break
+    assert nav.stage == "flight" and nav.reason != "Aligning with rope before jumping"
+    assert [hold.action for hold in motion.holds] == ["jump"]
+    assert motion.vertical == "up" and motion.horizontal == "right"
+
+
 def test_rope_to_platform_approaches_recorded_height_before_entering_its_corridor():
     profile, evidence = fixture()
     graph = RouteMap(profile, evidence)

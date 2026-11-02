@@ -108,10 +108,6 @@ def test_meowdb_tracking_cache_is_digest_bound_and_separate(tmp_path):
         cached_source(tmp_path, public)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Replay harness predates e605834: the executor walks to the rope's x before a rope jump, "
-    "but tools/navigation_replay.py holds the player at the recorded launch, so "
-    "m_fh158_rope9 (launch 105 px from rope9) stops on approach. Harness gap, not live."))
 def test_classic_routes_replay_at_three_fps():
     from tools.navigation_replay import replay
 

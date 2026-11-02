@@ -296,7 +296,11 @@ class Navigator:
                     return Motion(release=True)
                 rope_x = next((p["start"]["x"] for p in self.graph.profile["ropes"]
                                if p["id"] == edge.target), edge.launch[0])
-                if abs(f.feet[0] - rope_x) > 12:
+                # Align only when the rope hangs over this platform. MeowDB fh158 ends 89 px
+                # short of rope9: walking to its x would leave the platform, so the takeoff
+                # below jumps toward the rope from the recorded launch instead.
+                if (abs(f.feet[0] - rope_x) > 12
+                        and self.graph.on_surface(origin, (rope_x, f.feet[1]))):
                     self.reason = "Aligning with rope before jumping"
                     self.settle_since = self.last_feet = None
                     return self._walk(f.feet[0], rope_x)
