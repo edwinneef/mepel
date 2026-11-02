@@ -49,13 +49,13 @@ it('shows detection outlines and attack range without native settings or HUD', a
   expect(screen.getByLabelText('Detection boxes').querySelectorAll('text')).toHaveLength(0);
   expect(screen.queryByLabelText('Enemy tracking diagnostics')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Enemies' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Enemies' }));
   expect(screen.queryByLabelText('Detection boxes')).toBeNull();
   // A loaded run can spend over 500 ms here; the range returns with the next fresh frame.
   expect(await screen.findByLabelText('Configured attack range')).toBeTruthy();
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Range' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Attack range' }));
   expect(screen.queryByLabelText('Configured attack range')).toBeNull();
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Range' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Attack range' }));
   expect(await screen.findByLabelText('Configured attack range')).toBeTruthy();
 });
 
@@ -443,30 +443,32 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
     .toBe(interactive.mock.calls.length);
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
   expect(screen.queryByText('Capture player screenshots')).toBeNull();  // dashboard only
-  expect(screen.getByText(/Standing on fh320/)).toBeTruthy();
-  expect((screen.getByText('Start single platform') as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText(/fh320/)).toBeTruthy();
+  const startButton = () => screen.getByRole('button', { name: 'Start' }) as HTMLButtonElement;
+  expect(startButton().disabled).toBe(true);
   act(() => listener({ type: 'controller', value: true }));
-  const names = screen.getByRole('checkbox', { name: /Map/ }) as HTMLInputElement;
-  expect(names.checked).toBe(true);
+  const names = screen.getByRole('button', { name: 'Map lines' });
+  expect(names.getAttribute('aria-pressed')).toBe('true');
   fireEvent.click(names);
-  expect(names.checked).toBe(false);
-  await waitFor(() => expect((screen.getByText('Start single platform') as HTMLButtonElement).disabled).toBe(false));
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Next circuit' }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(screen.getByRole('button', { name: 'Next circuit' }));
-    expect(screen.getByText('Lower loop · r2')).toBeTruthy();
-    fireEvent.click(screen.getByText('Start run'));
-    await waitFor(() => expect(batch).toHaveBeenCalledWith({ kind: 'learn', area: 'a'.repeat(32),
-      circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 }));
-  fireEvent.click(screen.getByText('Start single platform'));
-  await waitFor(() => expect(batch).toHaveBeenCalledWith({ kind: 'single', area: 'a'.repeat(32) }));
+  expect(names.getAttribute('aria-pressed')).toBe('false');
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Next loop' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Next loop' }));
+  expect(screen.getByText('Lower loop · r2')).toBeTruthy();
+  await waitFor(() => expect(startButton().disabled).toBe(false));
+  fireEvent.click(startButton());
+  await waitFor(() => expect(batch).toHaveBeenCalledWith({ kind: 'learn', area: 'a'.repeat(32),
+    circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 }));
+  fireEvent.click(screen.getByRole('radio', { name: 'One platform' }));
+  fireEvent.click(startButton());
+  await waitFor(() => expect(batch).toHaveBeenCalledWith({ kind: 'single', area: 'a'.repeat(32), minutes: 1 }));
   act(() => listener({ type: 'batch', value: { running: true, kind: 'single', line: 'Starting one guarded batch' } }));
-  expect(screen.getByText('Batch running')).toBeTruthy();
-  expect((screen.getByText('Start run') as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText('Running')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
   act(() => listener({ type: 'batch', value: { running: false, kind: 'single', code: 1,
     output: '{"blocked": "Stand still on a recognized platform of this map first", "input_sent": false}' } }));
   expect(screen.getByText('Not started · no keys sent')).toBeTruthy();
   expect(screen.getByText('Stand still on a recognized platform of this map first')).toBeTruthy();
   act(() => listener({ type: 'controller', value: false }));
-  expect((screen.getByText('Start single platform') as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'Start' }) as HTMLButtonElement).disabled).toBe(true);
 });
 

@@ -40,7 +40,7 @@ export function Facts({ snapshot: s }: { snapshot: Snapshot | null }) {
 
 export function SpotMap({ map, snapshot: s }: { map: AreaProfile | null; snapshot: Snapshot | null }) {
   const spot = useHeldPosition(s?.position);
-  if (!map) return <p className="dash-empty">No saved map for this spot yet. Open Map to teach or import one.</p>;
+  if (!map) return <p className="dash-empty">No saved map for this spot yet. Track or import one under Map tracking.</p>;
   const b = map.boundary;
   const here = spot.area === map.id;
   const feet = here ? spot.feet : null;

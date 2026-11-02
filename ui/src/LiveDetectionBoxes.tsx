@@ -1,3 +1,4 @@
+import { DRAW, label } from './drawTheme';
 import { useEffect, useRef, useState } from 'react';
 import type { Detection, EnemyTrack, LiveDetections, PlayerTracking } from './contracts';
 
@@ -76,16 +77,15 @@ export function LiveDetectionBoxes({ drawing, compact = false }: { drawing: Live
     ? projectDisplayBoxes([drawing.player], previous?.player ? [previous.player] : [], dt, age)[0] : drawing.player;
   const box = (item: Detection, key: string, color: string) => <g key={`${key === 'Target' ? 'target:' : ''}${item.track_id ?? key}`} stroke={color}>
     <rect {...item.box} fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-    {(!compact || key === 'Target') && <text x={item.box.x} y={Math.max(14, item.box.y - 5)} fill={color} stroke="#091019"
-      strokeWidth="3" paintOrder="stroke" fontSize="13">{compact ? key : `${key} Â· ${item.tracked ? 'tracked' : `${Math.round(item.confidence * 100)}% similarity`}`}</text>}
+    {(!compact || key === 'Target') && <text x={item.box.x} y={Math.max(14, item.box.y - 5)} {...label(color)} fontSize="13">{compact ? key : `${key} Â· ${item.tracked ? 'tracked' : `${Math.round(item.confidence * 100)}% similarity`}`}</text>}
   </g>;
   return <g aria-label="Detection boxes">
-    {player && box(player, 'Player', '#81edbb')}
-    {monsters.map((item, i) => box(item, `${item.kind} ${i + 1}`, '#ffbd72'))}
+    {player && box(player, 'Player', DRAW.player)}
+    {monsters.map((item, i) => box(item, `${item.kind} ${i + 1}`, DRAW.enemy))}
     {drawing.target && box(monsters.find((item, i) => drawing.target?.track_id
       ? item.track_id === drawing.target.track_id
       : observed[i].template === drawing.target?.template && distance(observed[i], drawing.target!) < 1)
-      ?? drawing.target, 'Target', '#ff6b89')}
+      ?? drawing.target, 'Target', DRAW.target)}
     {!compact && age >= 0 && age <= 500 && <EnemyTrackDiagnostics tracks={drawing.enemy_tracks ?? []} />}
     {!compact && age >= 0 && age <= 500 && drawing.player_tracking
       && <PlayerTrackDiagnostics tracking={drawing.player_tracking} />}
@@ -96,13 +96,12 @@ export function EnemyTrackDiagnostics({ tracks }: { tracks: EnemyTrack[] }) {
   return <g aria-label="Enemy tracking diagnostics">{tracks.map(track => {
     const [x, y] = track.predicted_position;
     const [ux, uy] = track.uncertainty;
-    const color = track.state === 'visible' ? '#ffbd72' : '#aab9ca';
+    const color = track.state === 'visible' ? DRAW.enemy : DRAW.diagnostic;
     return <g key={track.track_id} stroke={color}>
       <ellipse cx={x} cy={y} rx={ux} ry={uy} fill="none" strokeDasharray="4 3" />
       <path d={`M${x - 4} ${y}h8 M${x} ${y - 4}v8`} />
       {track.visible_bounds && <rect {...track.visible_bounds} fill="none" strokeDasharray="2 2" />}
-      <text x={x + 6} y={y + 17} fill={color} stroke="#091019" strokeWidth="3"
-        paintOrder="stroke" fontSize="11">{track.track_id} Â· {track.state} Â· {Math.round(track.confidence * 100)}%
+      <text x={x + 6} y={y + 17} {...label(color)} fontSize="11">{track.track_id} Â· {track.state} Â· {Math.round(track.confidence * 100)}%
         {` Â· (${Math.round(x)}, ${Math.round(y)}) Â±${Math.round(ux)},${Math.round(uy)}`}
         {track.observed ? ' Â· pixels observed' : ' Â· prediction only'}</text>
     </g>;
@@ -112,15 +111,14 @@ export function EnemyTrackDiagnostics({ tracks }: { tracks: EnemyTrack[] }) {
 // Player track debug: search window, predicted box and state. Display only.
 export function PlayerTrackDiagnostics({ tracking }: { tracking: PlayerTracking }) {
   const { search, predicted, observed, state } = tracking;
-  const color = state === 'confirmed' ? '#81edbb' : state === 'lost' ? '#ff6b89' : '#aab9ca';
+  const color = state === 'confirmed' ? DRAW.player : state === 'lost' ? DRAW.target : DRAW.diagnostic;
   const anchor = observed ?? predicted;
   return <g aria-label="Player tracking diagnostics" fill="none">
-    {search && <rect {...search} stroke="#6f8bb3" strokeDasharray="6 4" strokeWidth="1"
+    {search && <rect {...search} stroke={DRAW.search} strokeDasharray="6 4" strokeWidth="1"
       vectorEffect="non-scaling-stroke" />}
     {predicted && <rect {...predicted} stroke={color} strokeDasharray="3 3" strokeWidth="1"
       vectorEffect="non-scaling-stroke" />}
-    {anchor && <text x={anchor.x} y={anchor.y + anchor.height + 16} fill={color} stroke="#091019"
-      strokeWidth="3" paintOrder="stroke" fontSize="11">track · {state} · {Math.round(tracking.confidence * 100)}%
+    {anchor && <text x={anchor.x} y={anchor.y + anchor.height + 16} {...label(color)} fontSize="11">track · {state} · {Math.round(tracking.confidence * 100)}%
       {tracking.since_confirmed != null && ` · ${tracking.since_confirmed.toFixed(1)}s since confirmed`}
       {tracking.identity ? '' : ' · identity unconfirmed'}</text>}
   </g>;

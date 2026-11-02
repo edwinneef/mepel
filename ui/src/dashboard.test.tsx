@@ -32,22 +32,27 @@ function setup() {
   return { client, dashboard, requests, fetcher, current };
 }
 
-it('opens the same six tabs in the browser and closes its lease gate before requesting a countdown', async () => {
+it('opens on Run with four pages and closes its lease gate before requesting a countdown', async () => {
   const { client, dashboard, requests } = setup();
   render(<OverlayApp client={client} dashboard={dashboard} />);
   await waitFor(() => expect(client.getState().busy).toBe(false));
   await waitFor(() => expect(client.getState().connected).toBe(true));
-  expect(screen.getByRole('region', { name: 'Overlay settings' })).toBeTruthy();
-  for (const name of ['Bot', 'Connection', 'Recognition', 'Potions', 'Map', 'Diagnostics']) {
-    expect(screen.getByRole('button', { name })).toBeTruthy();
-  }
-  fireEvent.click(screen.getByRole('button', { name: 'Turn On · F6' }));
+  for (const name of ['Run', 'Set up', 'Maps', 'History']) expect(screen.getByRole('button', { name })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Run' }).getAttribute('aria-current')).toBe('page');
+  expect(screen.getByRole('radio', { name: /Watch only/ }).getAttribute('aria-checked')).toBe('true');
+  // Set up holds the settings flag (bot off); Start closes it again before the countdown.
+  fireEvent.click(screen.getByRole('button', { name: 'Set up' }));
+  await waitFor(() => expect(requests.some(r => r.url === '/api/dashboard' && r.body.panel === true)).toBe(true));
+  fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Start' }).hasAttribute('disabled')).toBe(false));
+  const opened = requests.length;
+  fireEvent.click(screen.getByRole('button', { name: 'Set up' }));
+  await waitFor(() => expect(requests.slice(opened).some(r => r.url === '/api/dashboard' && r.body.panel === true)).toBe(true));
+  fireEvent.keyDown(window, { key: 'F6' });
   await waitFor(() => expect(requests.some(r => r.body.name === 'dry_run')).toBe(true));
   const start = requests.findIndex(r => r.body.name === 'dry_run');
-  expect(requests.slice(0, start).some(r => r.url === '/api/dashboard' && r.body.panel === false)).toBe(true);
-  expect(screen.queryByLabelText('Overlay settings')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Bot' })); // The side menu reopens settings on the Bot tab.
-  await waitFor(() => expect(screen.getByLabelText('Overlay settings')).toBeTruthy());
+  expect(requests.slice(opened, start).some(r => r.url === '/api/dashboard' && r.body.panel === false)).toBe(true);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Run' }).getAttribute('aria-current')).toBe('page'));
   expect(requests.filter(r => r.body.name === 'dry_run')).toHaveLength(1);
   fireEvent.keyDown(window, { key: 'F8' });
   await waitFor(() => expect(requests.some(r => r.body.name === 'stop')).toBe(true));
@@ -56,13 +61,53 @@ it('opens the same six tabs in the browser and closes its lease gate before requ
   expect(dashboard.disconnected).toBe(true);
 });
 
+it('keeps every control of the old tabs reachable on the four pages', async () => {
+  const { client, dashboard } = setup();
+  render(<OverlayApp client={client} dashboard={dashboard} />);
+  await waitFor(() => expect(client.getState().connected && !client.getState().busy).toBe(true));
+  // Run: record, other activities, layers, Stop.
+  for (const name of ['Record 30 s', 'Potions only', 'Combat without a loop', 'Enemies', 'Attack range', 'Map lines']) {
+    expect(screen.getByRole('button', { name })).toBeTruthy();
+  }
+  expect(screen.getAllByRole('button', { name: /Stop/ }).length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Set up' }));
+  expect(screen.getByRole('button', { name: 'Player and enemy setup' })).toBeTruthy(); // Bowman setup (old Bot tab)
+  for (const [section, text] of [['Connection', 'Calibration picture and selection'], ['Recognition', 'Recognition'], ['Potions', 'Potions']]) {
+    fireEvent.click(screen.getByRole('button', { name: section }));
+    expect(screen.getAllByText(text).length).toBeGreaterThan(0);
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Maps' }));
+  expect(screen.getByLabelText('Map for path builder')).toBeTruthy();
+  expect(screen.getByText('Map tracking')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'History' }));
+  expect(screen.getByText('Diagnostics')).toBeTruthy();
+  expect(screen.getByText('Combat and potion evidence')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Disconnect dashboard' })).toBeTruthy();
+});
+
+it('runs an activity picked under Other activities and returns to the plans', async () => {
+  const { client, dashboard, requests, current } = setup();
+  render(<OverlayApp client={client} dashboard={dashboard} />);
+  await waitFor(() => expect(client.getState().connected && !client.getState().busy).toBe(true));
+  fireEvent.click(screen.getByText('Other activities'));
+  expect(screen.getByRole('button', { name: 'Potions only' }).hasAttribute('disabled')).toBe(true); // capture-only session
+  current.capture_only = false;
+  await act(async () => { await client.readStatus(); });
+  fireEvent.click(screen.getByRole('button', { name: 'Potions only' }));
+  expect(screen.getByText('Selected in Set up')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to the plans' }));
+  expect(screen.getByText('What should it do?')).toBeTruthy();
+  expect(requests.some(r => r.body.name === 'autopotter_live')).toBe(false);
+});
+
 it('Stop cancels a start while the browser waits for settings closure acknowledgement', async () => {
   const { client, dashboard, requests } = setup();
   const close = deferred<void>();
-  vi.spyOn(dashboard, 'settings').mockReturnValue(close.promise);
   render(<OverlayApp client={client} dashboard={dashboard} />);
   await waitFor(() => expect(client.getState().connected && !client.getState().busy).toBe(true));
-  fireEvent.click(screen.getByRole('button', { name: 'Turn On · F6' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Start' }).hasAttribute('disabled')).toBe(false));
+  vi.spyOn(dashboard, 'settings').mockReturnValue(close.promise);
+  fireEvent.click(screen.getByRole('button', { name: 'Start' }));
   fireEvent.keyDown(window, { key: 'F8' });
   await act(async () => close.resolve());
   expect(requests.some(r => r.body.name === 'dry_run')).toBe(false);
@@ -107,8 +152,8 @@ it('explains a refused control connection while the game picture stays connected
   dashboard.heartbeat();
   await Promise.resolve();
   expect(fetcher.mock.calls.filter(call => call[0] === '/api/dashboard')).toHaveLength(denied);
-  expect(screen.getByRole('button', { name: 'Turn On · F6' }).hasAttribute('disabled')).toBe(true);
-  fireEvent.click(screen.getByRole('button', { name: 'Map' }));
+  expect(screen.getByRole('button', { name: 'Start' }).hasAttribute('disabled')).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Maps' }));
   await waitFor(() => expect(client.getState().busy).toBe(false));
   // Saved maps load by themselves; the map picker stays usable without dashboard control.
   await waitFor(() => expect(screen.getByLabelText('Map for path builder').hasAttribute('disabled')).toBe(false));
@@ -152,4 +197,35 @@ it('scales all layers with the displayed frame and hides them on source mismatch
   expect(layer.closest('.game-scroll')?.firstElementChild?.getAttribute('style')).toContain('2048px');
   source = `${current.session_id}:source:other`;
   await waitFor(() => expect(screen.queryByLabelText('Detection boxes')).toBeNull());
+});
+
+it('starts One platform through the in-game overlay and explains a refusal', async () => {
+  const { client, dashboard, requests, current, fetcher } = setup();
+  Object.assign(current, { capture_only: false, focused: true,
+    position: { area_id: 'a'.repeat(32), area_name: 'Snail Hunting Ground III', kind: 'platform', surface_id: 'fh66', reason: '', input_sent: false },
+    readiness: { preview: { ready: true, reason: '' }, combat: { ready: true, reason: 'Ready' }, potions: { ready: true, reason: '' } },
+    probes: Object.fromEntries(['left', 'right', 'attack', 'jump', 'skill'].map(name => [name, { confirmed: true }])) });
+  const original = fetcher.getMockImplementation()!;
+  let refuse = true;
+  fetcher.mockImplementation(async (url, options) => {
+    if (url === '/api/dashboard_batch') {
+      requests.push({ url: String(url), body: JSON.parse(String(options?.body)) });
+      return refuse ? json({ error: 'Start the in-game overlay first; batches run through it' }, 400) : json({ queued: true, id: 1 });
+    }
+    return original(url, options);
+  });
+  render(<OverlayApp client={client} dashboard={dashboard} />);
+  await waitFor(() => expect(client.getState().connected && !client.getState().busy).toBe(true));
+  fireEvent.click(screen.getByRole('radio', { name: /Stay on this platform/ }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Start' }).hasAttribute('disabled')).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+  await waitFor(() => expect(screen.getAllByText(/Start the in-game overlay first/).length).toBeGreaterThan(0));
+  refuse = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+  await waitFor(() => expect(screen.getByText('Waiting for the in-game overlay to start it')).toBeTruthy());
+  const queued = requests.filter(r => r.url === '/api/dashboard_batch').map(r => r.body);
+  expect(queued.at(-1)).toMatchObject({ kind: 'single', area: 'a'.repeat(32), minutes: 15 });
+  expect(typeof queued.at(-1)!.owner).toBe('string');
+  // Nothing goes to the engine's own start commands for a batch plan.
+  expect(requests.some(r => ['arm', 'dry_run'].includes(String(r.body.name)))).toBe(false);
 });

@@ -1,3 +1,4 @@
+import { DRAW, label } from './drawTheme';
 import type { Detection, Snapshot } from './contracts';
 
 export function AttackRangeOverlay({ player, setup, threshold = 0.9 }: {
@@ -9,7 +10,7 @@ export function AttackRangeOverlay({ player, setup, threshold = 0.9 }: {
   const { x, y, width, height } = player.box;
   const center = x + width / 2;
   const baseline = y + height + 14;
-  const color = '#91c8ff';
+  const color = DRAW.range;
   return <g aria-label="Configured attack range" fill="none" stroke={color} strokeWidth="2" pointerEvents="none">
     <title>Horizontal distance from player centre, shared by basic attack and skill. Same-platform targeting still applies.</title>
     {[-1, 1].map(side => <g key={side}>
@@ -20,17 +21,15 @@ export function AttackRangeOverlay({ player, setup, threshold = 0.9 }: {
       <line x1={center + side * max} x2={center + side * max} y1={y - 4} y2={baseline + 5}
         strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
       {min > 0 && <line x1={center + side * min} x2={center + side * min} y1={y - 4} y2={baseline + 5}
-        stroke="#ffb967" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />}
+        stroke={DRAW.tooClose} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />}
     </g>)}
     {min > 0 && <rect x={center - min} y={y} width={min * 2} height={height}
-      fill="#ffb967" fillOpacity="0.1" stroke="none" />}
+      fill={DRAW.tooClose} fillOpacity="0.1" stroke="none" />}
     <line x1={center} x2={center} y1={baseline - 4} y2={baseline + 4} vectorEffect="non-scaling-stroke" />
-    <text x={center} y={Math.max(14, y - 24)} textAnchor="middle" fill={color}
-      stroke="#091019" strokeWidth="3" paintOrder="stroke" fontSize="12">
+    <text x={center} y={Math.max(14, y - 24)} textAnchor="middle" {...label(color)} fontSize="12">
       Attack {min}–{max} px · {setup.measured ? 'measured' : 'unmeasured'}
     </text>
-    <text x={center} y={baseline + 18} textAnchor="middle" fill={color}
-      stroke="#091019" strokeWidth="3" paintOrder="stroke" fontSize="11">
+    <text x={center} y={baseline + 18} textAnchor="middle" {...label(color)} fontSize="11">
       {min > 0 ? 'Orange: too close · ' : ''}Horizontal reach · both attacks
     </text>
   </g>;

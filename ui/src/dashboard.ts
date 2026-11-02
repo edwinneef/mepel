@@ -42,12 +42,25 @@ export class DashboardSession {
       if (this.closed) return;
       this.panel = panel;
       this.emit({ type: 'panel', value: panel });
+      if (result.batch) this.emit({ type: 'batch', value: result.batch });
     });
     this.pending = request;
     return request;
   }
 
   settings = (open: boolean) => { this.desiredPanel = open; return this.renew(open); };
+  /** Queue a guarded batch for the in-game overlay to run. The engine only stores the request. */
+  startBatch = async (request: Record<string, unknown>) => {
+    if (this.closed || this.denied) throw new Error('Dashboard disconnected. Reload to reconnect.');
+    const response = await this.fetcher('/api/dashboard_batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Token': this.token },
+      body: JSON.stringify({ ...request, owner: this.owner }), signal: AbortSignal.timeout(1500),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error ?? 'The batch was not queued');
+    this.emit({ type: 'batch', value: { running: false, pending: true } });
+    return result;
+  };
   heartbeat = () => {
     if (this.closed || this.denied || this.renewing) return;
     this.renewing = true;
@@ -67,7 +80,7 @@ export class DashboardSession {
   };
 
   connect(client: OverlayClient): () => void {
-    client.selectionMessage = 'Selected. Click Turn On in the dashboard, then focus the game during the countdown.';
+    client.selectionMessage = 'Selected. Click Start on Run, then focus the game during the countdown.';
     let connected = false;
     const unsubscribe = client.subscribe(() => {
       const state = client.getState();

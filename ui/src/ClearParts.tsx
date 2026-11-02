@@ -41,7 +41,7 @@ export function PlanPicker({ plan, onPlan, disabled, compact, available }: {
   return <div className={compact ? 'c-seg' : 'c-plans'} role="radiogroup" aria-label="What to do">
     {PLAN_ORDER.map(key => {
       const blocked = available?.[key];
-      return <button key={key} role="radio" aria-checked={plan === key} disabled={disabled || Boolean(blocked)}
+      return <button key={key} className="c-opt" role="radio" aria-checked={plan === key} disabled={disabled || Boolean(blocked)}
         title={blocked ?? PLANS[key].note} onClick={() => onPlan(key)}>
         {compact ? PLANS[key].short : <><b>{PLANS[key].title}</b><span>{blocked ?? PLANS[key].note}</span></>}
       </button>;
@@ -74,14 +74,14 @@ export function LengthPicker({ plan, minutes, onMinutes, disabled }: {
 }) {
   if (plan === 'watch') return <p className="c-quiet">Runs until you stop it.</p>;
   return <div className="c-seg" role="radiogroup" aria-label="How long">
-    {LENGTHS.map(value => <button key={value} role="radio" aria-checked={minutes === value} disabled={disabled}
+    {LENGTHS.map(value => <button key={value} className="c-opt" role="radio" aria-checked={minutes === value} disabled={disabled}
       onClick={() => onMinutes(value)}>{value} min</button>)}
   </div>;
 }
 
 export function LayerToggles({ values, onToggle }: { values: Record<LayerId, boolean>; onToggle(id: LayerId): void }) {
   return <div className="c-layers" role="group" aria-label="Drawings on the game">
-    {LAYERS.map(layer => <button key={layer.id} aria-pressed={values[layer.id]} onClick={() => onToggle(layer.id)}>
+    {LAYERS.map(layer => <button key={layer.id} className="c-opt" aria-pressed={values[layer.id]} onClick={() => onToggle(layer.id)}>
       <span className="c-switch" aria-hidden="true" />{layer.label}</button>)}
   </div>;
 }

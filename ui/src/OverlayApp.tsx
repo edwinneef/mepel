@@ -20,7 +20,9 @@ import { BowmanSetup, WeaponRange } from './BowmanSetup';
 import { CombatResults } from './CombatResults';
 import { AttackRangeOverlay } from './AttackRangeOverlay';
 import type { DashboardSession } from './dashboard';
-import { Facts, Gauge, Journal, NavIcon, SpotMap } from './DashboardParts';
+import { ClearDashboard, PANEL_PAGES } from './ClearDashboard';
+import type { Page } from './ClearDashboard';
+import { botState } from './vocabulary';
 import './overlay.css';
 import './dashboard.css';
 import './clear.css';
@@ -46,6 +48,19 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const [starting, setStarting] = useState(false);
   const [controllerReady, setControllerReady] = useState(!window.mapleOverlay?.companion);
   const [batch, setBatch] = useState<BatchState>({ running: false });
+  // Dashboard pages: Set up and Maps hold the lease's settings flag (which stops the bot), Run and History do not.
+  const [page, setPageState] = useState<Page>('run');
+  const setPage = (next: Page) => {
+    setPageState(next);
+    if (dashboard && PANEL_PAGES.includes(next) !== panel) void act(() => dashboard.settings(PANEL_PAGES.includes(next)));
+  };
+  const wasPanel = useRef(panel);
+  useEffect(() => {
+    // A start closes settings; follow it back to Run. The lease opens with settings closed for Run.
+    if (wasPanel.current && !panel && PANEL_PAGES.includes(page)) setPageState('run');
+    wasPanel.current = panel;
+  }, [panel, page]);
+  useEffect(() => { if (dashboard) void dashboard.settings(false).catch(() => {}); }, [dashboard]);
   const startRef = useRef(false);
   const wasRunning = useRef(false);
   const dataKey = useRef('');
@@ -65,13 +80,15 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   // In-game widget: saved paths for the player's map. The engine refuses route reads during
   // gameplay, so read only while Off, keep the last answer meanwhile, and re-read every 30 s
   // so a path saved in the dashboard appears.
-  const pathArea = outlinesOnly && !dashboard && state.connected ? s?.position?.area_id ?? null : null;
+  const pathArea = (outlinesOnly || Boolean(dashboard)) && state.connected ? s?.position?.area_id ?? null : null;
   const [paths, setPaths] = useState<PathAvailability>({ state: 'unknown' });
   const pathRead = useRef({ key: '', area: '' });
   const pathKey = pathArea && !running ? `${pathArea}:${Math.floor(now / 30000)}` : '';
   useEffect(() => {
     if (!pathArea) { pathRead.current = { key: '', area: '' }; setPaths({ state: 'unknown' }); return; }
     if (!pathKey || pathRead.current.key === pathKey) return;
+    // One engine command at a time: wait for the map load (or a tool) instead of colliding with it.
+    if (client.getState().busy) return;
     const newArea = pathRead.current.area !== pathArea;
     pathRead.current = { key: pathKey, area: pathArea };
     if (newArea) setPaths({ state: 'loading' });
@@ -85,9 +102,9 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
         pathRead.current.key = '';
         if (newArea) setPaths({ state: 'error', message: error instanceof Error ? error.message : String(error) });
       });
-  }, [pathArea, pathKey, client]);
+  }, [pathArea, pathKey, client, state.busy]);
   const readinessKey = action.name === 'probe' ? `probe:${action.payload.action}`
-    : action.name === 'arm' ? 'combat' : action.name === 'autopotter_live' ? 'potions' : 'preview';
+    : action.name === 'arm' || action.name === 'batch' ? 'combat' : action.name === 'autopotter_live' ? 'potions' : 'preview';
   const selectedGate = s?.readiness[readinessKey];
   const act = async (fn: () => Promise<unknown>) => { try { await fn(); } catch (e) { client.fail(e); } };
   useEffect(() => {
@@ -125,7 +142,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   useEffect(() => {
     if (!s || !state.connected || state.busy) return;
     const key = `${s.session_id}:${s.position?.area_id}:${s.position?.teaching?.map_revision}`;
-    if (key === dataKey.current || Date.now() < dataRetryAfter.current) return;
+    if (key === dataKey.current || Date.now() < dataRetryAfter.current || client.getState().busy) return;
     dataKey.current = key;
     setMap(null);
     void act(async () => {
@@ -144,8 +161,9 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       }
     });
   }, [client, s?.session_id, s?.position?.area_id, s?.position?.teaching?.map_revision, state.connected, state.busy, now]);
+  const batchBusy = batch.running || Boolean(batch.pending);
   const toggle = async () => {
-    if (running || startRef.current) {
+    if (running || batchBusy || startRef.current) {
       startRef.current = false; setStarting(false);
       await act(() => client.command('stop'));
       client.message('F6 · bot switched Off'); return;
@@ -158,6 +176,14 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     try {
       if (panel || dashboard) await host?.settings(false);
       if (!startRef.current) return;
+      if (action.name === 'batch' && dashboard) {
+        // One start path: the in-game overlay runs the same guarded batch as its own Start.
+        const area = s?.position?.area_id;
+        if (!area) throw new Error("Can't start: this map isn't recognised");
+        await dashboard.startBatch({ ...action.payload, area });
+        client.message(`${action.label}: handed to the in-game overlay. Keep the game in front; Stop or F8 ends it.`);
+        return;
+      }
       await client.execute(action);
       const result = await client.readStatus();
       if (!isRunning(result)) client.message(`${action.label} stopped: ${result.reason}`);
@@ -168,11 +194,13 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   useEffect(() => {
     if (!dashboard) return;
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'F8') { event.preventDefault(); startRef.current = false; setStarting(false); void act(() => client.command('stop')); return; }
+      const bound = client.getState().snapshot?.key_settings?.active;
+      const is = (name: string, fallback: string) => event.key.toLowerCase() === String(bound?.[name] ?? fallback);
+      if (is('emergency_key', 'f8')) { event.preventDefault(); startRef.current = false; setStarting(false); void act(() => client.command('stop')); return; }
       if (event.repeat || event.target instanceof Element && event.target.closest('input, select, textarea, [contenteditable=true]')) return;
-      if (event.key === 'F6') { event.preventDefault(); currentToggle.current(); }
-      if (event.key === 'F7') { event.preventDefault(); void act(() => dashboard.settings(!panel)); }
-      if (event.key === 'F9') { event.preventDefault(); setLayers(value => !value); }
+      if (is('start_stop', 'f6')) { event.preventDefault(); currentToggle.current(); }
+      if (is('widget', 'f7')) { event.preventDefault(); setPage(panel ? 'run' : 'setup'); }
+      if (is('drawings', 'f9')) { event.preventDefault(); setLayers(value => !value); }
     };
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
@@ -189,8 +217,9 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const active = state.connected && fresh && running;
   const status = !state.connected || dashboard?.disconnected ? 'DISCONNECTED' : s?.alarm.active ? 'BLOCKED' : starting ? 'STARTING'
     : active ? (s?.mode.includes('wait') || s?.mode === 'pending_arm' ? 'STARTING' : 'ON') : 'OFF';
+  const stopNow = () => { startRef.current = false; setStarting(false); void act(() => client.command('stop')); };
   const toolProps = s ? { snapshot: s, client, act, disabled, selected: view.selected, clear: view.clear, selectOnly: true,
-    startInstruction: dashboard ? 'Select an activity, click Turn On in the dashboard, then focus the game during the countdown.' : undefined,
+    startInstruction: dashboard ? 'Pick it here, then click Start on Run. Focus the game during the countdown.' : undefined,
     runMode: (action.name === 'arm' ? 'live' : 'preview') as 'live' | 'preview',
     setRunMode: (mode: 'live' | 'preview') => choose(mode === 'live' ? 'arm' : 'dry_run', mode),
   } : null;
@@ -232,7 +261,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
         const area = s?.position?.area_id;
         const launch = window.mapleOverlay?.batch;
         if (!area || !launch) return;
-        const result = await launch({ kind, area, ...(circuit ? { circuit, minutes } : {}) });
+        const result = await launch({ kind, area, ...(circuit ? { circuit } : {}), ...(minutes ? { minutes } : {}) });
         if (!result.started) setBatch({ running: false, output: JSON.stringify({ blocked: result.reason }) });
       })}
       onStop={() => void act(() => client.command('stop'))} />}
@@ -293,91 +322,22 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     {tab === 'Diagnostics' && toolProps && <DiagnosticsTool {...toolProps} />}
   </>;
   if (dashboard) {
-    const words: Record<string, string> = { ON: 'Bot on', OFF: 'Bot off', STARTING: 'Starting', BLOCKED: 'Blocked', DISCONNECTED: 'Disconnected' };
     const canTurnOn = !disabled && (running || starting || (fresh && selectedGate?.ready !== false));
     const reason = state.error || (running || starting ? s?.active_probe?.instruction || s?.navigation?.active && s.navigation.reason || s?.reason
       : !fresh ? 'Waiting for fresh recognition.' : selectedGate?.reason || s?.reason);
-    const openPage = (name: string | null) => void act(async () => {
-      if (name) setTab(name);
-      if (Boolean(name) !== panel) await dashboard.settings(Boolean(name));
-    });
-    const potion = s?.autopotter;
-    return <div className={`dashboard-overlay dash ${panel ? 'editing-layout' : ''}`}>
-      <nav className="dash-side" aria-label="Dashboard pages">
-        <div className="dash-brand"><NavIcon name="Overview" />Maple External</div>
-        {[null, 'Bot', 'Connection', 'Recognition', 'Potions', 'Map', 'Diagnostics'].map(name =>
-          <button key={name ?? 'Overview'} aria-current={(name ? panel && tab === name : !panel) ? 'page' : undefined}
-            onClick={() => openPage(name)}><NavIcon name={name ?? 'Overview'} /><span>{name ?? 'Overview'}</span></button>)}
-        <p className="dash-side-foot">{!s ? 'Waiting for the engine.' : s.capture_only ? 'Capture-only session. Gameplay keys are locked.' : 'Input-capable session. Existing safety checks apply.'}</p>
-      </nav>
-      <main className="dash-main">
-        {dashboard.disconnected && <section className="dash-panel" role="alert" aria-label="Dashboard controls disconnected">
-          <h2>Dashboard controls are disconnected</h2>
-          <p>{dashboard.connectionIssue}</p>
-          <p>Saved-path editing remains available while the engine is connected and the bot is Off.</p>
-          <p>Connecting the MapleStory window supplies the picture; it does not reconnect dashboard controls.
-            Close any other dashboard or native overlay that owns controls, then reload this dashboard. The bot stays Off.</p>
-        </section>}
-        {s && <AlarmBanner snapshot={s} onAcknowledge={id => void act(() => client.command('acknowledge', { incident_id: id }))} />}
-        <div className="dash-top">
-          <section className="dash-panel dash-stage dashboard-preview" aria-label="Dashboard game view">
-            <GameViewport image={view.image} frozen={Boolean(view.frozen)} stale={!fresh || (layers && !previewDrawing)} selection={view.selection}
-              onSelection={view.setSelection} overlay={layers && previewDrawing ? drawingLayers(previewDrawing, true) : undefined}
-              onStop={() => void act(() => client.command('stop'))} />
-            <div className="dash-hud" aria-label="Character status">
-              <div className={`dash-who ${active ? 'on' : ''}`}><strong><span className="status-dot" />{words[status]}</strong><span>{action.label}</span></div>
-              <Gauge label="HP" kind="hp" percent={potion?.readings.hp?.percent} threshold={potion?.settings.hp_threshold ?? 50} />
-              <Gauge label="MP" kind="mp" percent={potion?.readings.mp?.percent} threshold={potion?.settings.mp_threshold ?? 50} />
-            </div>
-            <div className="dash-under">
-              <div className="dash-chips" role="group" aria-label="Drawing layers">
-                <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /> Boxes</label>
-                <label><input type="checkbox" checked={attackRange} onChange={e => setAttackRange(e.target.checked)} /> Attack range</label>
-                <label><input type="checkbox" checked={terrain} onChange={e => setTerrain(e.target.checked)} /> Terrain</label>
-              </div>
-              <span>{layers ? 'Drawings match the analyzed picture.' : 'Live game picture.'} F8 always stops gameplay.</span>
-            </div>
-          </section>
-          <aside className="dash-panel dash-rail" aria-label="Run controls and status">
-            <div className="dash-state"><strong>{words[status]}</strong>{recordingFull && <span className="overlay-recording">REC{recordLeft == null ? '' : ` ${Math.ceil(recordLeft)} s`}</span>}</div>
-            <label className="dash-field">Activity
-              <select value={!action.payload.circuit && ['dry_run', 'arm', 'autopotter_live'].includes(action.name) ? action.name : 'custom'} disabled={running || starting}
-                onChange={e => choose(e.target.value, e.target.selectedOptions[0].text)}>
-                <option value="dry_run">Decision preview</option><option value="arm" disabled={s?.capture_only}>Combat + configured potions</option>
-                <option value="autopotter_live" disabled={s?.capture_only}>Potions only</option>
-                {(Boolean(action.payload.circuit) || !['dry_run', 'arm', 'autopotter_live'].includes(action.name)) && <option value="custom">{action.label}</option>}
-              </select></label>
-            <div className="dash-row dashboard-controls">
-              <button className={`dash-btn primary ${running || starting ? 'off' : ''}`} disabled={!canTurnOn} onClick={() => void toggle()}>Turn {running || starting ? 'Off' : 'On'}</button>
-              <button className="dash-btn stop" onClick={() => { startRef.current = false; setStarting(false); void act(() => client.command('stop')); }}>Stop <kbd>F8</kbd></button>
-            </div>
-            <p className={`dash-reason ${!running && !starting && !canTurnOn ? 'block' : ''}`} aria-live="polite">{reason}</p>
-            {state.notice && <p className="overlay-notice">{state.notice}</p>}
-            <button className="dash-btn ghost" disabled={disabled} onClick={record}>{recordingFull ? `Stop recording${recordLeft == null ? '' : ` · ${Math.ceil(recordLeft)} s left`}` : 'Record 30 s'}</button>
-            <hr />
-            {s && <PlayerCapture snapshot={s} client={client} act={act} disabled={disabled} />}
-            {!panel && toolProps && <WeaponRange {...toolProps} />}
-            <Facts snapshot={s} />
-            <hr />
-            <p className="dash-keys">F6 on/off · F7 settings · F9 layers · F8 stops from anywhere.</p>
-          </aside>
-        </div>
-        {panel ? <section className="dash-panel overlay-panel dash-settings" aria-label="Overlay settings">
-          <header><h1>{tab}</h1><button className="dash-btn" onClick={() => openPage(null)}>Close <kbd>F7</kbd></button></header>
-          {settingsBody}
-          <footer><button className="dash-btn" onClick={() => void act(() => dashboard.quit())}>Disconnect dashboard</button></footer>
-        </section> : <div className="dash-lower">
-          <section className="dash-panel" aria-labelledby="dash-spot-title">
-            <h2 id="dash-spot-title"><NavIcon name="Map" />Spot map</h2>
-            <SpotMap map={map} snapshot={s} />
-          </section>
-          <section className="dash-panel" aria-labelledby="dash-journal-title">
-            <h2 id="dash-journal-title"><NavIcon name="Diagnostics" />Session journal</h2>
-            <Journal history={s?.history} />
-          </section>
-        </div>}
-      </main>
-    </div>;
+    return <ClearDashboard s={s ?? null} client={client} dashboard={dashboard} toolProps={toolProps}
+      connected={state.connected} disabled={disabled} builderDisabled={builderDisabled} notice={state.notice} error={state.error}
+      state={botState(status, batchBusy)} running={running || batchBusy} starting={starting} canTurnOn={canTurnOn} reason={reason}
+      action={action} setAction={setAction} toggle={() => void toggle()} stop={stopNow}
+      page={page} setPage={setPage}
+      layers={{ enemies: layers, range: attackRange, lines: terrain }}
+      toggleLayer={id => (id === 'enemies' ? setLayers : id === 'range' ? setAttackRange : setTerrain)(value => !value)}
+      game={<GameViewport image={view.image} frozen={Boolean(view.frozen)} stale={!fresh || (layers && !previewDrawing)} selection={view.selection}
+        onSelection={view.setSelection} overlay={layers && previewDrawing ? drawingLayers(previewDrawing, true) : undefined}
+        onStop={stopNow} />}
+      frozen={Boolean(view.frozen)} image={view.image} freeze={() => void act(view.freeze)} live={() => void act(view.live)}
+      map={map} areas={areas} refreshAreas={refreshAreas} routes={paths.state === 'ready' ? paths.routes ?? [] : undefined}
+      record={record} recordingFull={recordingFull} recordLeft={recordLeft} act={act} batch={batch} />;
   }
   return <div className={`native-overlay ${panel ? 'editing-layout' : ''}`}>
     {layers && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"

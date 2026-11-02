@@ -126,6 +126,9 @@ export interface Snapshot {
   recorder?: Record<string, unknown>; action_outcome?: Record<string, unknown>;
   area_editing?: boolean; position?: LivePosition | null; sustain?: string[];
   navigation?: NavigationStatus;
+  /** Keys saved in config.toml (saved) and in use by this engine (active); they differ until a restart. */
+  key_settings?: { active: Record<string, string | number>; saved: Record<string, string | number>;
+    restart_required: boolean; editable: boolean; supported: string[] };
 }
 export interface CommandEnvelope {
   schema_version: 1; session_id: string; command_id: string; command_epoch: number;

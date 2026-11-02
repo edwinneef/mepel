@@ -65,6 +65,8 @@ export function startChecks(s: Snapshot | null | undefined, ctx: CheckContext): 
   const checks: Check[] = [
     { id: 'engine', label: 'Engine connected', ok: connected, miss: 'the engine is not connected',
       fix: 'Start the engine, then reload this page.' },
+    { id: 'restart', label: 'New keys in use', ok: !s?.key_settings?.restart_required,
+      miss: 'the new keys need an engine restart', fix: 'Run tools/restart_engine.ps1 -EnableGameplayInput, then test the changed keys.' },
     { id: 'focus', label: 'Game window in front', ok: connected && Boolean(s?.focused),
       miss: 'the game is behind another window', fix: 'Click Bring game to front.', action: 'focus_game' },
     { id: 'player', label: 'Character recognised', ok: connected && player,
@@ -75,6 +77,8 @@ export function startChecks(s: Snapshot | null | undefined, ctx: CheckContext): 
       miss: untested.length === 1 ? `the ${keyLabel(untested[0])} key isn't tested` : "some keys aren't tested",
       fix: untested.length ? `Test ${untested.map(keyLabel).join(', ')} in Set up.` : '' },
   ];
+  // Watch only sends no keys: it needs the engine, the character and the engine's own gate.
+  if (ctx.plan === 'watch') checks.splice(0, checks.length, ...checks.filter(check => ['engine', 'restart', 'player'].includes(check.id)));
   if (ctx.plan === 'loop') checks.push({ id: 'loop', label: 'Saved loop on this map', ok: (ctx.loops ?? 0) > 0,
     miss: ctx.loops === undefined ? "saved loops aren't loaded yet" : 'this map has no saved loop',
     fix: 'Build a loop in Maps with the path builder.' });

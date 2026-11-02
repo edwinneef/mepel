@@ -31,12 +31,14 @@ describe('vocabulary', () => {
     const missingPlayer = startChecks(snapshot({ player: null }), { connected: true, plan: 'platform' });
     expect(statusSentence('off', firstBlocker(missingPlayer), { plan: 'platform', minutes: 1 }).headline)
       .toBe("Can't start: the character isn't recognised");
-    const untested = startChecks(snapshot({ probes: { left: { confirmed: true }, hp_potion: { confirmed: false } } }), { connected: true, plan: 'watch' });
+    const untested = startChecks(snapshot({ probes: { left: { confirmed: true }, hp_potion: { confirmed: false } } }), { connected: true, plan: 'platform' });
     expect(firstBlocker(untested)?.miss).toBe("the HP potion key isn't tested");
     const noLoop = startChecks(snapshot(), { connected: true, plan: 'loop', loops: 0 });
     expect(firstBlocker(noLoop)?.id).toBe('loop');
-    const behind = startChecks(snapshot({ focused: false }), { connected: true, plan: 'watch' });
+    const behind = startChecks(snapshot({ focused: false }), { connected: true, plan: 'platform' });
     expect(firstBlocker(behind)?.action).toBe('focus_game');
+    // Watch only sends no keys, so the window, map and keys do not block it.
+    expect(firstBlocker(startChecks(snapshot({ focused: false, position: null, probes: {} }), { connected: true, plan: 'watch' }))).toBeNull();
   });
 
   it('never claims ready when the engine gate refuses', () => {
@@ -47,6 +49,13 @@ describe('vocabulary', () => {
     expect(firstBlocker(startChecks(s, { connected: true, plan: 'watch' }))).toBeNull();
   });
 
+  it('refuses every plan while saved keys wait for an engine restart', () => {
+    const pending = snapshot({ key_settings: { active: {}, saved: { hp_potion: 'home' }, restart_required: true, editable: true, supported: [] } });
+    for (const plan of ['loop', 'platform', 'watch'] as const) {
+      expect(firstBlocker(startChecks(pending, { connected: true, plan, loops: 1 }))?.id).toBe('restart');
+    }
+  });
+
   it('reports a lost engine connection first', () => {
     expect(firstBlocker(startChecks(null, { connected: false, plan: 'watch' }))?.id).toBe('engine');
   });
@@ -55,7 +64,7 @@ describe('vocabulary', () => {
 describe('shared parts', () => {
   it('offers the one-click fix only for the focus check', () => {
     const actions: string[] = [];
-    render(<CheckList checks={startChecks(snapshot({ focused: false }), { connected: true, plan: 'watch' })} onAction={a => actions.push(a)} />);
+    render(<CheckList checks={startChecks(snapshot({ focused: false }), { connected: true, plan: 'platform' })} onAction={a => actions.push(a)} />);
     fireEvent.click(screen.getByRole('button', { name: 'Bring game to front' }));
     expect(actions).toEqual(['focus_game']);
   });

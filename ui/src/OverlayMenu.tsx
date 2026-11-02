@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Snapshot } from './contracts';
 import type { FarmingRoute } from './PathBuilder';
+import { LayerToggles, LengthPicker, LoopChooser, Meter, PlanPicker, StateBadge } from './ClearParts';
+import { botState } from './vocabulary';
+import type { Plan } from './vocabulary';
 
 /** Saved farming paths for the map the player is on, as the widget last read them. */
 export type PathAvailability =
@@ -18,7 +21,9 @@ export function pathSummary(paths: PathAvailability | undefined, area: string | 
     title: `${paths.names.length} saved for this map: ${paths.names.join(', ')}. Choose one in the dashboard to farm it.` };
 }
 
-export interface BatchState { running: boolean; kind?: string; line?: string; output?: string; code?: number }
+export interface BatchState { running: boolean; kind?: string; line?: string; output?: string; code?: number;
+  /** A dashboard start the in-game overlay has not taken yet. */
+  pending?: boolean }
 type Rect = { x: number; y: number; width: number; height: number };
 
 const WIDTH = 300;
@@ -108,7 +113,7 @@ export function batchReport(batch: BatchState): BatchReport | null {
     detail: lines.slice(-3).join('\n') };
 }
 
-/** Small in-game menu: what the bot is doing, display switches and the two batch starts. */
+/** Small in-game menu (design 2a): state and Stop, then the same plan, loop and length choices as the dashboard. */
 export function OverlayMenu({ s, status, game, layers, attackRange, names, setLayers, setAttackRange, setNames,
   batch, canBatch, onStart, onStop, startBlocker, paths }: {
   paths?: PathAvailability;
@@ -120,6 +125,7 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   onStart(kind: 'learn' | 'single', circuit?: { id: string; revision: number }, minutes?: number): void; onStop(): void;
 }) {
   const [open, setOpen] = useState(false);
+  const [plan, setPlan] = useState<Plan>('loop');
   const [selectedRoute, setSelectedRoute] = useState('');
   const [minutes, setMinutes] = useState(1);
   const routes = paths?.state === 'ready' ? (paths.routes ?? []).filter(route => route.loop) : [];
@@ -144,24 +150,31 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   const fps = engineFps(s);
   const where = s?.position?.surface_id ?? null;
   const busy = batch.running || status === 'ON' || status === 'STARTING';
-  const ready = canBatch && !busy && Boolean(s?.position?.area_id) && status !== 'DISCONNECTED';
+  const state = botState(status, batch.running);
+  const area = s?.position?.area_id;
+  const mapName = area ? s?.position?.area_name || 'Saved map' : null;
   const summary = batchSummary(batch);
-  const circuitText = circuit ? `${circuit.name} · r${circuit.revision}` : routes.length ? 'Choose a saved loop' : 'No saved loops';
-  const cycle = (step: number) => {
-    const index = routes.findIndex(route => route.id === circuit?.id);
-    const next = index < 0 ? (step > 0 ? 0 : routes.length - 1) : (index + step + routes.length) % routes.length;
-    setSelectedRoute(routes[next]?.id ?? '');
-  };
-  const mapName = s?.position?.area_id ? s.position.area_name || 'Saved map' : null;
-  // One fixed line for status text, so the open menu keeps its height as messages change.
+  // The first thing stopping a start, in the same words as the dashboard.
+  const blocker = busy ? null : status === 'DISCONNECTED' ? 'the engine is not connected'
+    : startBlocker ? startBlocker : !canBatch ? 'the dashboard is not connected'
+    : !area ? "this map isn't recognised" : plan === 'watch' ? 'Watch only starts from the dashboard'
+    : plan === 'loop' && !routes.length ? 'this map has no saved loop'
+    : plan === 'loop' && !circuit ? 'choose a saved loop' : null;
+  const ready = !busy && !blocker;
+  const start = () => plan === 'loop' ? circuit && onStart('learn', { id: circuit.id, revision: circuit.revision }, minutes)
+    : onStart('single', undefined, minutes);
   // A fixed-size report box, so the open menu keeps its height as messages change.
   const report: BatchReport | null = batch.running
     ? { tone: 'info', headline: 'Progress', detail: summary ?? '' }
     : startBlocker ? { tone: 'info', headline: 'Cannot start yet', detail: startBlocker } : batchReport(batch);
-  const whereText = `${where ? `Standing on ${where}` : 'Position unknown'}${s?.stop?.message && !busy ? ` · last stop: ${s.stop.message}` : ''}`;
+  const headline = state === 'alarm' ? 'Stopped. Move your character to safety.' : busy ? `Running${where ? ` on ${where}` : ''}`
+    : blocker ? `Can't start: ${blocker}` : 'Ready to hunt';
+  const whereText = `${mapName ?? 'Map not recognised'}${where ? ` · ${where}` : ''}`;
   const style = { ...(offset ?? menuPlacement(game, { width: window.innerWidth, height: window.innerHeight })), width: WIDTH };
-  return <section ref={menu} className={`overlay-menu ${open ? "is-open" : "is-folded"}`} aria-label="Bot menu" style={style}>
-    <header title="Drag to move" onPointerDown={event => {
+  const toggles = { enemies: layers, range: attackRange, lines: names };
+  const potion = s?.autopotter;
+  return <section ref={menu} className={`overlay-menu clear-widget ${open ? 'is-open' : 'is-folded'}`} aria-label="Bot menu" style={style}>
+    <header className="w-head" title="Drag to move" onPointerDown={event => {
       if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
       const rect = menu.current!.getBoundingClientRect();
       drag.current = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
@@ -174,45 +187,31 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
       setOffset({ left: Math.max(0, Math.min(innerWidth - WIDTH, current.left + event.clientX - current.x)),
         top: Math.max(0, Math.min(innerHeight - height, current.top + event.clientY - current.y)) });
     }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
-      <button className="overlay-menu-fold" aria-expanded={open} aria-label={open ? 'Fold menu' : 'Open menu'}
+      <button className="w-fold" aria-expanded={open} aria-label={open ? 'Fold menu' : 'Open menu'}
         onClick={() => setOpen(value => !value)}>{open ? '▾' : '▸'}</button>
-      <strong className={`overlay-menu-state state-${status.toLowerCase()}`}>
-        {batch.running ? 'Batch running' : status}</strong>
-      <span className="overlay-menu-fps">{fps == null ? '– fps' : `${fps.toFixed(1)} fps`}</span>
-      <button className="overlay-menu-stop" disabled={!busy} onClick={onStop} aria-label="Stop (F8)" title="Stop (F8)">■</button>
+      <StateBadge state={state} />
+      <span className="w-fps">{fps == null ? '– fps' : `${fps.toFixed(1)} fps`}</span>
+      <button className="c-btn stop small w-stop" disabled={!busy} onClick={onStop} aria-label="Stop (F8)" title="Stop (F8)">Stop</button>
     </header>
-    {open && <>
-      <p className="overlay-menu-where overlay-menu-line" title={whereText}>{whereText}</p>
-      <p className={`overlay-menu-path tone-${mapName ? 'ready' : 'muted'}`} title={mapName ?? s?.auto_track?.last ?? 'The minimap does not match a saved map yet.'}>
-        <span className="overlay-menu-path-dot" aria-hidden="true" /><span className="overlay-menu-path-key">Map</span><span className="overlay-menu-path-value">{mapName ?? 'not recognised'}</span></p>
-      {(() => { const path = pathSummary(paths, s?.position?.area_id); return <p className={`overlay-menu-path tone-${path.tone}`} title={path.title}>
-        <span className="overlay-menu-path-dot" aria-hidden="true" /><span className="overlay-menu-path-key">Path</span><span className="overlay-menu-path-value">{path.text}</span></p>; })()}
-      <div className="overlay-menu-switches">
-        <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">◉</span><span>Enemies</span></label>
-        <label><input type="checkbox" checked={attackRange} onChange={e => setAttackRange(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">◎</span><span>Range</span></label>
-        <label><input type="checkbox" checked={names} onChange={e => setNames(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">▧</span><span>Map</span></label>
+    {open && <div className="w-body">
+      <p className="w-line" title={headline}>{headline}</p>
+      <p className="w-where" title={mapName ?? s?.auto_track?.last ?? 'The minimap does not match a saved map yet.'}>{whereText}</p>
+      {busy ? <div className="w-running">
+        <Meter label="HP" kind="hp" percent={potion?.readings.hp?.percent} threshold={potion?.settings.hp_threshold ?? 50} />
+        <Meter label="MP" kind="mp" percent={potion?.readings.mp?.percent} threshold={potion?.settings.mp_threshold ?? 50} />
+      </div> : <>
+        <PlanPicker compact plan={plan} onPlan={setPlan} available={{ watch: 'Start Watch only from the dashboard.' }} />
+        <div className="w-row"><LoopChooser plan={plan} selected={circuit?.id ?? null} onSelect={setSelectedRoute}
+          loops={paths?.state === 'ready' ? routes.map(route => ({ id: route.id, name: `${route.name} · r${route.revision}`, stops: route.stops.length })) : area ? undefined : []} /></div>
+        <div className="w-row"><LengthPicker plan={plan} minutes={minutes} onMinutes={setMinutes} /></div>
+        <button className="c-btn start w-start" disabled={!ready} onClick={start}
+          title={plan === 'loop' ? 'Follow the selected loop using confirmed HP/MP potion keys' : 'Hunt on the platform you stand on; uses your confirmed potion keys'}>Start</button>
+      </>}
+      <LayerToggles values={toggles} onToggle={id => id === 'enemies' ? setLayers(!layers) : id === 'range' ? setAttackRange(!attackRange) : setNames(!names)} />
+      <div className={`w-report tone-${report?.tone ?? 'info'}`} role="status">
+        {report ? <><strong>{report.headline}</strong><p>{report.detail}</p></>
+          : <p className="w-empty">The result of the next run shows here.</p>}
       </div>
-      {/* Buttons, not <select>: the widget window never takes focus, so native popups never open. */}
-      <div className="overlay-menu-choice" role="group" aria-label="Farming circuit">
-        <button aria-label="Previous circuit" disabled={busy || !routes.length} onClick={() => cycle(-1)}>‹</button>
-        <span className="overlay-menu-line" title={circuitText}>{circuitText}</span>
-        <button aria-label="Next circuit" disabled={busy || !routes.length} onClick={() => cycle(1)}>›</button>
-      </div>
-      <div className="overlay-menu-choice overlay-menu-minutes" role="group" aria-label="Run duration">
-        {[1, 15].map(value => <button key={value} aria-pressed={minutes === value} disabled={busy}
-          onClick={() => setMinutes(value)}>{value === 1 ? '1 minute' : '15 minutes'}</button>)}
-      </div>
-      <p className="overlay-menu-result">HP/MP potions · food F every 10 min</p>
-      <div className="overlay-menu-actions">
-        <button disabled={!ready || !circuit} onClick={() => circuit && onStart('learn', { id: circuit.id, revision: circuit.revision }, minutes)}
-          title="Follow the selected loop using confirmed HP/MP potion keys">Start run</button>
-        <button disabled={!ready} onClick={() => onStart('single')}
-          title="15 minutes on the platform you stand on; uses your confirmed potion keys">Start single platform</button>
-      </div>
-      <div className={`overlay-menu-report tone-${report?.tone ?? 'info'}`} role="status">
-        <strong className="overlay-menu-line">{report?.headline ?? ' '}</strong>
-        <p>{report?.detail}</p>
-      </div>
-    </>}
+    </div>}
   </section>;
 }

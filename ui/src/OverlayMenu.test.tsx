@@ -33,10 +33,10 @@ it('keeps Stop visible when folded and aligns independently labelled layer contr
     onStart={() => {}} onStop={() => {}} />);
   expect(screen.getByRole('button', { name: 'Stop (F8)' })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Enemies' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Enemies' }));
   expect(calls).toEqual([true]);
-  expect(screen.getByRole('checkbox', { name: 'Map' })).toBeTruthy();
-  expect(screen.getByRole('checkbox', { name: 'Range' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Map lines' }).getAttribute('aria-pressed')).toBe('false');
+  expect(screen.getByRole('button', { name: 'Attack range' })).toBeTruthy();
   cleanup();
 });
 
@@ -47,9 +47,10 @@ it('says in one line whether the map has a saved path', () => {
     tone: 'ready', text: 'Lower loop +1', title: expect.stringContaining('Lower loop, Left side') });
   render(<OverlayMenu s={{ position: { area_id: 'area' } } as never} status="OFF" game={{ x: 0, y: 0, width: 600, height: 400 }}
     layers={false} attackRange={false} names={false} setLayers={() => {}} setAttackRange={() => {}} setNames={() => {}}
-    batch={{ running: false }} canBatch={false} onStart={() => {}} onStop={() => {}} paths={{ state: 'ready', names: ['Lower loop'] }} />);
+    batch={{ running: false }} canBatch onStart={() => {}} onStop={() => {}} paths={{ state: 'ready', names: [], routes: [] }} />);
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  expect(screen.getByTitle(/1 saved for this map: Lower loop/).textContent).toBe('PathLower loop');
+  expect(screen.getByText('No saved loop on this map. Build one in Maps.')).toBeTruthy();
+  expect(screen.getByText("Can't start: this map has no saved loop")).toBeTruthy();
   cleanup();
 });
 
@@ -63,14 +64,14 @@ it('starts only the chosen looping revision with the displayed duration', () => 
     canBatch paths={{ state: 'ready', names: ['Lower loop'], routes: [route] }}
     onStart={(...args) => calls.push(args)} onStop={() => {}} />);
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  const start = screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement;
+  const start = screen.getByRole('button', { name: 'Start' }) as HTMLButtonElement;
   expect(start.disabled).toBe(true);
   expect(screen.queryByRole('combobox')).toBeNull();  // native popups never open in the widget
-  fireEvent.click(screen.getByRole('button', { name: 'Next circuit' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Next loop' }));
   expect(screen.getByText('Lower loop · r2')).toBeTruthy();
   expect(start.disabled).toBe(false);
   fireEvent.click(start);
-  fireEvent.click(screen.getByRole('button', { name: '15 minutes' }));
+  fireEvent.click(screen.getByRole('radio', { name: '15 min' }));
   fireEvent.click(start);
   expect(calls).toEqual([
     ['learn', { id: 'lower-loop', revision: 2 }, 1],
@@ -85,7 +86,7 @@ it('keeps one status line in place as messages come and go, so the menu height h
     canBatch: false, onStart: () => {}, onStop: () => {} };
   const view = render(<OverlayMenu {...props} batch={{ running: false }} />);
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  const rows = () => view.container.querySelectorAll('.overlay-menu > p').length;
+  const rows = () => view.container.querySelectorAll('.w-body > p').length;
   const before = rows();
   view.rerender(<OverlayMenu {...props} batch={{ running: false }} startBlocker="Open the browser dashboard" />);
   expect(rows()).toBe(before);
@@ -102,7 +103,7 @@ it('shows the recognised map name above the saved paths', () => {
     canBatch: false, onStart: () => {}, onStop: () => {}, batch: { running: false } };
   const view = render(<OverlayMenu {...props} s={null} />);
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  expect(screen.getByText('not recognised')).toBeTruthy();
+  expect(screen.getByText('Map not recognised')).toBeTruthy();
   view.rerender(<OverlayMenu {...props} s={{ position: { area_id: 'a', area_name: 'Tree Dungeon, Forest Up North I', kind: 'platform' } } as never} />);
   expect(screen.getByText('Tree Dungeon, Forest Up North I')).toBeTruthy();
   cleanup();

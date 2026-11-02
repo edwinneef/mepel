@@ -1,3 +1,4 @@
+import { DRAW, label } from './drawTheme';
 import type { AreaProfile, LiveDetections, LivePosition } from './contracts';
 import { useRef } from 'react';
 
@@ -40,23 +41,21 @@ export function SavedTerrainOverlay({ map, position, alignment, now, compact = f
     {segments.map(segment => {
       const start = project(segment.start), end = project(segment.end);
       const matched = !independent && !held && segment.id === position.surface_id;
-      const color = matched ? '#91c8ff' : '#c8a5ff';
+      const color = matched ? DRAW.current : DRAW.line;
       return <g key={segment.id} stroke={color}>
         <line x1={start.x} y1={start.y} x2={end.x} y2={end.y}
-          strokeDasharray={matched ? '8 3' : '4 5'} vectorEffect="non-scaling-stroke" />
-        <text x={start.x} y={start.y - 7} fill={color} stroke="#091019" strokeWidth="3"
-          paintOrder="stroke" fontSize={compact ? 13 : 12} fontWeight={compact && matched ? 'bold' : undefined}>
+          strokeDasharray={matched ? undefined : '4 5'} strokeWidth={matched ? 3 : 2} vectorEffect="non-scaling-stroke" />
+        <text x={start.x} y={start.y - 7} {...label(color)} fontWeight={compact && matched ? 'bold' : 'normal'} fontSize={compact ? 13 : 12}>
           {compact ? segment.name ?? segment.id
             : <>Saved · {segment.name ? `${segment.name} · ${segment.id}` : segment.id}{matched ? ' · spatial match' : ''}</>}</text>
       </g>;
     })}
-    {extra && !compact && !independent && !held && extra.id === position.surface_id && <g stroke="#ffd07a" aria-label="Provisional middle ledge">
+    {extra && !compact && !independent && !held && extra.id === position.surface_id && <g stroke={DRAW.provisional} aria-label="Provisional middle ledge">
       <line x1={project(extra.start).x} y1={project(extra.start).y}
         x2={project(extra.end).x} y2={project(extra.end).y} strokeDasharray="3 5" vectorEffect="non-scaling-stroke" />
-      <text x={project(extra.start).x} y={project(extra.start).y - 7} fill="#ffd07a"
-        stroke="#091019" strokeWidth="3" paintOrder="stroke" fontSize="12">Provisional · middle ledge · observation only</text>
+      <text x={project(extra.start).x} y={project(extra.start).y - 7} {...label(DRAW.provisional)} fontSize="12">Provisional · middle ledge · observation only</text>
     </g>}
-    {!compact && <text x="12" y="28" fill="#c8a5ff" stroke="#091019" strokeWidth="3" paintOrder="stroke"
+    {!compact && <text x="12" y="28" {...label(DRAW.note)}
       fontSize="14">Saved terrain · estimated alignment{held ? ' · brief hold' : ''} · not live detection</text>}
   </g>;
 }
