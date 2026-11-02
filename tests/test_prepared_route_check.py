@@ -19,7 +19,10 @@ def ready():
 
 def test_route_preflight_refuses_every_unready_state():
     assert check.route_blocker(ready(), AREA, "fh315", "fh308") is None
-    for key, patch in [("alarm", {"active": True}), ("input_state", {"held_keys": ["left"]}),
+    alarmed = deepcopy(ready())
+    alarmed["alarm"].update({"active": True})
+    assert check.route_blocker(alarmed, AREA, "fh315", "fh308") is None  # start acknowledges
+    for key, patch in [("input_state", {"held_keys": ["left"]}),
                        ("input_state", {"queued": True}), ("position", {"surface_id": "fh308"}),
                        ("position", {"stale": True}), ("position", {"held": True}),
                        ("position", {"area_id": "b" * 32})]:

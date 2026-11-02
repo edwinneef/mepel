@@ -19,8 +19,6 @@ def route_blocker(status: dict, area: str, origin: str, target: str) -> str | No
         return "Capture-only session: restart with tools/restart_engine.ps1 -EnableGameplayInput"
     if status.get("mode") != "capture":
         return "Bot must be Off"
-    if (status.get("alarm") or {}).get("active"):
-        return "Acknowledge alarm in overlay first"
     state = status.get("input_state") or {}
     if state.get("held_keys") != [] or state.get("active") or state.get("queued"):
         return "Input must be released and idle"

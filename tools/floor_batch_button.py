@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None, *, runner=subprocess.run, on_ready=None)
     window.title(title)
     window.geometry("640x340")
     tk.Label(window, text=instructions + "\n"
-             "Clear the alarm first. Stay present. F8 stops gameplay.").pack(pady=10)
+             "Stay present. F8 stops gameplay.").pack(pady=10)
     output = ScrolledText(window, height=12, wrap="word")
     busy = False
     results = queue.SimpleQueue()

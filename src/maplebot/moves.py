@@ -17,9 +17,10 @@ LEVEL_PX = 24  # surfaces this close in height count as level (the navigator's t
 CLIMB_PX = 30  # feet move this far along a rope to confirm a grab or a climb-off
 INSET_PX = 16  # launch and landing stay this far inside a platform's end
 # Jump and drop launches keep this much platform on both sides. The approach takes off
-# from rest after one-pulse steps that moved 16-48 px live (Tree Dungeon, 2026-11-02), plus
-# a 16 px marker step; a step toward a launch 24 px from the end slid off it.
-TAKEOFF_INSET_PX = 64
+# from rest after one-pulse steps that moved 16-48 px live (Tree Dungeon, 2026-11-02): a
+# step from just outside the 16 px launch window ends at most 31 px past the launch, plus
+# half a 16 px marker step. A step toward a launch 24 px from the end slid off it.
+TAKEOFF_INSET_PX = 48
 # From-rest jump physics: 555^2 / (2 * 2000) = 77 px, the jump peak above. The proven
 # m_fh308_fh315 jump covered at least 64 px in about 0.41 s; live walks ran about 137 px/s.
 JUMP_SPEED_PX_S = 555

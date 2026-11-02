@@ -169,8 +169,6 @@ class NavigationRuntime:
             return "Stop tracking and reload the changed map before navigation"
         if app.area_editing or app.calibrating or app.active_probe is not None:
             return "Finish editing, selection or control probing first"
-        if app.alarm.snapshot()["active"]:
-            return "Acknowledge the active alarm first"
         missing = controls - app.probed
         if missing:
             return "Verify navigation controls: " + ", ".join(sorted(missing))

@@ -34,7 +34,7 @@ def test_hairline_gap_is_walked_and_a_level_gap_is_beyond_a_jump_from_rest():
                "ropes": []}
     moves = kinds(profile)
     assert moves[("a", "b")] == "walk"
-    # Taking off 64 px in, a level jump lands about 78 px out: short of c's far side.
+    # Taking off 48 px in, a level jump lands about 78 px out: short of c.
     assert ("b", "c") not in moves
     assert moves[("b", "low")] == "jump"  # falling off the end onto what runs on below
 
@@ -74,7 +74,7 @@ def test_rope_foot_within_a_jump_is_reached_by_jumping():
 
 def test_jumps_and_drops_take_off_with_room_to_brake_and_land_within_reach():
     profile = {"platforms": [flat("a", 0, 200, 300), flat("b", 220, 400, 300),
-                             flat("low", 380, 600, 350), flat("tiny", 900, 1000, 300),
+                             flat("low", 380, 600, 350), flat("tiny", 900, 990, 300),
                              flat("under", 850, 1100, 400), flat("src", 600, 850, 1025),
                              flat("dst", 794, 965, 972)], "ropes": []}
     moves = {(m.source, m.target): m for m in generate(profile)}
@@ -85,7 +85,7 @@ def test_jumps_and_drops_take_off_with_room_to_brake_and_land_within_reach():
     up = moves[("src", "dst")]  # Tree Dungeon m_fh315_fh320 slid off from 24 px in
     assert up.trace[0][0] == 850 - TAKEOFF_INSET_PX
     assert 794 + 16 <= up.trace[-1][0] and up.trace[-1][0] - up.trace[0][0] <= _reach(53)
-    # 100 px is too narrow to brake on from either side: no jump or drop leaves it.
+    # 90 px is too narrow to brake on from either side: no jump or drop leaves it.
     assert not [m for m in moves.values() if m.source == "tiny" and m.kind in {"jump", "drop"}]
     for move in moves.values():
         if move.kind in {"jump", "drop"} and move.source in {"b", "src", "under"}:

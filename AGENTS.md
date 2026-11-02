@@ -46,7 +46,9 @@ handing over the control; chat response time must not determine the start time.
 The click starts only the displayed bounded batch, after fresh engine readiness,
 map, player and required enemy checks. Keep operator presence, explicit batch
 authorization, all safety gates, F8, first-failure stop, key release, saved clip
-and alarm requirements. Never automatically retry or acknowledge an alarm.
+and alarm requirements. Never automatically retry a failed run. Alarms need no separate
+acknowledgement (operator rule, 2026-11-02): starting the next batch or restarting the
+engine acknowledges the previous one.
 Restore focus only through the engine's guarded focus_game command.
 
 The current Maple Floor Batch control targets only fh66 in Snail Hunting Ground III;

@@ -510,12 +510,12 @@ def _approach(graph, start: float, step_px: float) -> float | None:
 
 @pytest.mark.parametrize("step_px", [16, 32, 48])
 def test_end_launches_are_reached_without_sliding_off_the_platform(step_px):
-    from maplebot.moves import generate
+    from maplebot.moves import TAKEOFF_INSET_PX, generate
 
     profile = _end_launch_profile()
     graph = RouteMap.computed(profile)
     launch = graph.edges["m_src_dst"].launch[0]
-    assert launch == 850 - 64
+    assert launch == 850 - TAKEOFF_INSET_PX
     for start in range(610, 846, 9):
         takeoff = _approach(graph, start, step_px)
         assert takeoff is not None, f"slid off from {start} with {step_px} px steps"

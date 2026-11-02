@@ -136,7 +136,7 @@ def test_activity_readiness_checks_resources_without_requiring_focus_for_selecti
 
 
 @pytest.mark.parametrize("change", [
-    {"capture_only": True}, {"alarm": {"active": True}}, {"active_probe": {"id": 1}},
+    {"capture_only": True}, {"active_probe": {"id": 1}},
     {"calibrating": True}, {"input_setup_blocker": "Game window DPI changed"},
     {"player": {"confidence": 0.5}}, {"player": {"confidence": 1, "tracked": True}},
 ])

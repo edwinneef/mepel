@@ -120,13 +120,16 @@ def test_probe_reports_the_failed_guard_without_a_capture_crash(app, monkeypatch
     assert app.controller.backend.events == []
 
 
-def test_probe_cannot_start_behind_an_unacknowledged_alarm(app, monkeypatch):
-    monkeypatch.setattr(app.alarm, "snapshot", lambda: {"active": True})
-
-    with pytest.raises(ValueError, match="Acknowledge"):
+def test_starting_a_probe_acknowledges_an_earlier_alarm(app):
+    # Operator rule (2026-11-02): alarms need no separate acknowledgement.
+    incident = app.safe_stop("FOCUS_LOSS", "Alarm incident")
+    assert app.alarm.snapshot()["active"]
+    try:
         app.request_probe({"action": "left"})
-
-    assert app.active_probe is None
+    except ValueError:
+        pass  # other offline probe gates may refuse; the alarm is handled first
+    assert not app.alarm.snapshot()["active"]
+    assert any(item.get("id") == incident.id for item in app.history)
     assert app.controller.backend.events == []
 
 

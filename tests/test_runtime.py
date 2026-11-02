@@ -1469,13 +1469,16 @@ def _arm_state(app):
     )
 
 
-def test_arm_refuses_active_alarm_without_mutating_runtime_state(app):
+def test_arm_acknowledges_an_earlier_alarm_and_keeps_its_record(app):
+    # Operator rule (2026-11-02): starting gameplay acknowledges the previous alarm.
     app.probed.update(REQUIRED_PROBES)
-    app.safe_stop("FOCUS_LOSS", "Alarm incident")
-    before = _arm_state(app)
-    with pytest.raises(ValueError, match="Acknowledge the active alarm"):
+    incident = app.safe_stop("FOCUS_LOSS", "Alarm incident")
+    try:
         app._command("arm", {})
-    assert _arm_state(app) == before
+    except ValueError:
+        pass  # later arming gates may refuse offline; the alarm is handled first
+    assert not app.alarm.snapshot()["active"]
+    assert any(item.get("id") == incident.id for item in app.history)
     assert app.controller.backend.events == []
 
 
@@ -1490,7 +1493,7 @@ def test_arm_rechecks_alarm_before_committing_countdown(app, monkeypatch):
         return real_get(hwnd)
 
     monkeypatch.setattr(app.windows, "get", get)
-    with pytest.raises(ValueError, match="Acknowledge the active alarm"):
+    with pytest.raises(ValueError, match="new alarm was raised while arming"):
         app._command("arm", {})
     assert app.mode != "pending_arm"
     assert app.alarm.snapshot()["active"]
@@ -1498,14 +1501,10 @@ def test_arm_rechecks_alarm_before_committing_countdown(app, monkeypatch):
     assert app.controller.backend.events == []
 
 
-def test_acknowledged_alarm_clears_banner_before_fresh_arm_countdown(app):
+def test_arming_after_an_alarm_acknowledges_it_and_clears_the_banner(app):
     app.probed.update(REQUIRED_PROBES)
-    incident = app.safe_stop("FOCUS_LOSS", "Alarm incident")
-    with pytest.raises(ValueError):
-        app._command("arm", {})
-    assert app.request("acknowledge", {"incident_id": incident.id})["acknowledged"]
-    assert app.mode != "pending_arm" and not app.controller.enabled
-    assert app.controller.backend.events == []
+    app.safe_stop("FOCUS_LOSS", "Alarm incident")
+    assert app.alarm.snapshot()["active"] and not app.controller.enabled
     started = time.perf_counter()
     result = app._command("arm", {})
     assert result["mode"] == "pending_arm"

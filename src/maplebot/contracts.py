@@ -140,8 +140,6 @@ def readiness(status: dict) -> dict[str, dict[str, bool | str]]:
     preview = {"ready": not reason, "reason": reason or "Ready for input-free preview"}
     if not reason and status.get("capture_only"):
         reason = "Capture-only session: gameplay input is locked"
-    if not reason and status.get("alarm", {}).get("active"):
-        reason = "Acknowledge the active alarm first"
     if not reason and status.get("active_probe"):
         reason = "Finish or reject the active probe first"
     if not reason:

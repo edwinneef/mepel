@@ -12,10 +12,12 @@ def ready():
             "readiness": {"combat": {"ready": True}}}
 
 
-def test_floor_only_preflight_refuses_alarm_wrong_surface_and_busy_input():
+def test_floor_only_preflight_refuses_wrong_surface_and_busy_input():
     assert floor_blocker(ready()) is None
-    for key, patch in [("alarm", {"active": True}),
-                       ("position", {"surface_id": "rope5"}),
+    alarmed = deepcopy(ready())
+    alarmed["alarm"].update({"active": True})
+    assert floor_blocker(alarmed) is None  # starting acknowledges an earlier alarm
+    for key, patch in [("position", {"surface_id": "rope5"}),
                        ("position", {"stale": True}),
                        ("input_state", {"held_keys": ["left"]}),
                        ("input_state", {"queued": True}),

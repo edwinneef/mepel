@@ -695,8 +695,7 @@ class Application:
     def request_probe(self, payload: dict) -> dict[str, object]:
         if self.capture_only:
             raise ValueError("Capture-only session: gameplay controls are unavailable")
-        if self.alarm.snapshot()["active"]:
-            raise ValueError("Acknowledge the active alarm before starting a control probe")
+        self._clear_alarm("a control probe")
         action = str(payload.get("action", ""))
         if action not in PROBE_ACTIONS:
             raise ValueError("Invalid control probe")
@@ -1119,6 +1118,16 @@ class Application:
                     self.history[0] = {"reason": self.stop_record.message, **serialized}
             return {"acknowledged": True, "stop": serialized}
 
+    def _clear_alarm(self, action: str) -> None:
+        """Deliberately starting gameplay acknowledges an earlier alarm.
+
+        Operator rule (2026-11-02): alarms need no separate acknowledgement. The stop still
+        released keys, saved its clip and sounded once; the record stays in the history.
+        """
+        if self.alarm.snapshot()["active"]:
+            self.acknowledge_stop()
+            self.note(f"Earlier alarm acknowledged by starting {action}")
+
     def start_capture_worker(self) -> bool:
         with self.worker_lock:
             if self.closed.is_set() or (self.worker and self.worker.is_alive()):
@@ -1129,8 +1138,7 @@ class Application:
 
     def restart_capture(self) -> dict[str, object]:
         with self.stop_lock:
-            if self.alarm.snapshot()["active"]:
-                raise RuntimeError("Acknowledge the active alarm before restarting capture")
+            self._clear_alarm("a capture restart")
             self.controller.stop("Capture restart", notify=False)
             self.probed.clear()
             if self.calibration:
@@ -1206,6 +1214,8 @@ class Application:
         if name == "nav_reload_code":
             from .navigation_reload import reload_navigation
             return reload_navigation(self)
+        if name in {"nav_go", "nav_edge", "nav_walk", "nav_start"}:
+            self._clear_alarm("navigation")
         if name == "nav_go":
             return self.navigation.go(
                 context, str(payload.get("target", "")), payload.get("opt_in") is True
@@ -1247,8 +1257,7 @@ class Application:
         if name == "autopotter_live":
             if self.capture_only:
                 raise ValueError("Capture-only session: gameplay controls are unavailable")
-            if self.alarm.snapshot()["active"]:
-                raise ValueError("Acknowledge the active alarm before starting live potions")
+            self._clear_alarm("live potions")
             if self.calibrating or self.image is None:
                 raise ValueError("Return to a live screenshot before starting live potions")
             if not self.calibration or not self.calibration.capture_verified:
@@ -1363,8 +1372,7 @@ class Application:
             with self.stop_lock:
                 if self.area_editing:
                     raise ValueError("Finish area editing before arming combat")
-                if self.alarm.snapshot()["active"]:
-                    raise ValueError("Acknowledge the active alarm before arming combat")
+                self._clear_alarm("combat")
             self.safe_stop(
                 "CALIBRATION",
                 "Preparing bounded input; focus the Game view within 3 seconds",
@@ -1393,8 +1401,8 @@ class Application:
                                    payload.get("rotate") is True,
                                    learn=bool(farming and farming.learn_moves))
             with self.stop_lock:
-                if self.alarm.snapshot()["active"]:
-                    raise ValueError("Acknowledge the active alarm before arming combat")
+                if self.alarm.snapshot()["active"]:  # raised during this arming, not before
+                    raise ValueError("A new alarm was raised while arming; start again")
                 if self.area_editing:
                     raise ValueError("Finish area editing before arming combat")
                 if context is not None:
