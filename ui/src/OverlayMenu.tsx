@@ -105,6 +105,13 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   const busy = batch.running || status === 'ON' || status === 'STARTING';
   const ready = canBatch && !busy && Boolean(s?.position?.area_id) && status !== 'DISCONNECTED';
   const summary = batchSummary(batch);
+  const circuitText = circuit ? `${circuit.name} · r${circuit.revision}` : routes.length ? 'Choose a saved loop' : 'No saved loops';
+  const cycle = (step: number) => {
+    const index = routes.findIndex(route => route.id === circuit?.id);
+    const next = index < 0 ? (step > 0 ? 0 : routes.length - 1) : (index + step + routes.length) % routes.length;
+    setSelectedRoute(routes[next]?.id ?? '');
+  };
+  const mapName = s?.position?.area_id ? s.position.area_name || 'Saved map' : null;
   // One fixed line for status text, so the open menu keeps its height as messages change.
   const note = batch.running ? summary ?? '' : startBlocker ?? (summary ? `Last batch: ${summary}` : '');
   const whereText = `${where ? `Standing on ${where}` : 'Position unknown'}${s?.stop?.message && !busy ? ` · last stop: ${s.stop.message}` : ''}`;
@@ -132,6 +139,8 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
     </header>
     {open && <>
       <p className="overlay-menu-where overlay-menu-line" title={whereText}>{whereText}</p>
+      <p className={`overlay-menu-path tone-${mapName ? 'ready' : 'muted'}`} title={mapName ?? 'The minimap does not match a saved map yet.'}>
+        <span className="overlay-menu-path-dot" aria-hidden="true" /><span className="overlay-menu-path-key">Map</span><span className="overlay-menu-path-value">{mapName ?? 'not recognised'}</span></p>
       {(() => { const path = pathSummary(paths, s?.position?.area_id); return <p className={`overlay-menu-path tone-${path.tone}`} title={path.title}>
         <span className="overlay-menu-path-dot" aria-hidden="true" /><span className="overlay-menu-path-key">Path</span><span className="overlay-menu-path-value">{path.text}</span></p>; })()}
       <div className="overlay-menu-switches">
@@ -139,15 +148,16 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
         <label><input type="checkbox" checked={attackRange} onChange={e => setAttackRange(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">◎</span><span>Range</span></label>
         <label><input type="checkbox" checked={names} onChange={e => setNames(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">▧</span><span>Map</span></label>
       </div>
-      <label>Farming circuit<select aria-label="Farming circuit" value={circuit?.id ?? ''} disabled={busy}
-        onChange={event => setSelectedRoute(event.target.value)}>
-        <option value="">Choose a saved loop</option>
-        {routes.map(route => <option key={route.id} value={route.id}>{route.name} · r{route.revision}</option>)}
-      </select></label>
-      <label>Run duration<select aria-label="Run duration" value={minutes} disabled={busy}
-        onChange={event => setMinutes(Number(event.target.value))}>
-        <option value={1}>1 minute</option><option value={15}>15 minutes</option>
-      </select></label>
+      {/* Buttons, not <select>: the widget window never takes focus, so native popups never open. */}
+      <div className="overlay-menu-choice" role="group" aria-label="Farming circuit">
+        <button aria-label="Previous circuit" disabled={busy || !routes.length} onClick={() => cycle(-1)}>‹</button>
+        <span className="overlay-menu-line" title={circuitText}>{circuitText}</span>
+        <button aria-label="Next circuit" disabled={busy || !routes.length} onClick={() => cycle(1)}>›</button>
+      </div>
+      <div className="overlay-menu-choice overlay-menu-minutes" role="group" aria-label="Run duration">
+        {[1, 15].map(value => <button key={value} aria-pressed={minutes === value} disabled={busy}
+          onClick={() => setMinutes(value)}>{value === 1 ? '1 minute' : '15 minutes'}</button>)}
+      </div>
       <p className="overlay-menu-result">HP/MP potions · food F every 10 min</p>
       <div className="overlay-menu-actions">
         <button disabled={!ready || !circuit} onClick={() => circuit && onStart('learn', { id: circuit.id, revision: circuit.revision }, minutes)}

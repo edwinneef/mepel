@@ -65,10 +65,12 @@ it('starts only the chosen looping revision with the displayed duration', () => 
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
   const start = screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement;
   expect(start.disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('Farming circuit'), { target: { value: 'lower-loop' } });
+  expect(screen.queryByRole('combobox')).toBeNull();  // native popups never open in the widget
+  fireEvent.click(screen.getByRole('button', { name: 'Next circuit' }));
+  expect(screen.getByText('Lower loop · r2')).toBeTruthy();
   expect(start.disabled).toBe(false);
   fireEvent.click(start);
-  fireEvent.change(screen.getByLabelText('Run duration'), { target: { value: '15' } });
+  fireEvent.click(screen.getByRole('button', { name: '15 minutes' }));
   fireEvent.click(start);
   expect(calls).toEqual([
     ['learn', { id: 'lower-loop', revision: 2 }, 1],
@@ -91,5 +93,17 @@ it('keeps one status line in place as messages come and go, so the menu height h
   view.rerender(<OverlayMenu {...props} batch={{ running: true, line: 'Starting one guarded batch' }} />);
   expect(rows()).toBe(before);
   expect(screen.getByRole('status').className).toContain('overlay-menu-line');
+  cleanup();
+});
+
+it('shows the recognised map name above the saved paths', () => {
+  const props = { status: 'OFF', game: { x: 0, y: 0, width: 600, height: 400 }, layers: false,
+    attackRange: false, names: false, setLayers: () => {}, setAttackRange: () => {}, setNames: () => {},
+    canBatch: false, onStart: () => {}, onStop: () => {}, batch: { running: false } };
+  const view = render(<OverlayMenu {...props} s={null} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+  expect(screen.getByText('not recognised')).toBeTruthy();
+  view.rerender(<OverlayMenu {...props} s={{ position: { area_id: 'a', area_name: 'Tree Dungeon, Forest Up North I', kind: 'platform' } } as never} />);
+  expect(screen.getByText('Tree Dungeon, Forest Up North I')).toBeTruthy();
   cleanup();
 });

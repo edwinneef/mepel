@@ -451,8 +451,9 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
   fireEvent.click(names);
   expect(names.checked).toBe(false);
   await waitFor(() => expect((screen.getByText('Start single platform') as HTMLButtonElement).disabled).toBe(false));
-    await waitFor(() => expect(screen.getByRole('option', { name: 'Lower loop · r2' })).toBeTruthy());
-    fireEvent.change(screen.getByLabelText('Farming circuit'), { target: { value: 'lower-loop' } });
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Next circuit' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Next circuit' }));
+    expect(screen.getByText('Lower loop · r2')).toBeTruthy();
     fireEvent.click(screen.getByText('Start run'));
     await waitFor(() => expect(batch).toHaveBeenCalledWith({ kind: 'learn', area: 'a'.repeat(32),
       circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 }));

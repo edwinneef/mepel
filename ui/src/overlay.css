@@ -102,3 +102,11 @@ html:has(.native-overlay), body:has(.native-overlay), body:has(.native-overlay) 
 
 /* Status rows stay one line (full text on hover) so the open menu never changes height. */
 .overlay-menu-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Loop and duration pickers: buttons, because the never-focused widget cannot open native popups. */
+.overlay-menu-choice { display: flex; align-items: center; gap: 6px; margin: 0 10px 6px; height: 30px; }
+.overlay-menu-choice > span { flex: 1; min-width: 0; text-align: center; font-size: 12px; }
+.overlay-menu-choice button { flex: none; height: 28px; min-width: 28px; border-radius: 10px; border: 1px solid #ffffff25; background: #ffffff10; color: inherit; cursor: pointer; }
+.overlay-menu-minutes button { flex: 1; font-size: 11px; }
+.overlay-menu-choice button[aria-pressed="true"] { background: #a99cff22; color: #ded8ff; border-color: #a99cff88; }
+.overlay-menu-choice button:disabled { opacity: .4; cursor: default; }
