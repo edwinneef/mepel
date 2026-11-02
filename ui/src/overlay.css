@@ -13,6 +13,8 @@ html:has(.native-overlay), body:has(.native-overlay), body:has(.native-overlay) 
 .overlay-menu-fps { margin-left: auto; color: #aab6c3; font-variant-numeric: tabular-nums; }
 .overlay-menu p { margin: 6px 0; color: #c9d3dd; }
 .overlay-menu-switches { display: grid; gap: 2px; }
+.overlay-menu-switches label { display: flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; }
+.overlay-menu-switches input[type=checkbox] { display: inline-block; width: auto; height: auto; margin: 0; }
 .overlay-menu-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
 .overlay-menu-actions button { padding: 5px 6px; border-radius: 6px; border: 1px solid #526272;
   background: #1d2833; color: inherit; font: inherit; cursor: pointer; }
