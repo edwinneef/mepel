@@ -7,9 +7,25 @@ import re
 import threading
 from pathlib import Path
 
-from .navigation import RouteMap
+from .moves import generate
+from .navigation import RouteMap, map_hash
 
 MAX_BYTES = 64_000
+
+
+def preview_graph(profile: dict, proofs) -> RouteMap:
+    """Build an input-free preview, independent of the map currently being tracked."""
+    if not profile.get("public_map"):
+        raise ValueError("Import this map before building farming circuits")
+    fingerprint = map_hash(profile)
+    moves = generate(profile)
+    current = {move.id: move for move in moves}
+    proven = proofs.load(profile["id"], fingerprint)
+    missed = {key for key, shape in proofs.failures(profile["id"], fingerprint).items()
+              if key in current and key not in proven and shape["kind"] == current[key].kind
+              and shape["trace"] == [list(point) for point in current[key].trace]}
+    return RouteMap.computed(profile, proven, missed, moves,
+                             proofs.geometry(profile["id"], fingerprint))
 
 
 def identifier(value: object) -> str:

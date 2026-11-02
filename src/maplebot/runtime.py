@@ -34,7 +34,7 @@ from .contracts import (
 from .decision import Action, Agent, Decision, PolicyInput
 from .display_loop import DisplayLoop, DisplaySource
 from .farming import CHECKPOINT_STOP, Farming
-from .farming_routes import FarmingRouteStore, compile_route, restrict_graph
+from .farming_routes import FarmingRouteStore, compile_route, preview_graph, restrict_graph
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
 from .keyboard import (
@@ -387,8 +387,13 @@ class Application:
                     return store.list(payload.get("area_id"))
                 if name == "farm_route_save":
                     return {"route": store.save(payload.get("route"))}
-                self.navigation.refresh()
-                return compile_route(payload.get("route"), self.navigation.graph)
+                area_id = (payload.get("area_id") if name == "farm_route_map"
+                           else payload.get("route", {}).get("area_id"))
+                profile = self.areas.load(area_id)["profile"]
+                graph = preview_graph(profile, self.navigation.proofs)
+                if name == "farm_route_map":
+                    return {"profile": profile, "map_hash": graph.fingerprint}
+                return compile_route(payload.get("route"), graph)
         if name in {"area_begin", "area_capture", "area_save", "area_end"}:
             with self.stop_lock:
                 if context is not None:

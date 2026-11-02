@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EngineClient } from './client';
 import type { AreaPoint, AreaProfile, AreaSegment, Snapshot } from './contracts';
-import { PathBuilder } from './PathBuilder';
+import { PathBuilderLibrary } from './PathBuilderLibrary';
 import type { FarmingRoute } from './PathBuilder';
 
 type Segment = AreaSegment & { points?: AreaPoint[] };
@@ -97,8 +97,10 @@ export function MapTab({ snapshot: s, client, disabled, act, onPreview, onCircui
   }, [areaId, map?.map_hash, client]);
 
   const nodes = useMemo(() => new Map((map?.nodes ?? []).map(n => [n.id, n])), [map]);
+  const builder = <PathBuilderLibrary client={client} disabled={disabled || Boolean(nav?.active) || s.mode !== 'capture'}
+    initialArea={areaId} onSelect={onCircuit} />;
   if (!areaId) return <section className="map-tab" aria-label="Map"><h3>See the whole map</h3>
-    <p>Track a map from Routes to draw it here with every platform, rope and ladder named.</p></section>;
+    <p>Track a map from Routes to draw it here with every platform, rope and ladder named.</p>{builder}</section>;
   if (!profile) return <section className="map-tab" aria-label="Map"><h3>See the whole map</h3>
     <p>{error || 'Loading the saved map…'}</p></section>;
 
@@ -174,8 +176,7 @@ export function MapTab({ snapshot: s, client, disabled, act, onPreview, onCircui
       {ropes.map(rope => <li key={rope.id} className="map-place-rope"
         onMouseEnter={() => setFocus(rope.id)} onMouseLeave={() => setFocus(null)}>{rope.name}</li>)}
     </ol>
-    {map?.map_hash && <PathBuilder key={areaId} profile={profile} mapHash={map.map_hash}
-      client={client} disabled={disabled || Boolean(nav?.active) || s.mode !== 'capture'} onSelect={onCircuit} />}
+    {builder}
     {large && <div className="map-dialog" role="dialog" aria-modal="true" aria-label={`Full map of ${profile.name}`}
       onKeyDown={e => { if (e.key === 'Escape') setLarge(false); }}>
       <div className="map-dialog-bar"><strong>{profile.name}</strong>

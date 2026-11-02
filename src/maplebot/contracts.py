@@ -21,6 +21,7 @@ COMMANDS = frozenset({
     "nav_refresh", "nav_preview", "nav_start", "nav_go", "nav_edge", "nav_walk",
     "nav_reload_code",
     "farm_route_list", "farm_route_save", "farm_route_validate",
+    "farm_route_map",
 })
 FRESH_FRAME_COMMANDS = frozenset(
     {"dry_run", "arm", "probe", "autopotter_live", "nav_start", "nav_go", "nav_edge", "nav_walk"}

@@ -142,7 +142,7 @@ export function PathBuilder({ profile, mapHash, client, disabled, onSelect }: Pr
       </div>
       <div className="path-toolbar"><button disabled={!dirty || route.stops.length < 2} onClick={() => void run(save)}>Save circuit</button>
         <button disabled={route.stops.length < 2} onClick={() => void run(validate)}>Validate circuit</button>
-        <button disabled={dirty || !result?.valid || route.revision === 0} onClick={() => { onSelect?.(route); setMessage('Selected for farming. Choose Farming in the header and start the displayed bounded session.'); }}>Use for farming</button>
+        <button disabled={dirty || !result?.valid || route.revision === 0} onClick={() => { onSelect?.(route); setMessage('Selected for farming. Review the selected activity and session limits before using the normal Start or On control.'); }}>Use for farming</button>
         <button onClick={() => { const blob = new Blob([JSON.stringify(route, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${route.id}.json`; a.click(); URL.revokeObjectURL(url); }}>Export JSON</button>
         <button onClick={() => input.current?.click()}>Import JSON</button>
         <input ref={input} hidden type="file" accept="application/json,.json" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; void run(async () => { if (file.size > 64000) throw new Error('Route file is too large'); const value = JSON.parse(await file.text()) as FarmingRoute; if (value.version !== 1 || !Array.isArray(value.stops) || value.stops.some(id => typeof id !== 'string')) throw new Error('Unsupported route file'); if (replace({ ...value, id: crypto.randomUUID(), revision: 0 })) setDirty(true); }); }} />
@@ -153,4 +153,5 @@ export function PathBuilder({ profile, mapHash, client, disabled, onSelect }: Pr
     {message && <p role="status">{message}</p>}
   </section>;
 }
+
 

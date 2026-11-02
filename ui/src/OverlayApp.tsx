@@ -13,6 +13,7 @@ import { PositionPanel } from './PositionPanel';
 import { GoBar } from './GoBar';
 import { NavigationPanel } from './NavigationPanel';
 import { MapTab } from './MapTab';
+import type { FarmingRoute } from './PathBuilder';
 import { AlarmBanner } from './AlarmBanner';
 import { SavedTerrainOverlay } from './SavedTerrainOverlay';
 import { OverlayMenu, type BatchState } from './OverlayMenu';
@@ -149,6 +150,14 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     return () => window.removeEventListener('keydown', keydown);
   }, [dashboard, client, panel]);
   const choose = (name: string, label: string) => setAction({ name, label, payload: {} });
+  const selectCircuit = (route: FarmingRoute | null) => setAction(route ? {
+    name: 'arm',
+    label: `${route.name} · revision ${route.revision} · ${route.stops.length} stops · 5 minutes`,
+    payload: { circuit: { id: route.id, revision: route.revision }, farming: {
+      session_minutes: 5, no_consumables: true, pet_recovery: false,
+      hp_threshold: 50, mp_threshold: 50,
+    } },
+  } : { name: 'dry_run', label: 'Decision preview', payload: {} });
   const active = state.connected && fresh && running;
   const status = !state.connected || dashboard?.disconnected ? 'DISCONNECTED' : s?.alarm.active ? 'BLOCKED' : starting ? 'STARTING'
     : active ? (s?.mode.includes('wait') || s?.mode === 'pending_arm' ? 'STARTING' : 'ON') : 'OFF';
@@ -221,10 +230,10 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     {!dashboard && s && <AlarmBanner snapshot={s} onAcknowledge={id => void act(() => client.command('acknowledge', { incident_id: id }))} />}
     {tab === 'Bot' && <>
       {toolProps && <BowmanSetup {...toolProps} onSetup={setTab} />}
-      <label>Activity<select value={['dry_run', 'arm', 'autopotter_live'].includes(action.name) ? action.name : 'custom'} onChange={e => choose(e.target.value, e.target.selectedOptions[0].text)}>
+      <label>Activity<select value={!action.payload.circuit && ['dry_run', 'arm', 'autopotter_live'].includes(action.name) ? action.name : 'custom'} onChange={e => choose(e.target.value, e.target.selectedOptions[0].text)}>
         <option value="dry_run">Decision preview</option><option value="arm" disabled={s?.capture_only}>Combat + configured potions</option>
         <option value="autopotter_live" disabled={s?.capture_only}>Potions only</option>
-        {!['dry_run', 'arm', 'autopotter_live'].includes(action.name) && <option value="custom">{action.label}</option>}
+        {(Boolean(action.payload.circuit) || !['dry_run', 'arm', 'autopotter_live'].includes(action.name)) && <option value="custom">{action.label}</option>}
       </select></label>
       <p>{selectedGate?.reason}</p>
       <button className="primary master-toggle" disabled={disabled || (!running && !starting && selectedGate?.ready === false)} onClick={() => void toggle()}>Turn {running || starting ? 'Off' : 'On'} · F6</button>
@@ -246,6 +255,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     </>}
     {tab === 'Map' && toolProps && <>
       <MapTab snapshot={toolProps.snapshot} client={client} act={act} disabled={disabled}
+        onCircuit={selectCircuit}
         onPreview={() => setAction({ name: 'nav_start', label: 'Previewed navigation route', payload: { opt_in: false } })} />
       <NavigationPanel snapshot={toolProps.snapshot} client={client} act={act} disabled={disabled}
         areas={areas} supervised={supervised}
@@ -299,11 +309,11 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
           <aside className="dash-panel dash-rail" aria-label="Run controls and status">
             <div className="dash-state"><strong>{words[status]}</strong>{recordingFull && <span className="overlay-recording">REC{recordLeft == null ? '' : ` ${Math.ceil(recordLeft)} s`}</span>}</div>
             <label className="dash-field">Activity
-              <select value={['dry_run', 'arm', 'autopotter_live'].includes(action.name) ? action.name : 'custom'} disabled={running || starting}
+              <select value={!action.payload.circuit && ['dry_run', 'arm', 'autopotter_live'].includes(action.name) ? action.name : 'custom'} disabled={running || starting}
                 onChange={e => choose(e.target.value, e.target.selectedOptions[0].text)}>
                 <option value="dry_run">Decision preview</option><option value="arm" disabled={s?.capture_only}>Combat + configured potions</option>
                 <option value="autopotter_live" disabled={s?.capture_only}>Potions only</option>
-                {!['dry_run', 'arm', 'autopotter_live'].includes(action.name) && <option value="custom">{action.label}</option>}
+                {(Boolean(action.payload.circuit) || !['dry_run', 'arm', 'autopotter_live'].includes(action.name)) && <option value="custom">{action.label}</option>}
               </select></label>
             <div className="dash-row dashboard-controls">
               <button className={`dash-btn primary ${running || starting ? 'off' : ''}`} disabled={!canTurnOn} onClick={() => void toggle()}>Turn {running || starting ? 'Off' : 'On'}</button>
@@ -362,3 +372,4 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     </section>}
   </div>;
 }
+

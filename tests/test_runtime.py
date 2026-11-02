@@ -2148,3 +2148,20 @@ def test_circuit_arming_rejects_changed_revision_and_unsafe_return(app, monkeypa
     with pytest.raises(ValueError, match="ledge to floor"):
         app._prepare_rotation(True, circuit={"id": route["id"], "revision": route["revision"]})
     assert not app.controller.enabled
+
+
+def test_circuit_preview_does_not_require_or_change_tracked_map(app, monkeypatch):
+    from test_farming_routes import example
+    from test_navigation import fixture
+
+    from maplebot.navigation import RouteMap
+    profile, evidence = fixture()
+    monkeypatch.setattr(app.areas, "load", lambda area: {"profile": profile})
+    monkeypatch.setattr("maplebot.runtime.preview_graph",
+                        lambda value, proofs: RouteMap(value, evidence))
+    previous = app.position
+    result = app.request("farm_route_map", {"area_id": profile["id"]})
+    assert result["map_hash"] == evidence["map_hash"]
+    assert app.position is previous
+    assert app.request("farm_route_validate", {"route": example()})["valid"]
+    assert not app.controller.enabled
