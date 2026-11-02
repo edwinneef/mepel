@@ -2045,6 +2045,34 @@ def test_pose_collection_commands_are_opt_in_and_send_no_input(app):
     app.pose_collection.close()
 
 
+def test_nametag_label_names_a_taught_tag_without_touching_tracking(app):
+    import json
+
+    from maplebot.perception import NameTag
+
+    directory = app.data / "templates" / "nametag"
+    directory.mkdir(parents=True)
+    (directory / "alice.json").write_text(json.dumps({"player_size": [44, 64]}), encoding="utf-8")
+    tag = NameTag("alice", np.zeros((3, 3), np.uint8), 0)
+    app.detector.nametags = [tag]
+    app.detector.track_tag = "alice"
+    before = list(app.controller.backend.events)
+    assert app._command("nametag_label", {"identity": "alice", "label": " ScrollAddict "}) == {
+        "identity": "alice", "label": "ScrollAddict"}
+    assert app.snapshot()["pose_collection"]["labels"] == {"alice": "ScrollAddict"}
+    assert json.loads((directory / "alice.json").read_text("utf-8")) == {
+        "player_size": [44, 64], "label": "ScrollAddict"}
+    assert app.detector.track_tag == "alice"
+    with pytest.raises(ValueError, match="Unknown"):
+        app._command("nametag_label", {"identity": "bob", "label": "x"})
+    with pytest.raises(ValueError, match="24 printable"):
+        app._command("nametag_label", {"identity": "alice", "label": "a\tb"})
+    app._command("nametag_label", {"identity": "alice", "label": ""})
+    assert app.snapshot()["pose_collection"]["labels"] == {}
+    assert "label" not in json.loads((directory / "alice.json").read_text("utf-8"))
+    assert app.controller.backend.events == before
+
+
 def test_player_screenshot_activation_preserves_old_templates(app, monkeypatch):
     from dataclasses import asdict
     from types import SimpleNamespace

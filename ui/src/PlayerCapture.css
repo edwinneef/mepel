@@ -8,3 +8,6 @@
 .player-example img { width: 100%; height: 72px; object-fit: contain; image-rendering: pixelated; }
 .player-example input, .player-example-select-all input { width: auto; margin-right: 5px; }
 .player-example-select-all { display: block; margin-bottom: 8px; }
+.player-name { display: flex; align-items: flex-end; gap: 6px; margin: 0 0 8px; }
+.player-name label { flex: 1; display: grid; gap: 3px; }
+.player-name button { flex: none; }

@@ -29,6 +29,9 @@ class PerceptionConfig:
     max_candidates: int = 24
     nametag_confidence: float = 0.90
     nametag_partial: float = 0.6
+    # In-game name of the played character. When taught tags carry this label, only
+    # those are searched; empty (or no matching label) searches every taught tag.
+    player_name: str = ""
     track_seconds: float = 1.0
     track_max_seconds: float = 5.0
     roi_width: int = 700

@@ -170,6 +170,8 @@ class NameTag:
     player_size: tuple[int, int] = (44, 64)
     decoys: tuple[tuple[int, int], ...] = ()
     frame: tuple[int, int] | None = None
+    # Operator-entered in-game name, shown instead of the file id. Not used for matching.
+    label: str = ""
 
 
 # Text pixels are near-white. The translucent box behind them stays below this even
@@ -384,6 +386,7 @@ class TemplateDetector:
         self.nametags = [
             self.load_nametag(path) for path in sorted((self.directory / "nametag").glob("*.png"))
         ]
+        self.searched_tags: list[NameTag] = []
         self.fresh.clear()
         self.track, self.misses, self.search_window = None, 0, None
         self.lookalike_at = float("-inf")
@@ -488,6 +491,7 @@ class TemplateDetector:
             tuple(meta.get("player_size", (44, 64))),
             tuple(tuple(item) for item in meta.get("decoys", [])),
             tuple(meta["frame"]) if meta.get("frame") else None,
+            str(meta.get("label", "")),
         )
 
     def nametag_matches(self, gray: Image, tag: NameTag, floor: float,
@@ -1716,12 +1720,26 @@ class TemplateDetector:
         match, tag = confident[0]
         return self._player_area(self.body_from_nametag(tag, match.box), gray)
 
+    @property
+    def search_tags(self) -> list[NameTag]:
+        """Taught tags of the configured character; every tag when none carries its name.
+
+        Tags taught for other characters only cost search time, and a match on one would
+        mistake that character for the player.
+        """
+        name = self.config.player_name.strip().casefold()
+        chosen = [tag for tag in self.nametags
+                  if name and getattr(tag, "label", "").strip().casefold() == name]
+        return chosen or self.nametags
+
     def _nametag_search(self, gray: Image) -> list[Future[list[Detection]]]:
-        """Start matching every name tag in the pool, in self.nametags order."""
+        """Start matching each searched name tag in the pool, in self.search_tags order."""
         floor = max(0.5, self.config.nametag_confidence - 0.15)
         near_white = np.float32(gray >= NAMETAG_TEXT)
+        # Remember the pool so results pair with the same tags even if a label changes.
+        self.searched_tags = self.search_tags
         return [self.pool.submit(self.nametag_matches, gray, tag, floor, near_white)
-                for tag in self.nametags]
+                for tag in self.searched_tags]
 
     def _nametag_candidates(
         self, gray: Image, searches: list[Future[list[Detection]]] | None = None
@@ -1730,7 +1748,7 @@ class TemplateDetector:
         matches = sorted(
             (
                 (match, tag)
-                for tag, search in zip(self.nametags, searches, strict=True)
+                for tag, search in zip(self.searched_tags, searches, strict=True)
                 for match in search.result()
             ),
             key=lambda item: item[0].confidence,

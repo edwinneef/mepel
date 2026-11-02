@@ -3,6 +3,26 @@ import { useState } from 'react';
 import type { Snapshot } from './contracts';
 import type { EngineClient } from './client';
 
+/** The operator's in-game name for a taught tag, or its position when none was entered.
+ * Several tags can share one name (taught in different spots), so repeats show their id. */
+export function tagName(identity: string, identities: string[], labels: Record<string, string> = {}) {
+  const label = labels[identity];
+  if (!label) return `Taught name ${identities.indexOf(identity) + 1}`;
+  return identities.filter(other => labels[other] === label).length > 1 ? `${label} · ${identity.slice(0, 6)}` : label;
+}
+
+/** Taught tags grouped by in-game name: one entry per character, unnamed tags on their own. */
+export function tagGroups(identities: string[], labels: Record<string, string> = {}) {
+  const groups: { name: string; ids: string[] }[] = [];
+  for (const identity of identities) {
+    const label = labels[identity];
+    const group = label ? groups.find(item => item.name === label) : undefined;
+    if (group) group.ids.push(identity);
+    else groups.push({ name: label || tagName(identity, identities), ids: [identity] });
+  }
+  return groups;
+}
+
 export function PlayerCapture({ snapshot, client, act, disabled }: {
   snapshot: Snapshot; client: EngineClient; disabled: boolean;
   act: (operation: () => Promise<unknown>) => Promise<void>;
@@ -12,8 +32,17 @@ export function PlayerCapture({ snapshot, client, act, disabled }: {
   const [checked, setChecked] = useState<string[]>([]);
   const poses = snapshot.pose_collection;
   const identities = poses?.identities ?? [];
+  const labels = poses?.labels ?? {};
   const [identity, setIdentity] = useState('');
-  const selected = identities.includes(identity) ? identity : identities.includes(poses?.identity ?? '') ? poses!.identity : identities.length === 1 ? identities[0] : '';
+  const [rename, setRename] = useState<{ identity: string; value: string } | null>(null);
+  const groups = tagGroups(identities, labels);
+  // Default to the character recognition is following right now.
+  const trackedId = snapshot.player_tracking?.identity?.startsWith('nametag:')
+    ? snapshot.player_tracking.identity.slice('nametag:'.length) : '';
+  const tracked = identities.includes(trackedId) ? trackedId : '';
+  const selected = identities.includes(identity) ? identity : tracked
+    || (identities.includes(poses?.identity ?? '') ? poses!.identity : groups.length === 1 ? identities[0] : '');
+  const group = groups.find(item => item.ids.includes(selected));
   const available = (poses?.candidates ?? []).filter(candidate => !candidate.added);
   const chosen = checked.filter(id => available.some(candidate => candidate.id === id));
   const locked = disabled || busy || Boolean(poses?.enabled) || Boolean(poses?.pending);
@@ -23,17 +52,31 @@ export function PlayerCapture({ snapshot, client, act, disabled }: {
     finally { setBusy(false); }
   };
   return <div aria-label="Player screenshots">
-    {identities.length > 1 && <div className="player-picker">
+    {groups.length > 1 && <div className="player-picker">
       <button type="button" className="player-picker-toggle" aria-expanded={choosing}
         disabled={disabled || busy || poses?.enabled} onClick={() => setChoosing(!choosing)}>
-        <span>{selected ? `Taught name ${identities.indexOf(selected) + 1}` : 'Select taught name'}</span><span aria-hidden="true">{choosing ? '^' : 'v'}</span>
+        <span>{group ? group.name : 'Select taught name'}</span><span aria-hidden="true">{choosing ? '^' : 'v'}</span>
       </button>
       {choosing && <div className="player-picker-options" role="group" aria-label="Taught names">
-        {identities.map((name, index) => <button key={name} type="button" title={name}
-          aria-pressed={selected === name} disabled={disabled || busy || poses?.enabled}
-          onClick={() => { setIdentity(name); setChoosing(false); }}>Taught name {index + 1}{selected === name ? ' (selected)' : ''}</button>)}
+        {groups.map(item => <button key={item.ids[0]} type="button" title={item.ids.join(', ')}
+          aria-pressed={group === item} disabled={disabled || busy || poses?.enabled}
+          onClick={() => { setIdentity(item.ids.includes(tracked) ? tracked : item.ids[0]); setChoosing(false); }}>
+          {item.name}{item.ids.includes(tracked) ? ' (playing)' : ''}{group === item ? ' (selected)' : ''}</button>)}
       </div>}
     </div>}
+    {selected && <form className="player-name" onSubmit={event => {
+      event.preventDefault();
+      if (rename?.identity !== selected) return;
+      // Every tag taught for this character carries the same name.
+      const ids = group?.ids ?? [selected];
+      void act(async () => { for (const id of ids) await client.command('nametag_label', { identity: id, label: rename.value }); })
+        .then(() => setRename(null));
+    }}>
+      <label>In-game name<input aria-label="In-game name" maxLength={24} disabled={disabled}
+        placeholder={tagName(selected, identities)} value={rename?.identity === selected ? rename.value : labels[selected] ?? ''}
+        onChange={event => setRename({ identity: selected, value: event.target.value })} /></label>
+      <button type="submit" disabled={disabled || rename?.identity !== selected}>Save name</button>
+    </form>}
     <button disabled={disabled || busy || !poses || (!poses.enabled && (!selected || poses.pending > 0))}
       onClick={() => void run(poses?.enabled ? { enabled: false } : { enabled: true, identity: selected, outfit: `capture-${Date.now()}` })}>
       {poses?.enabled ? 'Cancel screenshot capture' : 'Capture player screenshots'}</button>

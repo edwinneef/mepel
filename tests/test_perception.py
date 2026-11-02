@@ -466,6 +466,24 @@ def test_partly_covered_tag_of_another_player_never_extends_the_track(tmp_path):
     assert detector.detect(tag_scene(covered), now=0.3).player is None
 
 
+def test_player_name_searches_only_that_characters_tags(tmp_path):
+    mine, other = name_tag(), name_tag(seed=11)
+    teach_tag(tmp_path, mine)
+    cv2.imwrite(str(tmp_path / "nametag" / "other.png"), other)
+    (tmp_path / "nametag" / "name.json").write_text('{"label": "ScrollAddict"}', "utf-8")
+    (tmp_path / "nametag" / "other.json").write_text('{"label": "Bowcaine"}', "utf-8")
+    everyone = TemplateDetector(tmp_path, PerceptionConfig())
+    assert [tag.name for tag in everyone.search_tags] == ["name", "other"]
+    detector = TemplateDetector(tmp_path, PerceptionConfig(player_name=" scrolladdict "))
+    assert [tag.name for tag in detector.search_tags] == ["name"]
+    # The other character's tag is neither searched nor taken for the player.
+    assert detector.detect(tag_scene(other), now=0).player is None
+    assert everyone.detect(tag_scene(other), now=0).player.template == "nametag:other:tag-only"
+    assert detector.detect(tag_scene(mine), now=1).player.template == "nametag:name:tag-only"
+    unnamed = TemplateDetector(tmp_path, PerceptionConfig(player_name="Nobody"))
+    assert len(unnamed.search_tags) == 2  # no tag carries the name: search every tag
+
+
 def test_named_track_requires_prior_full_name_and_expires(tmp_path):
     teach_tag(tmp_path, name_tag())
     detector = TemplateDetector(tmp_path, PerceptionConfig())

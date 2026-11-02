@@ -511,6 +511,9 @@ class Application:
                                    f"captured-{candidate['id']}.png").is_file())
                                    for candidate in self.pose_collection.snapshot()["candidates"]],
                     "identities": [tag.name for tag in getattr(self.detector, "nametags", [])],
+                    "labels": {tag.name: tag.label for tag in getattr(self.detector, "nametags", [])
+                               if getattr(tag, "label", "")},
+                    "searched": [tag.name for tag in getattr(self.detector, "search_tags", [])],
                 },
                 "schema_version": 1,
                 "session_id": self.session_id,
@@ -1279,6 +1282,24 @@ class Application:
             if identity not in {tag.name for tag in self.detector.nametags}:
                 raise ValueError("Select a taught name before collecting poses")
             return self.pose_collection.configure(identity, str(payload.get("outfit", "")))
+        if name == "nametag_label":
+            identity = str(payload.get("identity", ""))
+            label = str(payload.get("label", "")).strip()
+            if len(label) > 24 or any(not char.isprintable() for char in label):
+                raise ValueError("In-game name must be at most 24 printable characters")
+            tags = self.detector.nametags
+            index = next((i for i, tag in enumerate(tags) if tag.name == identity), None)
+            if index is None:
+                raise ValueError("Unknown taught name")
+            # Display only: matching uses the tag's pixels, so tracking state stays untouched.
+            meta_path = self.data / "templates" / "nametag" / f"{identity}.json"
+            meta = json.loads(meta_path.read_text("utf-8")) if meta_path.exists() else {}
+            meta = {key: value for key, value in meta.items() if key != "label"}
+            if label:
+                meta["label"] = label
+            meta_path.write_text(json.dumps(meta), encoding="utf-8")
+            self.detector.nametags[index] = replace(self.detector.nametags[index], label=label)
+            return {"identity": identity, "label": label}
         if name == "range_profile":
             profile_name = payload.get("profile")
             range_profile(profile_name)

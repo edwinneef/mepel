@@ -1,4 +1,4 @@
-import { PlayerCapture } from './PlayerCapture';
+import { PlayerCapture, tagGroups } from './PlayerCapture';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Selection, Snapshot, WindowInfo } from './contracts';
@@ -37,7 +37,7 @@ export function TrackingTool({ snapshot: s, client, act, selected, disabled }: T
     <Group title="Pose collection">
       <p>Save candidate appearances while you play. This sends no input and does not change recognition.</p>
       <label>Character name<select aria-label="Pose character" disabled={disabled || poses?.enabled} value={poseIdentity} onChange={event => setPoseIdentity(event.target.value)}>
-        <option value="">Select a taught name</option>{poses?.identities.map((identity, index) => <option key={identity} value={identity}>Taught name {index + 1} ({identity.slice(0, 6)})</option>)}
+        <option value="">Select a taught name</option>{poses && tagGroups(poses.identities, poses.labels).map(item => <option key={item.ids[0]} value={item.ids[0]}>{item.name}</option>)}
       </select></label>
       <label>Outfit label<input aria-label="Pose outfit" disabled={disabled || poses?.enabled} value={poseOutfit} onChange={event => setPoseOutfit(event.target.value)} /></label>
       <p>Use a new outfit label to start a separate collection.</p>

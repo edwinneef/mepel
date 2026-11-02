@@ -35,6 +35,42 @@ it('selects taught names with widget buttons instead of a native popup', async (
   await waitFor(() => expect(command).toHaveBeenCalledWith('pose_collection', expect.objectContaining({ enabled: true, identity: 'bob' })));
 });
 
+it('shows and saves in-game names for taught tags', async () => {
+  const client = new EngineClient('token', vi.fn());
+  const command = vi.spyOn(client, 'command').mockResolvedValue({});
+  const poses = { enabled: false, identity: '', outfit: '', identities: ['aaaaaa1', 'bbbbbb2', 'cccccc3'],
+    labels: { aaaaaa1: 'ScrollAddict', bbbbbb2: 'ScrollAddict' }, saved: 0, duplicates: 0, rejected: 0, pending: 0, limit: 32, reason: 'Off' };
+  render(<PlayerCapture snapshot={snapshot({ pose_collection: poses })} client={client} act={async op => { await op(); }} disabled={false} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Select taught name' }));
+  // One entry per character, however many tags were taught for it.
+  expect(screen.getAllByRole('button', { name: /ScrollAddict/ })).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Taught name 3' }));
+  const input = screen.getByLabelText('In-game name') as HTMLInputElement;
+  expect(input.value).toBe('');
+  fireEvent.change(input, { target: { value: 'Bowcaine' } });
+  fireEvent.click(screen.getByText('Save name'));
+  await waitFor(() => expect(command).toHaveBeenCalledWith('nametag_label', { identity: 'cccccc3', label: 'Bowcaine' }));
+});
+
+it('selects the character being tracked by default and names all of its tags together', async () => {
+  const client = new EngineClient('token', vi.fn());
+  const command = vi.spyOn(client, 'command').mockResolvedValue({});
+  const poses = { enabled: false, identity: 'cccccc3', outfit: '', identities: ['aaaaaa1', 'bbbbbb2', 'cccccc3'],
+    labels: { aaaaaa1: 'ScrollAddict', bbbbbb2: 'ScrollAddict', cccccc3: 'Bowcaine' }, saved: 0, duplicates: 0, rejected: 0, pending: 0, limit: 32, reason: 'Off' };
+  const base = snapshot({ pose_collection: poses });
+  const current = { ...base, player_tracking: { state: 'confirmed' as const, predicted: null, observed: null, search: null,
+    confidence: 1, identity: 'nametag:bbbbbb2', since_confirmed: 0 } };
+  render(<PlayerCapture snapshot={current} client={client} act={async op => { await op(); }} disabled={false} />);
+  expect(screen.getByRole('button', { name: 'ScrollAddict' })).toBeTruthy();
+  fireEvent.click(screen.getByText('Capture player screenshots'));
+  await waitFor(() => expect(command).toHaveBeenCalledWith('pose_collection', expect.objectContaining({ identity: 'bbbbbb2' })));
+  fireEvent.change(screen.getByLabelText('In-game name'), { target: { value: 'Scroll' } });
+  fireEvent.click(screen.getByText('Save name'));
+  await waitFor(() => expect(command).toHaveBeenCalledWith('nametag_label', { identity: 'bbbbbb2', label: 'Scroll' }));
+  expect(command).toHaveBeenCalledWith('nametag_label', { identity: 'aaaaaa1', label: 'Scroll' });
+  expect(command).not.toHaveBeenCalledWith('nametag_label', expect.objectContaining({ identity: 'cccccc3' }));
+});
+
 it('shows rejection reasons after a zero-screenshot capture ends', () => {
   const poses = { enabled: false, identity: 'alice', outfit: 'one', identities: ['alice'], saved: 0, duplicates: 0, rejected: 12, pending: 0, limit: 32, reason: 'Capture complete', last_rejection: 'Nearby appearance overlaps collection', rejection_reasons: { 'Nearby appearance overlaps collection': 12 } };
   render(<PlayerCapture snapshot={snapshot({ pose_collection: poses })} client={new EngineClient('token', vi.fn())} act={async op => { await op(); }} disabled={false} />);
