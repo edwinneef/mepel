@@ -123,6 +123,12 @@ def serve(
                     result = overlay.heartbeat(payload)
                     self.reply(200, json.dumps(result).encode(), "application/json")
                     return
+                if self.path == "/api/overlay_companion":
+                    if not isinstance(payload, dict):
+                        raise ValueError("Widget payload must be an object")
+                    result = overlay.companion_heartbeat(payload)
+                    self.reply(200, json.dumps(result).encode(), "application/json")
+                    return
                 if self.path in {"/api/dashboard", "/api/dashboard_disconnect"}:
                     if not isinstance(payload, dict):
                         raise ValueError("Dashboard payload must be an object")

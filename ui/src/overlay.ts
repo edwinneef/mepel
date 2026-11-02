@@ -6,6 +6,7 @@ export interface OverlayEvent { type: string; value?: unknown }
 declare global {
   interface Window {
     mapleOverlay?: {
+      companion?: boolean;
       settings(open: boolean): Promise<void>; quit(): Promise<void>; heartbeat(): void;
       batch?(request: { kind: 'learn' | 'single'; area: string }): Promise<{ started: boolean; reason?: string }>;
       interactive?(rects: { x: number; y: number; width: number; height: number }[]): void;

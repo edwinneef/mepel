@@ -17,6 +17,7 @@ ipcRenderer.on('overlay-event', (_event, value) => {
   if (value.type === 'panel') { dragging = false; lastInteractive = null; mouse(false); }
 });
 contextBridge.exposeInMainWorld('mapleOverlay', {
+  companion: true,
   settings: open => ipcRenderer.invoke('overlay-settings', open),
   quit: () => ipcRenderer.invoke('overlay-quit'),
   heartbeat: () => ipcRenderer.send('overlay-paint'),

@@ -10,6 +10,7 @@ const base = `http://127.0.0.1:${port}`;
 const owner = randomUUID();
 let win, token, panel = false, quitting = false, lastPaint = 0, polling = false;
 let session = null, lastBounds = '', transition = false, batch = null;
+let controllerReady = false;
 // Screen areas of the in-game menu, in window pixels, reported by the renderer.
 let menuRects = [], hovering = false, takingMouse = false;
 const validRect = rect => rect && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key]))
@@ -42,13 +43,22 @@ async function post(route, body) {
     body: JSON.stringify(body), signal: AbortSignal.timeout(1500),
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(value.error || `Engine ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(value.error || `Engine ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   return value;
 }
 const stop = () => post('stop', {}).catch(() => {});
 const send = (type, value) => { if (win && !win.isDestroyed()) win.webContents.send('overlay-event', { type, value }); };
-const heartbeat = open => post('overlay', { owner, panel: open,
-  hwnd: Number(win.getNativeWindowHandle().readBigUInt64LE()) });
+const heartbeat = async open => {
+  const state = await post('overlay_companion', { owner, panel: open,
+    hwnd: Number(win.getNativeWindowHandle().readBigUInt64LE()) });
+  controllerReady = state.controller_ready === true;
+  send('controller', controllerReady);
+  return state;
+};
 function keepAboveGame() {
   // Win32 show/click-through transitions can clear WS_EX_TOPMOST while Electron
   // still caches true. Force the native transition without activating the window.
@@ -58,10 +68,18 @@ function keepAboveGame() {
 }
 // One guarded batch at a time from the in-game menu: the same tool the start window runs,
 // so its focus handoff, preflight, bounded session, result file and alarm stay identical.
-function startBatch(request) {
+async function startBatch(request) {
   const kind = request?.kind, area = String(request?.area ?? '');
   if (!['learn', 'single'].includes(kind) || !/^[a-f0-9]{32}$/.test(area)) {
     return { started: false, reason: 'Invalid batch request' };
+  }
+  if (batch) return { started: false, reason: 'A batch is already running' };
+  if (Date.now() - lastPaint >= 1200) {
+    return { started: false, reason: 'Widget renderer is not fresh' };
+  }
+  await heartbeat(false);
+  if (!controllerReady) {
+    return { started: false, reason: 'Connect the browser dashboard before starting a batch' };
   }
   if (batch) return { started: false, reason: 'A batch is already running' };
   const root = path.resolve(__dirname, '..', '..');
@@ -102,7 +120,10 @@ async function settings(open) {
     // Click-through/show transitions can clear the native topmost flag on Windows.
     keepAboveGame();
     send('panel', open);
-  } catch (error) { send('error', error.message); }
+  } catch (error) {
+    send('error', error.message);
+    if (error.status >= 400 && error.status < 500) app.quit();
+  }
   finally { transition = false; }
 }
 async function poll() {
@@ -119,7 +140,7 @@ async function poll() {
     }
     session = status.session_id;
     // Read session identity before using the token: restarts rotate credentials.
-    // A stalled renderer also loses its input lease.
+    // A stalled renderer stops renewing companion health; dashboard control is separate.
     if (Date.now() - lastPaint < 1200 && !transition) {
       const lease = await heartbeat(panel);
       if (lease.close_requested && panel) await settings(false);
@@ -141,8 +162,11 @@ async function poll() {
       keepAboveGame();
     }
   } catch (error) {
+    controllerReady = false;
+    send('controller', false);
     send('error', error.message);
     send('game-bounds', null);
+    if (error.status >= 400 && error.status < 500) app.quit();
   } finally { polling = false; }
 }
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -209,7 +233,7 @@ else app.whenReady().then(async () => {
           await fs.writeFile(path.join(directory, 'overlay.png'), (await win.webContents.capturePage()).toPNG());
           await fs.writeFile(path.join(directory, 'window.json'), JSON.stringify({
             bounds: win.getBounds(), hwnd: win.getNativeWindowHandle().readBigUInt64LE().toString(),
-            panel, session, contentProtected: win.isContentProtected(),
+            panel, session, companion: true, controllerReady, contentProtected: win.isContentProtected(),
           }, null, 2));
           await settings(false);
           await fs.writeFile(path.join(directory, 'click-through.json'), JSON.stringify({

@@ -328,3 +328,30 @@ def test_shutdown_rejects_invalid_tokens_and_missing_supervision(available, toke
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_widget_companion_route_preserves_dashboard_ownership_and_checks_auth():
+    app = RestartApp()
+    app.stop_requested = threading.Event()
+    app.closed = threading.Event()
+    app.active_probe = None
+    app.safe_stop = lambda *args, **kwargs: app.events.append("released") or app.held.clear()
+    server = serve(app, 0)
+    app.overlay.worker = True
+    try:
+        _, page = request(server, "GET", "/legacy")
+        token = re.search(r"const token='([^']+)'", page)[1]
+        widget = {"owner": "w" * 32, "hwnd": 123}
+        assert request(server, "POST", "/api/overlay_companion", "invalid", widget)[0] == 403
+        dashboard = {"owner": "d" * 32, "panel": False}
+        assert request(server, "POST", "/api/dashboard", token, dashboard)[0] == 200
+        events = list(app.events)
+        code, body = request(server, "POST", "/api/overlay_companion", token, widget)
+        assert code == 200 and json.loads(body)["controller_ready"] is True
+        assert app.overlay.owner == dashboard["owner"]
+        assert app.overlay.surface == "dashboard" and app.events == events
+        assert request(server, "POST", "/api/dashboard", token, dashboard)[0] == 200
+    finally:
+        app.closed.set()
+        server.shutdown()
+        server.server_close()

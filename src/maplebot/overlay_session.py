@@ -19,6 +19,29 @@ class OverlaySession:
         self.expired = False
         self.worker = None
         self.close_requested = False
+        self.companions = {}
+
+    def companion_heartbeat(self, payload):
+        """Observe widget health without granting or extending control ownership."""
+        owner = payload.get("owner")
+        if not isinstance(owner, str) or not 16 <= len(owner) <= 80:
+            raise ValueError("Invalid widget owner")
+        if windows := getattr(self.app, "windows", None):
+            windows.verify_overlay(payload.get("hwnd"))
+        with self.lock:
+            self.companions[owner] = self.clock() + 2
+            self._start_watch()
+            return {"connected": True, "controller_ready": self.dashboard_ready()}
+
+    def dashboard_ready(self):
+        return bool(self.owner and self.surface == "dashboard" and not self.expired
+                    and self.clock() < self.deadline)
+
+    def _start_watch(self):
+        if self.worker is None:
+            self.worker = threading.Thread(target=self._watch, daemon=True,
+                                           name="overlay-lease")
+            self.worker.start()
 
     def heartbeat(self, payload):
         if windows := getattr(self.app, "windows", None):
@@ -50,10 +73,7 @@ class OverlaySession:
             self.deadline, self.expired = self.clock() + 2, False
             if opening or replacing:
                 self.pause()
-            if self.worker is None:
-                self.worker = threading.Thread(target=self._watch, daemon=True,
-                                               name="overlay-lease")
-                self.worker.start()
+            self._start_watch()
         return {"connected": True, "panel": panel, "close_requested": self.close_requested}
 
     def dashboard_disconnect(self, payload):
@@ -91,6 +111,11 @@ class OverlaySession:
                 self.expired = True
                 self.app.stop_requested.set()
                 self.app.safe_stop("OPERATOR_STOP", f"{self.surface.title()} disconnected; bot off")
+            for owner, deadline in list(self.companions.items()):
+                if deadline is not None and self.clock() >= deadline:
+                    self.companions[owner] = None
+                    self.app.stop_requested.set()
+                    self.app.safe_stop("OPERATOR_STOP", "Widget disconnected; bot off")
 
     def _watch(self):
         while not self.app.closed.wait(0.1):
@@ -100,6 +125,8 @@ class OverlaySession:
         # Watchdog reads must never wait for a lease writer that is releasing keys.
         if self.owner and (self.expired or self.clock() >= self.deadline):
             return f"{self.surface.title()} disconnected; reconnect before starting"
+        if self.companions and not self.dashboard_ready():
+            return "Connect the browser dashboard before starting from the widget"
         # Open settings no longer refuse a start (operator decision, 2026-11-01);
         # opening them still stops running work.
         return None

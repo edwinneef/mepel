@@ -12,7 +12,7 @@ function fakeChild() {
 }
 
 let cursor = { x: 0, y: 0 };
-async function startOverlay() {
+async function startOverlay(controllerReady = true) {
   const shortcuts = new Map(), requests = [], intervals = [];
   const spawn = vi.fn(() => fakeChild());
   const win = {
@@ -46,7 +46,7 @@ async function startOverlay() {
     fetch: async (url, options) => {
       if (options?.body) requests.push({ url, body: JSON.parse(options.body) });
       return { ok: true, text: async () => '<meta name="debug-token" content="token">',
-        json: async () => ({ connected: true }) };
+        json: async () => ({ connected: true, controller_ready: controllerReady }) };
     },
   });
   await started;
@@ -65,7 +65,7 @@ it('starts Off with settings closed and click-through without activating the ove
   expect(win.moveTop).toHaveBeenCalled();
   expect(win.setIgnoreMouseEvents).toHaveBeenCalledWith(true, { forward: true });
   expect(requests.map(request => request.url)).toEqual([
-    'http://127.0.0.1:8765/api/stop', 'http://127.0.0.1:8765/api/overlay',
+    'http://127.0.0.1:8765/api/stop', 'http://127.0.0.1:8765/api/overlay_companion',
   ]);
   expect(requests[1].body.panel).toBe(false);
   expect(win.webContents.send).toHaveBeenCalledWith('overlay-event', { type: 'panel', value: false });
@@ -110,23 +110,24 @@ it('keeps a visible overlay shown without repeating Win32 show transitions on ev
 
 it('starts one guarded batch tool at a time from the in-game menu, validating the request', async () => {
   const { win, electron, spawn } = await startOverlay();
+  electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: win.webContents });
   const launch = electron.ipcMain.handle.mock.calls.find(([name]) => name === 'overlay-batch')[1];
   const own = { sender: win.webContents };
   expect(launch({ sender: {} }, { kind: 'learn', area: 'a'.repeat(32) }).started).toBe(false);
-  expect(launch(own, { kind: 'learn', area: '../x' }).started).toBe(false);
-  expect(launch(own, { kind: 'jump', area: 'a'.repeat(32) }).started).toBe(false);
+  expect((await launch(own, { kind: 'learn', area: '../x' })).started).toBe(false);
+  expect((await launch(own, { kind: 'jump', area: 'a'.repeat(32) })).started).toBe(false);
   expect(spawn).not.toHaveBeenCalled();
-  expect(launch(own, { kind: 'single', area: 'a'.repeat(32) })).toEqual({ started: true });
+  expect(await launch(own, { kind: 'single', area: 'a'.repeat(32) })).toEqual({ started: true });
   const [, args] = spawn.mock.calls[0];
   expect(args).toEqual(['-m', 'tools.prepared_farm_check', '--area', 'a'.repeat(32), '--run', '--focus',
     '--minutes', '15', '--single']);
-  expect(launch(own, { kind: 'learn', area: 'a'.repeat(32) }).reason).toBe('A batch is already running');
+  expect((await launch(own, { kind: 'learn', area: 'a'.repeat(32) })).reason).toBe('A batch is already running');
   const child = spawn.mock.results[0].value;
   child.handlers['out:data'](Buffer.from('{"outcome": "nothing_left"}\n'));
   child.handlers.close(0);
   expect(win.webContents.send).toHaveBeenLastCalledWith('overlay-event', { type: 'batch',
     value: { running: false, kind: 'single', code: 0, output: '{"outcome": "nothing_left"}\n' } });
-  expect(launch(own, { kind: 'learn', area: 'a'.repeat(32) })).toEqual({ started: true });
+  expect(await launch(own, { kind: 'learn', area: 'a'.repeat(32) })).toEqual({ started: true });
   expect(spawn.mock.calls[1][1]).toContain('5');
 });
 
@@ -144,4 +145,17 @@ it('takes the mouse while the cursor is inside the reported menu area, without f
   rects({ sender: win.webContents }, [{ x: 1100, y: 40, width: 236, height: 200 }]);
   expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true, { forward: true });
   cursor = { x: 0, y: 0 };
+});
+
+it('registers only companion health and refuses batch input without a live dashboard controller', async () => {
+  const { win, electron, requests, spawn } = await startOverlay(false);
+  expect(requests.some(request => request.url.endsWith('/api/overlay'))).toBe(false);
+  expect(requests.some(request => request.url.endsWith('/api/dashboard'))).toBe(false);
+  expect(requests.some(request => request.url.endsWith('/api/overlay_companion'))).toBe(true);
+  electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: win.webContents });
+  const launch = electron.ipcMain.handle.mock.calls.find(([name]) => name === 'overlay-batch')[1];
+  expect(await launch({ sender: win.webContents }, { kind: 'learn', area: 'a'.repeat(32) }))
+    .toEqual({ started: false, reason: 'Connect the browser dashboard before starting a batch' });
+  expect(spawn).not.toHaveBeenCalled();
+  expect(win.webContents.send).toHaveBeenCalledWith('overlay-event', { type: 'controller', value: false });
 });

@@ -157,3 +157,38 @@ def test_dashboard_disconnect_cannot_expire_native_owner_with_same_id():
     assert lease.dashboard_disconnect({"owner": "a" * 32}) == {"disconnected": False}
     lease.guard("arm")
     assert len(events) == 1
+
+
+def test_widget_companion_does_not_claim_or_renew_dashboard_control():
+    lease, _, now, events = fixture()
+    lease.dashboard_heartbeat({"owner": "d" * 32, "panel": False})
+    result = lease.companion_heartbeat({"owner": "w" * 32})
+    assert result["controller_ready"] is True
+    assert lease.owner == "d" * 32 and lease.surface == "dashboard"
+    deadline = lease.deadline
+    now[0] = 1
+    lease.companion_heartbeat({"owner": "w" * 32})
+    assert lease.deadline == deadline and len(events) == 1
+    now[0] = 2.1
+    assert lease.companion_heartbeat({"owner": "w" * 32})["controller_ready"] is False
+    with pytest.raises(ValueError, match="Dashboard disconnected"):
+        lease.guard("arm")
+    lease.check()
+    assert len(events) == 2
+
+
+def test_widget_loss_stops_once_without_disconnecting_dashboard():
+    lease, _, now, events = fixture()
+    lease.companion_heartbeat({"owner": "w" * 32})
+    with pytest.raises(ValueError, match="dashboard"):
+        lease.guard("arm")
+    lease.dashboard_heartbeat({"owner": "d" * 32, "panel": False})
+    now[0] = 1.5
+    lease.dashboard_heartbeat({"owner": "d" * 32, "panel": False})
+    now[0] = 2.1
+    lease.check()
+    assert len(events) == 2 and "Widget" in events[-1][1]
+    assert lease.owner == "d" * 32 and not lease.expired
+    lease.check()
+    assert len(events) == 2
+    lease.guard("stop")
