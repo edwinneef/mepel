@@ -137,6 +137,15 @@ class LivePosition:
                 source, digest = cached(self.store.directory, map_id, missing_cache)
             if public and digest != public["sha256"]:
                 raise ValueError("Cached public layout changed; import the map again")
+            if calibration and profile.get("automatic_alignment"):
+                # Automatic import placed platforms in public-map world pixels; the walk
+                # calibration measures in reference-view pixels. Re-place the public map
+                # through the calibration, as an import after a walk calibration does.
+                from .public_map import build_area
+
+                self.store.save(build_area(profile, reference, source, digest))
+                self._load(area_id)
+                return
             terrain = picture(source["miniMap"])
             if automatic:
                 verified = align(reference, view["minimap"]["canvas"], source["miniMap"])

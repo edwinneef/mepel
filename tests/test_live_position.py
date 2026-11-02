@@ -232,11 +232,22 @@ def test_passive_calibration_supersedes_unverified_automatic_alignment(store, mo
     monkeypatch.setattr("maplebot.public_map.cached", lambda *args: ({"miniMap": {}}, "a" * 64))
     monkeypatch.setattr("maplebot.public_map.picture", lambda *_: None)
     monkeypatch.setattr("maplebot.live_position.align", lambda *args: alignment)
+    replaced = []
+
+    def build_area(saved, reference, source, digest):
+        # Real geometry re-placement is covered by the public_map tests.
+        replaced.append(saved["minimap_calibration"]["pairs"])
+        return {key: value for key, value in saved.items() if key != "automatic_alignment"}
+
+    monkeypatch.setattr("maplebot.public_map.build_area", build_area)
     position = LivePosition(store, AREA)
     try:
         assert position.automatic is not None
         walk_passively(position, [(dx, 0) for dx in range(10, 200, 8)])
         assert position.automatic is None and position.calibration is not None
+        # Platforms from the automatic import are re-placed through the walk calibration.
+        assert len(replaced) == 1
+        assert "automatic_alignment" not in store.load(AREA)["profile"]
         located = [step(position, 60, 20 + index * 0.2) for index in range(3)]
         assert located[-1]["map_alignment"] is None
         assert located[-1]["kind"] == "platform"
