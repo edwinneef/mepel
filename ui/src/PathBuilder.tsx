@@ -245,7 +245,7 @@ export function PathBuilder({ profile, mapHash, client, disabled, options, onSel
             <span className="path-idea-draw" aria-hidden="true">✎</span><strong>Draw your own</strong><small>Hold the mouse and sweep across platforms in order.</small></button></div></>}
       <p className={`path-next ${blockedLeg >= 0 ? 'bad' : ''}`} role="status">{hint ? `${hint} ` : ''}{status}</p>
       <div className="path-workspace">
-        <div><div className="path-toolbar"><label>Zoom <input aria-label="Circuit zoom" type="range" min="1" max="4" step="0.25" value={zoom} onChange={event => setZoom(Number(event.target.value))} /></label>
+        <div><div className="path-mapbox"><div className="path-toolbar path-map-tools"><label>Zoom <input aria-label="Circuit zoom" type="range" min="1" max="4" step="0.25" value={zoom} onChange={event => setZoom(Number(event.target.value))} /></label>
           <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Fit map</button>
           <button disabled={!history.length} onClick={() => { epoch.current++; onSelect?.(null); setFuture([route, ...future]); setRoute(history.at(-1)!); setHistory(history.slice(0, -1)); setDirty(true); setResult(null); setHint(''); }}>Undo</button>
           <button disabled={!future.length} onClick={() => { epoch.current++; onSelect?.(null); setHistory([...history, route]); setRoute(future[0]); setFuture(future.slice(1)); setDirty(true); setResult(null); setHint(''); }}>Redo</button>
@@ -262,7 +262,7 @@ export function PathBuilder({ profile, mapHash, client, disabled, options, onSel
             {shownLegs.map((item, index) => <LegDrawing key={index} leg={item} index={index} centers={centers} selected={index === leg && !sketch} />)}
             {shown.map((id, index) => { const at = badgeAt(index); return at ? <g key={index} className="path-badge"><circle cx={at.x} cy={at.y - 30} r={14} /><text x={at.x} y={at.y - 30}>{index + 1}</text></g> : null; })}
             {sketch && <polyline className="path-trail" points={sketch.trail.map(point => `${point.x},${point.y}`).join(' ')} />}
-          </svg>
+          </svg></div>
           <p className="path-legend"><span><b>Drag</b> across platforms to draw the order</span><span><b>Click</b> a platform to switch it on or off</span><span><b>Shift+drag</b> pans when zoomed</span></p>
         </div>
         <div className="path-stops"><label>Path name <input maxLength={100} value={route.name} onChange={event => change({ ...route, name: event.target.value })} /></label>

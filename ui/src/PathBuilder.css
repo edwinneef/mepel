@@ -77,3 +77,10 @@
 .path-chip.blocked { opacity: .45; cursor: not-allowed; text-decoration: line-through; }
 .path-chip:has(:focus-visible) { outline: 2px solid var(--gold, #a6c2de); outline-offset: 1px; }
 .path-stops ol[aria-label="Farming stops"] { max-height: 240px; overflow: auto; }
+/* Map and side panel are matching boxes that start level; map controls sit inside the map box. */
+.path-mapbox, .path-stops { background: var(--deep, #151e29); border: 1px solid var(--line-soft, var(--border)); border-radius: 8px; }
+.path-mapbox { overflow: hidden; }
+.path-mapbox .path-canvas { border: 0; border-radius: 0; background: transparent; }
+.path-builder .path-map-tools { margin: 0; padding: 8px 10px; gap: 6px; border-bottom: 1px solid var(--line-soft, var(--border)); }
+.path-builder .path-map-tools label { display: flex; align-items: center; gap: 8px; margin: 0 6px 0 0; }
+.path-map-tools input[type=range] { width: 120px; margin: 0; }
