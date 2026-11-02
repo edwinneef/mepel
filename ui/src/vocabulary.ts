@@ -66,7 +66,7 @@ export function startChecks(s: Snapshot | null | undefined, ctx: CheckContext): 
     { id: 'engine', label: 'Engine connected', ok: connected, miss: 'the engine is not connected',
       fix: 'Start the engine, then reload this page.' },
     { id: 'restart', label: 'New keys in use', ok: !s?.key_settings?.restart_required,
-      miss: 'the new keys need an engine restart', fix: 'Run tools/restart_engine.ps1 -EnableGameplayInput, then test the changed keys.' },
+      miss: 'the new keys need an engine restart', fix: 'Run .\\restart.ps1 in the project root, then test the changed keys.' },
     { id: 'focus', label: 'Game window in front', ok: connected && Boolean(s?.focused),
       miss: 'the game is behind another window', fix: 'Click Bring game to front.', action: 'focus_game' },
     { id: 'player', label: 'Character recognised', ok: connected && player,

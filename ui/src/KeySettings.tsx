@@ -99,7 +99,7 @@ export function KeySettings({ snapshot: s, client, disabled, onTest }: {
   const feed = Number(value('pet_feed_seconds') ?? 600);
   return <div className="c-keys">
     {settings.restart_required && <p className="c-banner warn">New keys are saved. Restart the engine to use them; until then every start is refused.
-      Run <code>tools/restart_engine.ps1 -EnableGameplayInput</code>, then test the changed potion keys.</p>}
+      Run <code>.\restart.ps1</code> in the project root, then test the changed potion keys.</p>}
     {!settings.editable && <p className="c-quiet">This engine session was started without a config file, so keys are read-only.</p>}
     <section className="c-card"><h2>Keys in the game</h2>
       <p className="c-quiet">Use the same keys as your in-game key setup. Arrow keys always move the character.</p>

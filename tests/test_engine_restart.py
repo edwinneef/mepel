@@ -10,7 +10,7 @@ import pytest
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows engine launcher")
-def test_restart_keeps_browser_control_and_native_overlay_requires_opt_in(tmp_path):
+def test_restart_starts_engine_and_overlay_unless_told_not_to(tmp_path):
     tools = tmp_path / "tools"
     tools.mkdir()
     source = Path(__file__).resolve().parents[1] / "tools/restart_engine.ps1"
@@ -55,13 +55,13 @@ def test_restart_keeps_browser_control_and_native_overlay_requires_opt_in(tmp_pa
         }
         function Start-Sleep { param($Milliseconds, $Seconds) }
         $rows = @()
-        foreach ($case in @('browser-default', 'restart-overlay', 'headless', 'stop-only')) {
+        foreach ($case in @('default', 'no-overlay', 'headless', 'stop-only')) {
             $global:events.Clear()
             $global:stopped = $false
             $global:hasOverlay = $case -ne 'headless'
             if ($case -eq 'stop-only') { $result = & $restart -StopOnly -Port 8877 }
-            elseif ($case -eq 'restart-overlay') {
-                $result = & $restart -StartNativeOverlay -Port 8877
+            elseif ($case -eq 'no-overlay') {
+                $result = & $restart -NoOverlay -Port 8877
             }
             else { $result = & $restart -Port 8877 }
             $rows += @{ case = $case; events = @($global:events.ToArray());
@@ -72,14 +72,15 @@ def test_restart_keeps_browser_control_and_native_overlay_requires_opt_in(tmp_pa
     result = subprocess.run(["pwsh", "-NoProfile", "-File", str(runner), str(tools / source.name)],
                             capture_output=True, text=True, timeout=20)
     assert result.returncode == 0, result.stderr
-    browser, restored, headless, stopped = json.loads(result.stdout)
-    assert browser["events"] == ["engine-stop", "overlay-stop", "engine-start", "engine-ready"]
-    assert browser["result"]["overlay_restarted"] is False
-    assert restored["events"] == ["engine-stop", "overlay-stop", "engine-start", "engine-ready",
+    default, no_overlay, headless, stopped = json.loads(result.stdout)
+    assert default["events"] == ["engine-stop", "overlay-stop", "engine-start", "engine-ready",
+                                 "overlay-start:8877"]
+    assert default["result"]["overlay_started"] is True
+    assert no_overlay["events"] == ["engine-stop", "overlay-stop", "engine-start", "engine-ready"]
+    assert no_overlay["result"]["overlay_started"] is False
+    # No overlay ran before the restart; one still starts with the new engine.
+    assert headless["events"] == ["engine-stop", "engine-start", "engine-ready",
                                   "overlay-start:8877"]
-    assert restored["result"]["overlay_restarted"] is True
-    assert headless["events"] == ["engine-stop", "engine-start", "engine-ready"]
-    assert headless["result"]["overlay_restarted"] is False
     assert stopped["events"] == ["engine-stop", "overlay-stop"]
 
 

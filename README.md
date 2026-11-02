@@ -7,27 +7,30 @@ An independent Python application for Windows 11 and Python 3.12+. It reads visi
 Dependencies are already installed in this workspace's `.venv`. From this directory:
 
 ```powershell
-.\run.ps1
+.\start.ps1                        # engine + in-game overlay + dashboard tab, capture-only
+.\start.ps1 -EnableGameplayInput   # the same, allowed to send game keys
+.\restart.ps1                      # restart everything, keeping the current mode
+.\stop.ps1                         # turn everything off; keys are released
 ```
 
-Open **http://127.0.0.1:8765/** for the browser dashboard. It retains the overlay's
-Bot, Connection, Recognition, Potions, Map and Diagnostics tabs and controls.
-Detection boxes, saved terrain and attack range appear over the game preview and
-scale with Fit/100%/200%/Expand. Saved terrain remains labelled separately from
-live detection; stale or mismatched drawing frames are hidden.
+Each script handles the engine and the in-game overlay together. Add `-NoOverlay` to skip
+the overlay or `-NoBrowser` to skip opening the dashboard. `start.ps1` refuses when the
+engine is already running; `restart.ps1` keeps the running session's mode unless you add
+`-EnableGameplayInput` or `-CaptureOnly`. Keys changed in Set up › Keys take effect at the
+next restart. The bot is always Off after a start or restart.
 
-Opening settings stops input; closing settings never resumes it. Select an activity
-and click **Turn On**, then focus the game during the existing three-second input
-countdown. **Stop** is always available. F6/F7/F9 work while the dashboard has
-keyboard focus; the engine's global **F8** emergency stop remains active in the
-game. The default decision preview sends no gameplay keys.
+The browser dashboard at **http://127.0.0.1:8765/** has four pages: **Run** (checks, game
+view, what to do and Start), **Set up** (character, keys, connection, recognition, potions),
+**Maps** (path builder and map tracking) and **History** (last run, events, evidence,
+diagnostics). Opening Set up or Maps stops the bot. Saved loops and One platform runs start
+through the in-game overlay, the same guarded batch as its own Start; Watch only sends no
+keys. **Stop** is always available, and the configured stop key (F8 by default) stops the
+bot from anywhere.
 
-Keep the dashboard open and responsive. Closing it, losing its connection or
-missing its two-second control lease stops input. Returning never resumes gameplay
-automatically. The dashboard and native overlay cannot control the same session
-simultaneously. The native overlay is still available explicitly through
-`tools/start_overlay.ps1 -WaitForEngine`; its saved panel positions are preserved.
-Game focus, occlusion, capture, watchdog and keyboard checks remain active.
+Keep the dashboard open and responsive. Closing it, losing its connection or missing its
+two-second control lease stops input. Returning never resumes gameplay automatically. The
+in-game overlay draws on the game and runs batches, but the dashboard keeps the control
+lease. Game focus, occlusion, capture, watchdog and keyboard checks remain active.
 
 The launcher defaults to **capture-only**: keyboard output is locked for the entire session, control probes and combat are unavailable, and no OS keyboard backend is constructed. Screenshot capture, calibration, recognition, saving, recording and dry-run decisions remain available. Installation requires Node/npm for the React/Electron shell as well as Python. To install on another machine:
 
@@ -50,7 +53,7 @@ For temporary MapleStory recognition testing, use the default launcher and play 
 
 Dry runs and armed runs are recorded automatically to `data/recordings/session-*`. Every decision goes to `decisions.jsonl`. Frames are kept in memory for the last 10 seconds and written to disk only when the agent stops, when player detection becomes uncertain (plus 2 seconds afterwards), or when you click **Save last clip**, which also works outside a run. One context frame per second is saved as well. Each incident is logged to `events.jsonl`. **Start / stop full recording** saves every frame. Recordings are never deleted automatically (see [recording preservation](docs/recording-preservation.md)); the `max_total_mb` and `max_age_days` keys under `[recording]` in `config.toml` are kept for compatibility and no longer delete anything, so storage cleanup is an explicit operator decision. Capture-only cannot be unlocked from the debugger.
 
-When returning to an offline or explicitly permitted automation environment, `./run.ps1 -EnableGameplayInput` starts a separate input-capable session. Capture and control verification are still required before any input. Equivalent direct commands are `python -m maplebot debug --capture-only` and `python -m maplebot debug`.
+When returning to an offline or explicitly permitted automation environment, `.\start.ps1 -EnableGameplayInput` starts a separate input-capable session. Capture and control verification are still required before any input. Equivalent direct commands are `python -m maplebot debug --capture-only` and `python -m maplebot debug`.
 
 ### Elevated input sessions
 
@@ -64,30 +67,24 @@ elevated task once (one UAC approval):
 .\tools\install_elevated_task.ps1 -Uninstall
 ```
 
-Afterwards `.\run.ps1 -EnableGameplayInput` and `tools/restart_engine.ps1 -EnableGameplayInput`
+Afterwards `.\start.ps1 -EnableGameplayInput` and `.\restart.ps1` (for an input session)
 start the `MapleBot` task, which runs the input-capable engine with highest privileges and no
-prompt. Its window closes when the engine stops. Plain `.\run.ps1` stays capture-only and
-non-elevated. The elevated engine still binds only `127.0.0.1` and requires the per-session
+prompt. Its window closes when the engine stops. Capture-only sessions stay non-elevated. The elevated engine still binds only `127.0.0.1` and requires the per-session
 token, and all input keeps the focus, calibration, probe, watchdog and F8 gates.
 
 ### Restarting the engine
 
-From the project root, run `.\restart-input.ps1` to restart with gameplay input enabled.
-The bot stays Off. This shortcut uses the managed restart below; optional `-Port` defaults to 8765.
+`.\start.ps1`, `.\restart.ps1` and `.\stop.ps1` all use `tools/restart_engine.ps1`. It stops
+the engine through its own API, waits for the port to close, closes `run.ps1` windows that
+no longer host it and this project's old overlay, then opens one new engine window and the
+overlay (`tools/start_overlay.ps1`). `run.ps1` only runs the engine in its own window; the
+elevated `MapleBot` task uses it. Do not restart by starting `run.ps1` again from a script:
+each launcher window stays open (`-NoExit`) after its engine stops, so repeated restarts pile
+up empty terminals. Optional `-Port` defaults to 8765 on every script.
 
-Restart a running engine with `tools/restart_engine.ps1` (add `-EnableGameplayInput`
-for an input-capable session). It stops the engine through its own API, waits for the
-port to close, closes `run.ps1` windows that no longer host it, and opens one new
-window. Do not restart by starting `run.ps1` again from a script: each launcher window
-stays open (`-NoExit`) after its engine stops, so repeated restarts pile up empty
-terminals. To turn the bot off, run `tools/stop_all.ps1`. It calls
-`tools/restart_engine.ps1 -StopOnly`, which does the same shutdown and window cleanup without
-starting a new engine, and also closes the overlay.
-
-Run `.\start-widget.ps1` from the project root for the in-game widget alongside the
-browser dashboard. The widget reports its health without owning or renewing the
-dashboard's control lease. Its batch starts require a live dashboard connection;
-Stop/F8 and disconnect/crash stops remain in force. Starting the widget leaves the bot Off.
+The in-game overlay reports its health without owning or renewing the dashboard's control
+lease. Its batch starts require a live dashboard connection; Stop, the stop key and
+disconnect/crash stops remain in force.
 
 ## Prepare the game window
 

@@ -50,7 +50,7 @@ class Debugger:
 def readiness(status: dict) -> str | None:
     """Why no route may start now, ignoring route-specific checks."""
     if status.get("capture_only"):
-        return "Capture-only session: restart with tools/restart_engine.ps1 -EnableGameplayInput"
+        return "Capture-only session: restart with .\\restart.ps1 -EnableGameplayInput"
     if status["mode"] != "capture":
         return "Bot must be Off"
     if not status.get("focused"):

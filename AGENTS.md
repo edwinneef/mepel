@@ -33,8 +33,11 @@ Use the offline failure-to-retest workflow for bot changes. Runner options are i
 
 ## Engine restarts
 
-Restart the debugger engine only with `tools/restart_engine.ps1` (`-EnableGameplayInput` for
-input-capable sessions). Never `Start-Process` `run.ps1` again for a restart: the previous
+Start, restart and stop the bot only with `.\start.ps1`, `.\restart.ps1` and `.\stop.ps1`
+in the project root. Each handles the engine and the in-game overlay together (`-NoOverlay`
+skips the overlay, `-NoBrowser` the dashboard tab). `restart.ps1` keeps the running session's
+mode; `-EnableGameplayInput` or `-CaptureOnly` overrides it. All three use
+`tools/restart_engine.ps1`. Never `Start-Process` `run.ps1` again for a restart: the previous
 `-NoExit` launcher window stays open after its engine stops, and repeated restarts left four
 terminals open on 2026-10-26. Tell the operator before restarting; it ends any active probe.
 
@@ -64,8 +67,7 @@ and explicitly authorize that batch. Leave the game open on failure; release all
 save the clip and sound the alarm, then hand control back immediately so the operator
 can move to safety. Do not leave the character exposed while investigating. Offline
 work and input-free setup remain authorized. The supervised testing scope includes
-restarting the engine and overlay (`tools/restart_engine.ps1
--EnableGameplayInput`, then `tools/start_overlay.ps1 -WaitForEngine`), tracking and importing
+restarting the engine and overlay (`.\restart.ps1 -EnableGameplayInput`), tracking and importing
 maps, control probes, navigation routes (`tools/navigation_check.py --run`), rotation, and
 combat checks (`tools/combat_check.py --run`). Read each failure's clip, fix the cause, and
 run the checks again.

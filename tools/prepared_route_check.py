@@ -16,7 +16,7 @@ from tools.prepared_floor_check import restore_focus
 def route_blocker(status: dict, area: str, origin: str, target: str) -> str | None:
     """Why this route may not start now; None when every preflight passes."""
     if status.get("capture_only"):
-        return "Capture-only session: restart with tools/restart_engine.ps1 -EnableGameplayInput"
+        return "Capture-only session: restart with .\\restart.ps1 -EnableGameplayInput"
     if status.get("mode") != "capture":
         return "Bot must be Off"
     state = status.get("input_state") or {}

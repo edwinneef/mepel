@@ -21,7 +21,8 @@ $debugArguments = @('-m', 'maplebot', 'debug')
 if (-not $EnableGameplayInput) {
     $debugArguments += '--capture-only'
 }
-# The browser dashboard owns the control lease. Native overlay remains an explicit opt-in.
+# Engine only, in this window. Operators use .\start.ps1, .\restart.ps1 and .\stop.ps1,
+# which also run the in-game overlay; the elevated MapleBot task runs this script.
 & .venv\Scripts\python.exe @debugArguments
 if ($InTask -and $LASTEXITCODE) {
     Read-Host "Engine exited with code $LASTEXITCODE. Press Enter to close"

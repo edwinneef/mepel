@@ -2,11 +2,13 @@ param(
     [switch]$EnableGameplayInput,
     # Shut the engine down and close its launcher windows without starting a new one.
     [switch]$StopOnly,
-    # Browser dashboard owns controls by default; native overlay is an explicit opt-in.
-    [switch]$StartNativeOverlay,
+    # Skip the in-game overlay. It is a companion: the browser dashboard keeps the control lease.
+    [switch]$NoOverlay,
     [int]$Port = 8765
 )
 
+# Restart the engine and the in-game overlay. Operators use .\start.ps1, .\restart.ps1 and
+# .\stop.ps1 in the project root, which call this script.
 # Restart the debugger engine in one console window. Starting run.ps1 again for each
 # restart leaves every previous -NoExit launcher window open, so this script shuts the
 # engine down through its own API and closes run.ps1 launchers that no longer host it.
@@ -16,8 +18,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $base = "http://127.0.0.1:$Port"
-# Close old native renderers before restarting; their former presence does not opt
-# the operator into taking the control lease away from the browser dashboard.
+# Close old overlays before restarting; never carry them into the new engine session.
 $overlays = @(Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object {
     $_.CommandLine -and $_.CommandLine.Replace('/', '\') -like "*$root\ui\overlay\main.cjs*"
 })
@@ -87,13 +88,13 @@ while ((Get-Date) -lt $deadline -and -not $status) {
     try { $status = Invoke-RestMethod "$base/api/status" -TimeoutSec 2 } catch { }
 }
 if (-not $status) { throw "The engine did not answer on $base within 120 s; check its window" }
-if ($StartNativeOverlay) {
+if (-not $NoOverlay) {
     & "$PSScriptRoot/start_overlay.ps1" -WaitForEngine -Port $Port
 }
 [pscustomobject]@{
     window = if ($process) { $process.Id } else { 'MapleBot task (elevated)' }
     capture_only = $status.capture_only
     mode = $status.mode
-    overlay_restarted = [bool]$StartNativeOverlay
+    overlay_started = -not $NoOverlay
     url = $base
 } | ConvertTo-Json -Compress
