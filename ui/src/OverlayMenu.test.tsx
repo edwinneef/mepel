@@ -1,7 +1,7 @@
 import { render, fireEvent, screen, cleanup } from '@testing-library/react';
 import { OverlayMenu } from './OverlayMenu';
 import { expect, it } from 'vitest';
-import { batchReport, menuPlacement, pathSummary } from './OverlayMenu';
+import { DOCK_SCALE, FOLDED_HEIGHT, batchReport, dockPlacement, menuPlacement, pathSummary } from './OverlayMenu';
 
 const samples = (game: { x: number; y: number; width: number; height: number }) =>
   [.05, .5, .95].flatMap(fx => [.05, .5, .95].map(fy => ({ x: game.x + game.width * fx, y: game.y + game.height * fy })));
@@ -121,4 +121,39 @@ it('explains a failed run in full: why, how the engine stopped and what to do', 
     .toEqual({ tone: 'fail', headline: 'Not started · no keys sent', detail: 'Stand still first' });
   expect(batchReport({ running: false, code: 0, output: '{"outcome": "functional_success", "proven_after": 2}' }))
     .toEqual({ tone: 'ok', headline: 'Finished the full session', detail: '2 moves proven' });
+});
+
+it('docks bottom-left inside the game, clear of every coverage sample point, and grows upward', () => {
+  for (const game of [{ x: 13, y: 41, width: 1366, height: 768 }, { x: 0, y: 0, width: 1024, height: 768 },
+    { x: 200, y: 120, width: 1920, height: 1080 }]) {
+    const viewport = { width: 2560, height: 1440 };
+    const dock = dockPlacement(game, viewport)!;
+    expect(dock).not.toBeNull();
+    const bottom = dock.bottom;
+    for (const height of [FOLDED_HEIGHT, dock.openHeight]) {
+      for (const point of samples(game)) {
+        // The visual rect: scaled from its bottom-left corner.
+        const inside = point.x >= dock.left && point.x < dock.left + 300 * DOCK_SCALE
+          && point.y >= bottom - height * DOCK_SCALE && point.y < bottom;
+        expect(inside).toBe(false);
+      }
+    }
+    expect(dock.openHeight).toBeLessThanOrEqual(360);
+    expect(dock.left).toBe(game.x + 8);  // flush with the game's left edge
+    expect(bottom).toBeLessThan(game.y + game.height);
+  }
+  expect(dockPlacement({ x: 0, y: 0, width: 600, height: 400 }, { width: 1920, height: 1080 })).toBeNull();
+  const props = { s: null, status: 'OFF', layers: false, attackRange: false, names: false, setLayers: () => {},
+    setAttackRange: () => {}, setNames: () => {}, canBatch: false, onStart: () => {}, onStop: () => {}, batch: { running: false } };
+  render(<OverlayMenu {...props} game={{ x: 0, y: 0, width: 1024, height: 768 }} />);
+  const menu = screen.getByLabelText('Bot menu');
+  expect(menu.className).toContain('is-docked');
+  const edge = () => parseInt(menu.style.top) + parseInt(menu.style.height);
+  const dock = dockPlacement({ x: 0, y: 0, width: 1024, height: 768 }, { width: innerWidth, height: innerHeight })!;
+  expect(menu.style.height).toBe(`${FOLDED_HEIGHT}px`);
+  expect(edge()).toBe(dock.bottom);  // the folded bar sits on the dock's bottom edge
+  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+  expect(parseInt(menu.style.height)).toBe(dock.openHeight);
+  expect(edge()).toBe(dock.bottom);  // opening grows it upward; the bottom edge stays put
+  cleanup();
 });

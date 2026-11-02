@@ -242,3 +242,8 @@ details.c-card[open] > summary { margin-bottom: 12px; }
 .c-keys-save .c-keymsg { flex: 1; margin: 0; color: var(--sky); font-size: 14px; }
 .c-keys-save .c-btn.start { padding: 8px 18px; font-size: 16px; }
 .c-keys .c-banner code { font-size: 13px; }
+
+/* Docked bottom-left inside the game picture: the folded bar stays put and the widget slides up. */
+.overlay-menu.clear-widget.is-docked { display: flex; flex-direction: column; transition: top .2s ease-out, height .2s ease-out; }
+.clear-widget.is-docked.is-folded .w-head { height: 100%; }
+@media (prefers-reduced-motion: reduce) { .overlay-menu.clear-widget.is-docked { transition: none; } }

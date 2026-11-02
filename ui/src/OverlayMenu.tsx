@@ -43,6 +43,32 @@ export function menuPlacement(game: Rect, viewport: { width: number; height: num
   return { left: game.x + Math.round(game.width * .55), top: game.y + Math.round(game.height * .06) + 4 };
 }
 
+/** Folded height of the docked widget: just its header bar (layout pixels, before DOCK_SCALE). */
+export const FOLDED_HEIGHT = 42;
+/** The docked widget is drawn smaller so it fits left of MapleStory's chat box. */
+export const DOCK_SCALE = .82;
+const DOCK_MARGIN = 8;
+
+/** Bottom-left dock inside the game picture, clear of every coverage sample point.
+
+Flush with the game's left edge, it crosses the 5% sample column, so it stays between the
+50% and 95% sample rows: the folded bar sits just above the 95% row (`bottom`, in page
+pixels) and opening grows it upward, never past the 50% row. It is scaled by DOCK_SCALE
+from its bottom-left corner; `openHeight` and `top` are layout values before that scale.
+Returns null when the game picture is too small or runs off the bottom of the overlay.
+*/
+export function dockPlacement(game: Rect, viewport: { width: number; height: number }) {
+  const left = game.x + DOCK_MARGIN;
+  const right = game.x + Math.floor(game.width * .5) - DOCK_MARGIN;
+  const top = game.y + Math.ceil(game.height * .5) + DOCK_MARGIN;
+  const bottom = game.y + Math.floor(game.height * .95) - DOCK_MARGIN;
+  const room = bottom - top;
+  if (right - left < WIDTH * DOCK_SCALE || room < 200 || bottom > viewport.height) return null;
+  // Placed by its top edge from the game picture alone, so no window-height reading can shift it.
+  const openHeight = Math.min(HEIGHT, Math.floor(room / DOCK_SCALE));
+  return { left, bottom, openHeight, top: (open: boolean) => bottom - (open ? openHeight : FOLDED_HEIGHT) };
+}
+
 /** Frames per second the engine is analysing, from its own count or the frame interval. */
 export function engineFps(s: Snapshot | null | undefined): number | null {
   if (typeof s?.fps === 'number' && Number.isFinite(s.fps) && s.fps > 0) return s.fps;
@@ -132,6 +158,8 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   const circuit = routes.find(route => route.id === selectedRoute && route.area_id === s?.position?.area_id);
   const menu = useRef<HTMLElement>(null);
   const reported = useRef('');
+  // Re-report the mouse area when the slide finishes; the rect only settles after the transition.
+  const [, setSettled] = useState(0);
   const [offset, setOffset] = useState<{ left: number; top: number } | null>(null);
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   // Tell the overlay host where the menu is, so only that area takes the mouse. Report only
@@ -170,10 +198,18 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   const headline = state === 'alarm' ? 'Stopped. Move your character to safety.' : busy ? `Running${where ? ` on ${where}` : ''}`
     : blocker ? `Can't start: ${blocker}` : 'Ready to hunt';
   const whereText = `${mapName ?? 'Map not recognised'}${where ? ` · ${where}` : ''}`;
-  const style = { ...(offset ?? menuPlacement(game, { width: window.innerWidth, height: window.innerHeight })), width: WIDTH };
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  // Docked bottom-left inside the game picture unless dragged; it grows upward when opened.
+  const dock = offset ? null : dockPlacement(game, viewport);
+  const style = dock
+    ? { left: dock.left, top: dock.top(open), width: WIDTH, height: open ? dock.openHeight : FOLDED_HEIGHT,
+      transform: `scale(${DOCK_SCALE})`, transformOrigin: 'bottom left' }
+    : { ...(offset ?? menuPlacement(game, viewport)), width: WIDTH };
   const toggles = { enemies: layers, range: attackRange, lines: names };
   const potion = s?.autopotter;
-  return <section ref={menu} className={`overlay-menu clear-widget ${open ? 'is-open' : 'is-folded'}`} aria-label="Bot menu" style={style}>
+  return <section ref={menu} className={`overlay-menu clear-widget ${open ? 'is-open' : 'is-folded'}${dock ? ' is-docked' : ''}`}
+    aria-label="Bot menu" style={style}
+    onTransitionEnd={event => { if (event.target === event.currentTarget) setSettled(value => value + 1); }}>
     <header className="w-head" title="Drag to move" onPointerDown={event => {
       if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
       const rect = menu.current!.getBoundingClientRect();
@@ -188,7 +224,7 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
         top: Math.max(0, Math.min(innerHeight - height, current.top + event.clientY - current.y)) });
     }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
       <button className="w-fold" aria-expanded={open} aria-label={open ? 'Fold menu' : 'Open menu'}
-        onClick={() => setOpen(value => !value)}>{open ? '▾' : '▸'}</button>
+        onClick={() => setOpen(value => !value)}>{open ? '▾' : dock ? '▴' : '▸'}</button>
       <StateBadge state={state} />
       <span className="w-fps">{fps == null ? '– fps' : `${fps.toFixed(1)} fps`}</span>
       <button className="c-btn stop small w-stop" disabled={!busy} onClick={onStop} aria-label="Stop (F8)" title="Stop (F8)">Stop</button>
