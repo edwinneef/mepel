@@ -266,8 +266,8 @@ class Navigator:
                              or self._slide_blocked(edge.launch, direction))):
                     if not self._settled(f, origin):
                         self.reason = "Braking before an edge launch; waiting for settled origin"
-                        if self._grab_up(edge):  # keep Up held through the slide
-                            return Motion((KeyHold("up", self.pulse),))
+                        if self._grab_up(edge):  # keep Up held, without gaps, through the slide
+                            return Motion(vertical="up")
                         return Motion(release=True)
                     # One step from rest, then settle again. A full pulse moved one
                     # 16 px marker step live (866->882->898->913); 0.06 s taps moved about
@@ -277,8 +277,9 @@ class Navigator:
                     if self._grab_up(edge):
                         # Live (Tree Dungeon batch 8): rope3 hangs 9 px from fh320's end; a
                         # step slid past it and off. Up held with the step, and through
-                        # the slide below, grabs the rope in passing. One bounded chord:
-                        # the controller lets only a jump run beside a held key.
+                        # the slide below, grabs the rope in passing. The step is one
+                        # bounded chord: the controller lets only a jump run beside a held
+                        # key. Batch 10: 0.12 s Up chords left gaps as the player passed.
                         self.reason = "Stepping toward the rope holding Up to grab it"
                         return Motion((KeyHold(direction, self.pulse),
                                        KeyHold("up", self.pulse)))
@@ -291,7 +292,7 @@ class Navigator:
                 if f.surface != origin or not self._settled(f, origin):
                     self.reason = "Braking at rope launch; waiting for settled origin"
                     if self._grab_up(edge):
-                        return Motion((KeyHold("up", self.pulse),))
+                        return Motion(vertical="up")
                     return Motion(release=True)
                 rope_x = next((p["start"]["x"] for p in self.graph.profile["ropes"]
                                if p["id"] == edge.target), edge.launch[0])

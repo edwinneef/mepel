@@ -25,8 +25,8 @@ def takeoff(nav, f):
 
 def waiting(motion) -> bool:
     """Braking near a climb launch either releases or holds only Up to grab the rope."""
-    return motion.release or (motion.vertical is None and motion.horizontal is None
-                              and [hold.action for hold in motion.holds] == ["up"])
+    return motion.release or (motion.vertical == "up" and motion.horizontal is None
+                              and not motion.holds)
 
 
 def test_jump_requires_departure_and_settled_destination_not_predicted_elapsed_time():
@@ -577,9 +577,10 @@ def test_a_rope_near_a_platform_end_is_grabbed_in_passing_while_holding_up():
     # Up stays held through the slide, never as a lease beside a step (the controller only
     # lets a jump run beside a held key; batch 9 stopped on exactly that).
     sliding = nav.step(replace(f, now=.62, feet=(176, 400)))
-    assert [h.action for h in sliding.holds] == ["up"] and sliding.vertical is None
+    # Batch 10: short Up chords left gaps as the player slid past; hold Up continuously.
+    assert sliding.vertical == "up" and not sliding.holds and sliding.horizontal is None
     from maplebot.input_timing import ACTIONS
-    assert all(h.action in ACTIONS and h.seconds <= .25 for h in step.holds + sliding.holds)
+    assert all(h.action in ACTIONS and h.seconds <= .25 for h in step.holds)
     # The slide carries the player onto the rope: that starts the climb.
     climb = nav.step(replace(f, now=.7, feet=(205, 395), surface="rope"))
     assert nav.stage == "flight" and climb.vertical == "up" and "Grabbed" in nav.reason
