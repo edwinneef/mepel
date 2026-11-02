@@ -214,3 +214,14 @@ def test_without_learning_an_unproven_move_is_never_tried(app):
     app._rotate(SEARCH, Observation(PLAYER, []), now)
     assert app._rotate(SEARCH, Observation(PLAYER, []), now + 1) is None
     assert app.mode == "live" and nav.agent is None
+
+
+def test_a_stranded_platform_explores_unproven_moves_back_into_the_round_trip_map():
+    # Live (Tree Dungeon): after proving fh315 -> fh320, fh320 had no proven way back and
+    # its only short move led to fh315, already in the map; rotation stood idle.
+    profile, evidence = fixture()
+    graph = RouteMap(profile, evidence, proven={"up"})
+    assert "ledge" not in routable(graph)  # one-way: the ledge has no proven way back
+    assert unproven_neighbours(graph, "ledge") == {"floor": "back"}
+    both = RouteMap(profile, evidence, proven={"up", "back"})
+    assert unproven_neighbours(both, "ledge") == {}  # inside the map: only new platforms

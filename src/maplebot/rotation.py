@@ -40,13 +40,18 @@ LEARN_MAX_FALL_PX = 100
 
 def unproven_neighbours(graph: RouteMap, surface: str, *,
                         max_fall: float = LEARN_MAX_FALL_PX) -> dict[str, str]:
-    """Platforms outside the round-trip map one unproven computed move away: target -> edge.
+    """Platforms one unproven computed move away: target -> edge.
 
-    Only a supervised farming batch that opted in may try these; one failure stops it.
+    From inside the round-trip map only platforms outside it count. From a platform with
+    no proven way back, moves into the map count too: proving one connects this platform
+    (Tree Dungeon, 2026-11-02: stranded on fh320 beside an unproven drop to fh315).
+    Only a supervised farming batch that opted in may try these.
     Moves falling more than `max_fall` below their launch are skipped: the player would
     leave the visible play area before the camera catches up.
     """
     known, platforms = set(routable(graph)), {p["id"] for p in graph.profile["platforms"]}
+    if surface not in known:
+        known = set()
     found: dict[str, str] = {}
     for edge in sorted(graph.edges.values(), key=lambda e: e.id):
         if (edge.source == surface and edge.id not in graph.proven and edge.target != surface
