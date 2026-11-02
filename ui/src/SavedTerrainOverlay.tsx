@@ -1,9 +1,10 @@
 import type { AreaProfile, LiveDetections, LivePosition } from './contracts';
 import { useRef } from 'react';
 
-export function SavedTerrainOverlay({ map, position, alignment, now }: {
+/** `compact` is the in-game form: just each place's name, the current one highlighted. */
+export function SavedTerrainOverlay({ map, position, alignment, now, compact = false }: {
   map: AreaProfile | null; position?: LivePosition | null; now: number;
-  alignment?: LiveDetections['terrain'];
+  alignment?: LiveDetections['terrain']; compact?: boolean;
 }) {
   const retained = useRef<LivePosition | null>(null);
   const independent = alignment !== undefined;
@@ -32,8 +33,11 @@ export function SavedTerrainOverlay({ map, position, alignment, now }: {
   });
   const extra = position.provisional && position.supplement?.enabled
     ? position.supplement.platform : null;
-  return <g aria-label="Saved terrain projected onto game" fill="none" strokeWidth="2">
-    {[...map.platforms, ...map.ropes].map(segment => {
+  const segments = compact ? [...map.platforms, ...map.ropes.filter(rope => rope.name)]
+    : [...map.platforms, ...map.ropes];
+  return <g aria-label={compact ? 'Platform names' : 'Saved terrain projected onto game'}
+    fill="none" strokeWidth="2">
+    {segments.map(segment => {
       const start = project(segment.start), end = project(segment.end);
       const matched = !independent && !held && segment.id === position.surface_id;
       const color = matched ? '#91c8ff' : '#c8a5ff';
@@ -41,16 +45,18 @@ export function SavedTerrainOverlay({ map, position, alignment, now }: {
         <line x1={start.x} y1={start.y} x2={end.x} y2={end.y}
           strokeDasharray={matched ? '8 3' : '4 5'} vectorEffect="non-scaling-stroke" />
         <text x={start.x} y={start.y - 7} fill={color} stroke="#091019" strokeWidth="3"
-          paintOrder="stroke" fontSize="12">Saved · {segment.name ? `${segment.name} · ${segment.id}` : segment.id}{matched ? ' · spatial match' : ''}</text>
+          paintOrder="stroke" fontSize={compact ? 13 : 12} fontWeight={compact && matched ? 'bold' : undefined}>
+          {compact ? segment.name ?? segment.id
+            : <>Saved · {segment.name ? `${segment.name} · ${segment.id}` : segment.id}{matched ? ' · spatial match' : ''}</>}</text>
       </g>;
     })}
-    {extra && !independent && !held && extra.id === position.surface_id && <g stroke="#ffd07a" aria-label="Provisional middle ledge">
+    {extra && !compact && !independent && !held && extra.id === position.surface_id && <g stroke="#ffd07a" aria-label="Provisional middle ledge">
       <line x1={project(extra.start).x} y1={project(extra.start).y}
         x2={project(extra.end).x} y2={project(extra.end).y} strokeDasharray="3 5" vectorEffect="non-scaling-stroke" />
       <text x={project(extra.start).x} y={project(extra.start).y - 7} fill="#ffd07a"
         stroke="#091019" strokeWidth="3" paintOrder="stroke" fontSize="12">Provisional · middle ledge · observation only</text>
     </g>}
-    <text x="12" y="28" fill="#c8a5ff" stroke="#091019" strokeWidth="3" paintOrder="stroke"
-      fontSize="14">Saved terrain · estimated alignment{held ? ' · brief hold' : ''} · not live detection</text>
+    {!compact && <text x="12" y="28" fill="#c8a5ff" stroke="#091019" strokeWidth="3" paintOrder="stroke"
+      fontSize="14">Saved terrain · estimated alignment{held ? ' · brief hold' : ''} · not live detection</text>}
   </g>;
 }

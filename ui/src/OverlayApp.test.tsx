@@ -4,7 +4,7 @@ import { OverlayApp } from './OverlayApp';
 import { OverlayClient } from './overlay';
 import { DashboardSession } from './dashboard';
 import type { OverlayEvent } from './overlay';
-import type { LiveDetections } from './contracts';
+import type { AreaProfile, LiveDetections, LivePosition } from './contracts';
 import { deferred, json, snapshot } from './test-fixtures';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); delete window.mapleOverlay; });
@@ -336,4 +336,33 @@ it('opens settings from the HUD button when hotkeys are swallowed by the game', 
   expect(window.mapleOverlay.settings).toHaveBeenCalledWith(true);
   await waitFor(() => expect(screen.getByRole('region', { name: 'Overlay settings' })).toBeTruthy());
   expect(screen.queryByRole('button', { name: '⚙ Settings' })).toBeNull();
+});
+
+it('names the platforms over the game without opening any panel', async () => {
+  const position: LivePosition = { area_id: 'map', kind: 'platform', surface_id: 'floor', reason: 'Matched',
+    input_sent: false, captured_at: Date.now() / 1000, projection: { x: 0, y: 0, scale: 1, revision: 3 } };
+  const profile: AreaProfile = { schema_version: 2, id: 'map', revision: 3, name: 'Map',
+    boundary: { x: 0, y: 0, width: 1000, height: 1000 }, views: [], zones: [], links: [],
+    platforms: [{ id: 'floor', name: 'Level 7', start: { x: 100, y: 200 }, end: { x: 300, y: 200 } },
+      { id: 'ledge', name: 'Level 8', start: { x: 100, y: 120 }, end: { x: 300, y: 120 } }], ropes: [] };
+  const current = snapshot({ position });
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    if (url === '/api/v1/status') return json(current);
+    // The live display feed sends no terrain alignment here; the position still projects.
+    if (url === '/api/v1/drawings') return json({ display: true, terrain: null, position,
+      frame: { ...current.frame, id: 'display:1', source_id: `${current.session_id}:source:1` },
+      player: current.player, monsters: [], target: null });
+    const command = JSON.parse(String(options?.body));
+    return json(command.name === 'area_load' ? { profile } : { areas: [] });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
+    subscribe: callback => {
+      callback({ type: 'game-bounds', value: { x: 20, y: 40, width: 1024, height: 768, visible: true } });
+      return () => {};
+    } };
+  render(<OverlayApp client={new OverlayClient('token', fetcher)} outlinesOnly />);
+  await waitFor(() => expect(screen.getByLabelText('Platform names')).toBeTruthy());
+  expect(screen.getByText('Level 7')).toBeTruthy();
+  expect(screen.getByText('Level 8')).toBeTruthy();
 });

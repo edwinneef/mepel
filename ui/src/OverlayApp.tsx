@@ -172,6 +172,14 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       <LiveDetectionBoxes drawing={drawing} compact />
       <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />
     </svg>}
+    {terrain && map && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
+      style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
+      viewBox={`0 0 ${drawing.frame.width} ${drawing.frame.height}`} preserveAspectRatio="none">
+      {/* Names need no fine alignment: use it when valid, else the position's projection. */}
+      <SavedTerrainOverlay map={map} position={drawing.position} compact
+        alignment={fastDrawing?.terrain?.alignment.valid ? fastDrawing.terrain : undefined}
+        now={Math.max(now, Date.now())} />
+    </svg>}
   </div>;
   const record = () => void act(async () => {
     await client.command('record', recordingFull ? {} : { seconds: 30 });

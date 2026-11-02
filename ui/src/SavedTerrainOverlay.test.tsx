@@ -80,3 +80,12 @@ it('keeps freshly registered terrain without platform contact and clears on regi
   view.rerender(<svg><SavedTerrainOverlay map={map} alignment={alignment} now={10600} /></svg>);
   expect(view.container.querySelector('g')).toBeNull();
 });
+
+it('shows just the names in game, the current platform highlighted, unnamed ropes left out', () => {
+  const view = render(<svg><SavedTerrainOverlay map={map} position={position} now={10100} compact /></svg>);
+  expect(screen.getByLabelText('Platform names')).toBeTruthy();
+  const labels = [...view.container.querySelectorAll('text')].map(text => text.textContent);
+  expect(labels).toEqual(['Floor']);
+  expect(view.container.querySelector('text')!.getAttribute('font-weight')).toBe('bold');
+  expect(screen.queryByText(/not live detection/)).toBeNull();
+});
