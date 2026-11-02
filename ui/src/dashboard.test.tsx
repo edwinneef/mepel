@@ -110,7 +110,8 @@ it('explains a refused control connection while the game picture stays connected
   expect(screen.getByRole('button', { name: 'Turn On · F6' }).hasAttribute('disabled')).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Map' }));
   await waitFor(() => expect(client.getState().busy).toBe(false));
-  expect(screen.getByRole('button', { name: 'Load saved farming maps' }).hasAttribute('disabled')).toBe(false);
+  // Saved maps load by themselves; the map picker stays usable without dashboard control.
+  await waitFor(() => expect(screen.getByLabelText('Map for path builder').hasAttribute('disabled')).toBe(false));
 });
 
 it('disconnects the lease if status polling loses the engine and never resumes automatically', async () => {

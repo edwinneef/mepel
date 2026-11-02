@@ -157,7 +157,7 @@ export function App({ client }: { client: EngineClient }) {
             <button aria-pressed={navigationTab === 'routes'} onClick={() => setNavigationTab('routes')}>Routes</button>
             <button aria-pressed={navigationTab === 'setup'} onClick={() => setNavigationTab('setup')}>Setup</button>
           </nav>
-          <div hidden={navigationTab !== 'map'}>{props && <MapTab snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} onCircuit={setCircuit}
+          <div hidden={navigationTab !== 'map'}>{props && <MapTab snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} onCircuit={setCircuit} active={tool === 'Navigation' && navigationTab === 'map'}
             onPreview={() => { setRouteCurrent(true); setSupervised(false); setRunMode('navigation'); setNavigationTab('routes'); }} />}</div>
           <div hidden={navigationTab !== 'routes'}>{props && <NavigationPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled}
             onInvalidate={() => { setRouteCurrent(false); setSupervised(false); }} onPreview={() => { setRouteCurrent(true); setRunMode('navigation'); }} supervised={supervised} onSupervised={setSupervised} areas={area.areas} />}</div>
