@@ -205,8 +205,10 @@ class Navigator:
             return self._replan(f)
         if self.stage == "approach":
             rope = origin in {p["id"] for p in self.graph.profile["ropes"]}
-            if (not rope and f.surface == edge.target and edge.kind in {"jump", "drop"}
-                    and edge.landing[1] > edge.launch[1]):
+            grabbed = edge.kind == "climb" and f.surface == edge.target
+            if grabbed or (not rope and f.surface == edge.target
+                           and edge.kind in {"jump", "drop"}
+                           and edge.landing[1] > edge.launch[1]):
                 # Live (Tree Dungeon): one step toward a drop launch 32 px from the end slid
                 # about 70 px, off the end and onto the drop's own target. Landing there
                 # completes the move; the flight stage verifies the settled landing.
@@ -214,6 +216,11 @@ class Navigator:
                 if not self.retries:
                     self.edge_started = f.now
                 self.departed, self.settle_since = True, None
+                self.rope_start = None
+                if grabbed:  # caught the rope while stepping toward it: keep climbing
+                    self.reason = "Grabbed the rope while approaching; climbing"
+                    return Motion(vertical="up" if edge.landing[1] < edge.launch[1]
+                                  else "down")
                 self.reason = "Slid off the launch end onto the target; verifying landing"
                 return Motion(release=True)
             # No surface for a frame is a name-tag dropout, bounded by the runtime's grace.
@@ -255,6 +262,13 @@ class Navigator:
                     # 5 px, below the marker's resolution, and never reached the launch.
                     self.settle_since = self.settle_surface = None
                     self.reason = "Stepping from rest toward the edge launch"
+                    if (edge.kind == "climb" and edge.landing[1] < edge.launch[1]
+                            and not self._slide_blocked(edge.launch, direction)):
+                        # Live (Tree Dungeon batch 8): rope3 hangs 9 px from fh320's end; a
+                        # step slid past it and off. Holding Up grabs the rope in passing.
+                        # Never near a portal or blocked zone, where Up could enter it.
+                        self.reason = "Stepping toward the rope holding Up to grab it"
+                        return Motion((KeyHold(direction, self.pulse),), vertical="up")
                     return Motion((KeyHold(direction, self.pulse),))
                 self.last_feet = f.feet
                 self.settle_since = self.settle_surface = None

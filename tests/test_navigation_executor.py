@@ -549,3 +549,48 @@ def test_sliding_off_the_launch_end_onto_a_drops_target_completes_the_drop():
         nav.step(replace(f, now=now))
     nav.step(replace(f, now=.6, feet=(100, 200), surface="island"))
     assert nav.stage == "stopped"
+
+
+def test_a_rope_near_a_platform_end_is_grabbed_in_passing_while_holding_up():
+    # Live (Tree Dungeon batch 8): rope3 hangs 9 px from fh320's end; a step slid past it,
+    # off the end and down to fh315.
+    profile, evidence = fixture()
+    graph = RouteMap(profile, evidence)
+    graph.profile["ropes"] = [{"id": "rope", "start": {"x": 205, "y": 250},
+                               "end": {"x": 205, "y": 400}}]
+    graph.nodes["rope"] = graph.profile["ropes"][0]
+    edge = Edge("up", "floor", "rope", "climb", (205, 400), (205, 350),
+                ((205, 400), (205, 350)), "saved")
+    route = Route(profile["id"], 4, graph.fingerprint, "floor", "rope", (edge,))
+    nav = Navigator(graph, route, 0)
+    nav.stage = "approach"
+    f = Feedback(.2, graph.fingerprint, (160, 400), "floor", True)
+    assert nav.step(f).release and nav.step(replace(f, now=.4)).release
+    step = nav.step(replace(f, now=.55))
+    assert [h.action for h in step.holds] == ["right"] and step.vertical == "up"
+    # The slide carries the player onto the rope: that starts the climb.
+    climb = nav.step(replace(f, now=.7, feet=(205, 395), surface="rope"))
+    assert nav.stage == "flight" and climb.vertical == "up" and "Grabbed" in nav.reason
+    for now, y in ((.9, 380), (1.1, 370), (1.3, 360)):
+        nav.step(replace(f, now=now, feet=(205, y), surface="rope"))
+    assert nav.stage == "arrived" and nav.completed == 1
+
+
+def test_up_is_never_held_while_stepping_toward_a_rope_beside_a_portal():
+    profile, evidence = fixture()
+    profile["zones"] = [{"id": "portal", "kind": "portal",
+                         "rect": {"x": 230, "y": 390, "width": 5, "height": 10}}]
+    evidence["map_hash"] = map_hash(profile)
+    graph = RouteMap(profile, evidence)
+    graph.profile["ropes"] = [{"id": "rope", "start": {"x": 180, "y": 250},
+                               "end": {"x": 180, "y": 400}}]
+    graph.nodes["rope"] = graph.profile["ropes"][0]
+    edge = Edge("up", "floor", "rope", "climb", (180, 400), (180, 350),
+                ((180, 400), (180, 350)), "saved")
+    nav = Navigator(graph, Route(profile["id"], 4, graph.fingerprint, "floor", "rope",
+                                 (edge,)), 0)
+    nav.stage = "approach"
+    f = Feedback(.2, graph.fingerprint, (140, 400), "floor", True)
+    nav.step(f), nav.step(replace(f, now=.4))
+    step = nav.step(replace(f, now=.55))
+    assert [h.action for h in step.holds] == ["right"] and step.vertical is None
