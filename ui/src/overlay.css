@@ -80,3 +80,19 @@ html:has(.native-overlay), body:has(.native-overlay), body:has(.native-overlay) 
 .overlay-menu-switches input[type=checkbox] { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .overlay-menu-switches label:has(:focus-visible) { outline: 2px solid #b9adff; outline-offset: 2px; }
 .overlay-menu-icon { display: grid; place-items: center; width: 24px; height: 24px; font-size: 22px; line-height: 1; }
+
+/* Compact open menu: the path row fits while the menu stays within OverlayMenu HEIGHT (250 px). */
+.overlay-menu p { margin: 6px 12px; }
+.overlay-menu-path { display: flex; align-items: center; gap: 6px; height: 26px; box-sizing: border-box;
+  margin: 0 10px 6px !important; padding: 0 10px; border: 1px solid #ffffff25; border-radius: 10px; background: #ffffff08; }
+.overlay-menu-path-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #7f8ea3; }
+.overlay-menu-path.tone-none .overlay-menu-path-dot { background: #e7b46a; }
+.overlay-menu-path.tone-ready .overlay-menu-path-dot { background: #8fe3a1; }
+.overlay-menu-path-key { font-size: 11px; color: #aab6c3; }
+.overlay-menu-path-value { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.overlay-menu-path.tone-muted .overlay-menu-path-value { font-weight: 400; color: #aab6c3; }
+.overlay-menu-switches { margin: 0 10px 6px; }
+.overlay-menu-switches label { grid-template-columns: auto auto; justify-content: center; align-items: center; gap: 4px; padding: 5px 2px; }
+.overlay-menu-icon { width: 16px; height: 16px; font-size: 15px; }
+.overlay-menu-actions { margin: 0 10px 10px; gap: 5px; }
+.overlay-menu-actions button { padding: 6px 10px; }

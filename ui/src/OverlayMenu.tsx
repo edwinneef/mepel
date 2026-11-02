@@ -2,6 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Snapshot } from './contracts';
 
+/** Saved farming paths for the map the player is on, as the widget last read them. */
+export type PathAvailability =
+  | { state: 'unknown' } | { state: 'loading' } | { state: 'error'; message: string }
+  | { state: 'ready'; names: string[] };
+
+/** One line: whether this map has a saved path, in words as well as colour. */
+export function pathSummary(paths: PathAvailability | undefined, area: string | null | undefined) {
+  if (!area || !paths || paths.state === 'unknown') return { tone: 'muted', text: 'map not recognised', title: 'Saved paths show once the bot knows which map this is.' };
+  if (paths.state === 'loading') return { tone: 'muted', text: 'checking…', title: 'Reading saved paths for this map.' };
+  if (paths.state === 'error') return { tone: 'muted', text: 'unavailable', title: paths.message };
+  if (!paths.names.length) return { tone: 'none', text: 'none on this map', title: 'Build one in the dashboard: Map, then the path builder.' };
+  const [first, ...rest] = paths.names;
+  return { tone: 'ready', text: rest.length ? `${first} +${rest.length}` : first,
+    title: `${paths.names.length} saved for this map: ${paths.names.join(', ')}. Choose one in the dashboard to farm it.` };
+}
+
 export interface BatchState { running: boolean; kind?: string; line?: string; output?: string; code?: number }
 type Rect = { x: number; y: number; width: number; height: number };
 
@@ -53,7 +69,8 @@ export function batchSummary(batch: BatchState): string | null {
 
 /** Small in-game menu: what the bot is doing, display switches and the two batch starts. */
 export function OverlayMenu({ s, status, game, layers, attackRange, names, setLayers, setAttackRange, setNames,
-  batch, canBatch, onStart, onStop, capture, startBlocker }: {
+  batch, canBatch, onStart, onStop, capture, startBlocker, paths }: {
+  paths?: PathAvailability;
   startBlocker?: string;
   capture?: ReactNode;
   s: Snapshot | null; status: string; game: Rect;
@@ -110,6 +127,8 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
     {open && <>
       <p className="overlay-menu-where">{where ? `Standing on ${where}` : 'Position unknown'}
         {s?.stop?.message && !busy ? ` · last stop: ${s.stop.message}` : ''}</p>
+      {(() => { const path = pathSummary(paths, s?.position?.area_id); return <p className={`overlay-menu-path tone-${path.tone}`} title={path.title}>
+        <span className="overlay-menu-path-dot" aria-hidden="true" /><span className="overlay-menu-path-key">Path</span><span className="overlay-menu-path-value">{path.text}</span></p>; })()}
       {capture}
       <div className="overlay-menu-switches">
         <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">◉</span><span>Enemies</span></label>

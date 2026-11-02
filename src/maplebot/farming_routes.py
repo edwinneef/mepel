@@ -72,6 +72,20 @@ def draft(value: object) -> dict:
     return copy.deepcopy(value)
 
 
+def route_options(graph: RouteMap) -> dict:
+    """What a builder may offer: platforms rotation can reach and the moves it may use.
+
+    The same trusted subset `compile_route` plans over, so suggestions and drawn previews
+    match validation. Validation remains the authority; this grants nothing.
+    """
+    platforms = [p["id"] for p in graph.profile["platforms"]]
+    moves = [{"id": e.id, "kind": e.kind, "from": e.source, "to": e.target,
+              "launch": e.launch, "landing": e.landing}
+             for key, e in graph.edges.items() if key in graph.autonomous]
+    return {"farmable": [key for key in platforms if key not in graph.trusted_excluded],
+            "moves": moves}
+
+
 def compile_route(value: object, graph: RouteMap) -> dict:
     route = draft(value)
     connections = [{"id": e.id, "kind": e.kind, "from": e.source, "to": e.target,

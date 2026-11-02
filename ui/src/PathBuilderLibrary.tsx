@@ -3,6 +3,7 @@ import type { AreaProfile } from './contracts';
 import type { EngineClient } from './client';
 import { PathBuilder } from './PathBuilder';
 import type { FarmingRoute } from './PathBuilder';
+import type { RouteOptions } from './pathPlanning';
 
 export function PathBuilderLibrary({ client, disabled, initialArea, onSelect }: {
   client: EngineClient; disabled: boolean; initialArea?: string;
@@ -10,12 +11,12 @@ export function PathBuilderLibrary({ client, disabled, initialArea, onSelect }: 
 }) {
   const [areas, setAreas] = useState<{ id: string; name: string }[]>([]);
   const [chosen, setChosen] = useState(initialArea ?? '');
-  const [loaded, setLoaded] = useState<{ profile: AreaProfile; map_hash: string } | null>(null);
+  const [loaded, setLoaded] = useState<({ profile: AreaProfile; map_hash: string } & RouteOptions) | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   return <section aria-label="Saved farming circuits">
     <h3>1. Choose a map</h3>
-    <p>Pick the map you want to farm. Then add the platforms you want to visit, in order. You can build this path while the bot is Off.</p>
+    <p>Pick the map you want to farm. Then pick a ready-made path or draw your own. You can build this path while the bot is Off.</p>
     <div className="path-toolbar"><button disabled={disabled || busy} onClick={() => {
       setBusy(true); setMessage('');
       void client.command<{ areas: { id: string; name: string }[] }>('area_list')
@@ -26,13 +27,14 @@ export function PathBuilderLibrary({ client, disabled, initialArea, onSelect }: 
     </select></label>
       <button disabled={disabled || busy || !chosen} onClick={() => {
         setBusy(true); setMessage('Loading movement geometry…'); onSelect?.(null);
-        void client.command<{ profile: AreaProfile; map_hash: string }>('farm_route_map', { area_id: chosen })
+        void client.command<{ profile: AreaProfile; map_hash: string } & RouteOptions>('farm_route_map', { area_id: chosen })
           .then(value => { setLoaded(value); setMessage(''); })
           .catch(error => setMessage(error instanceof Error ? error.message : String(error)))
           .finally(() => setBusy(false));
       }}>{busy ? 'Loading map…' : 'Open path builder'}</button></div>
     {message && <p role="status">{message}</p>}
     {loaded && <PathBuilder key={loaded.profile.id} profile={loaded.profile} mapHash={loaded.map_hash}
+      options={{ farmable: loaded.farmable, moves: loaded.moves }}
       client={client} disabled={disabled || busy} onSelect={onSelect} />}
   </section>;
 }

@@ -2162,6 +2162,11 @@ def test_circuit_preview_does_not_require_or_change_tracked_map(app, monkeypatch
     previous = app.position
     result = app.request("farm_route_map", {"area_id": profile["id"]})
     assert result["map_hash"] == evidence["map_hash"]
+    # Builder options: the island has no evidenced round trip, so it is never offered.
+    assert result["farmable"] == ["floor", "ledge"]
+    assert {(m["id"], m["kind"], m["from"], m["to"]) for m in result["moves"]} == {
+        ("up", "jump", "floor", "ledge"), ("back", "drop", "ledge", "floor")}
+    assert all(len(m["launch"]) == 2 and len(m["landing"]) == 2 for m in result["moves"])
     assert app.position is previous
     assert app.request("farm_route_validate", {"route": example()})["valid"]
     assert not app.controller.enabled

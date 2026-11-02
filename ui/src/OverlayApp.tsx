@@ -16,7 +16,7 @@ import { MapTab } from './MapTab';
 import type { FarmingRoute } from './PathBuilder';
 import { AlarmBanner } from './AlarmBanner';
 import { SavedTerrainOverlay } from './SavedTerrainOverlay';
-import { OverlayMenu, type BatchState } from './OverlayMenu';
+import { OverlayMenu, type BatchState, type PathAvailability } from './OverlayMenu';
 import { BowmanSetup, WeaponRange } from './BowmanSetup';
 import { CombatResults } from './CombatResults';
 import { AttackRangeOverlay } from './AttackRangeOverlay';
@@ -62,6 +62,30 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     && (!fastDrawing || Date.now() - (fastDrawing.frame.captured_at ?? 0) * 1000 <= 500);
   const disabled = !state.connected || state.busy || state.needsReload || Boolean(dashboard?.disconnected);
   const builderDisabled = !state.connected || state.busy || state.needsReload;
+  // In-game widget: saved paths for the player's map. The engine refuses route reads during
+  // gameplay, so read only while Off, keep the last answer meanwhile, and re-read every 30 s
+  // so a path saved in the dashboard appears.
+  const pathArea = outlinesOnly && !dashboard && state.connected ? s?.position?.area_id ?? null : null;
+  const [paths, setPaths] = useState<PathAvailability>({ state: 'unknown' });
+  const pathRead = useRef({ key: '', area: '' });
+  const pathKey = pathArea && !running ? `${pathArea}:${Math.floor(now / 30000)}` : '';
+  useEffect(() => {
+    if (!pathArea) { pathRead.current = { key: '', area: '' }; setPaths({ state: 'unknown' }); return; }
+    if (!pathKey || pathRead.current.key === pathKey) return;
+    const newArea = pathRead.current.area !== pathArea;
+    pathRead.current = { key: pathKey, area: pathArea };
+    if (newArea) setPaths({ state: 'loading' });
+    // An answer stays valid for its map even if gameplay started meanwhile; drop it only
+    // when the player has moved to another map.
+    const area = pathArea;
+    void client.command<{ routes?: FarmingRoute[] }>('farm_route_list', { area_id: area })
+      .then(value => { if (pathRead.current.area === area) setPaths({ state: 'ready', names: (value.routes ?? []).map(route => route.name) }); })
+      .catch(error => {
+        if (pathRead.current.area !== area) return;
+        pathRead.current.key = '';
+        if (newArea) setPaths({ state: 'error', message: error instanceof Error ? error.message : String(error) });
+      });
+  }, [pathArea, pathKey, client]);
   const readinessKey = action.name === 'probe' ? `probe:${action.payload.action}`
     : action.name === 'arm' ? 'combat' : action.name === 'autopotter_live' ? 'potions' : 'preview';
   const selectedGate = s?.readiness[readinessKey];
@@ -200,7 +224,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     {gameBounds && <OverlayMenu s={s ?? null} status={status} game={game}
       layers={layers} attackRange={attackRange} names={terrain}
       setLayers={setLayers} setAttackRange={setAttackRange} setNames={setTerrain}
-      batch={batch} canBatch={Boolean(window.mapleOverlay?.batch) && controllerReady}
+      batch={batch} canBatch={Boolean(window.mapleOverlay?.batch) && controllerReady} paths={paths}
       startBlocker={window.mapleOverlay?.companion && !controllerReady
         ? 'Open the browser dashboard to enable starting. Stop and F8 remain available.' : undefined}
       onStart={kind => void act(async () => {

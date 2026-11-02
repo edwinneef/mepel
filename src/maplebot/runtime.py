@@ -34,7 +34,13 @@ from .contracts import (
 from .decision import Action, Agent, Decision, PolicyInput
 from .display_loop import DisplayLoop, DisplaySource
 from .farming import CHECKPOINT_STOP, Farming
-from .farming_routes import FarmingRouteStore, compile_route, preview_graph, restrict_graph
+from .farming_routes import (
+    FarmingRouteStore,
+    compile_route,
+    preview_graph,
+    restrict_graph,
+    route_options,
+)
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
 from .keyboard import (
@@ -392,7 +398,8 @@ class Application:
                 profile = self.areas.load(area_id)["profile"]
                 graph = preview_graph(profile, self.navigation.proofs)
                 if name == "farm_route_map":
-                    return {"profile": profile, "map_hash": graph.fingerprint}
+                    return {"profile": profile, "map_hash": graph.fingerprint,
+                            **route_options(graph)}
                 return compile_route(payload.get("route"), graph)
         if name in {"area_begin", "area_capture", "area_save", "area_end"}:
             with self.stop_lock:
