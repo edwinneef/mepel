@@ -164,7 +164,8 @@ it('disconnects the lease if status polling loses the engine and never resumes a
   render(<OverlayApp client={client} dashboard={dashboard} />);
   await waitFor(() => expect(client.getState().connected).toBe(true));
   fetcher.mockRejectedValue(new Error('Network lost'));
-  await waitFor(() => expect(dashboard.disconnected).toBe(true));
+  await waitFor(() => expect(dashboard.disconnected).toBe(true), { timeout: 4000 });
+  expect(dashboard.connectionIssue).toContain('Network lost');
   expect(fetcher.mock.calls.some(call => call[0] === '/api/dashboard_disconnect')).toBe(true);
   expect(requests.some(r => r.body.name === 'arm')).toBe(false);
 });

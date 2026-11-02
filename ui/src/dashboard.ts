@@ -1,5 +1,7 @@
 import type { OverlayClient, OverlayEvent } from './overlay';
 
+const STATUS_GRACE_MS = 1500;
+
 // The server owns the deadline. A page timer can renew a lease, never authorize input.
 export class DashboardSession {
   private readonly owner = crypto.randomUUID();
@@ -88,11 +90,18 @@ export class DashboardSession {
   connect(client: OverlayClient): () => void {
     client.selectionMessage = 'Selected. Click Start on Run, then focus the game during the countdown.';
     let connected = false;
+    let lostTimer: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = client.subscribe(() => {
       const state = client.getState();
-      if (state.connected) connected = true;
-      if (connected && (!state.connected || state.needsReload)) {
-        this.disconnect(state.needsReload ? 'the engine started a new session' : `engine status stopped answering (${state.error || 'no reason given'})`);
+      if (state.connected) { connected = true; clearTimeout(lostTimer); lostTimer = undefined; }
+      if (connected && state.needsReload) this.disconnect('the engine started a new session');
+      // One slow or dropped status poll (the batch start loads the engine and the browser loses focus)
+      // must not end the lease. The server expires it after 2 s without heartbeats and stops input.
+      else if (connected && !state.connected && lostTimer === undefined) {
+        lostTimer = setTimeout(() => {
+          const now = client.getState();
+          if (!now.connected) this.disconnect(`engine status stopped answering (${now.error || 'no reason given'})`);
+        }, STATUS_GRACE_MS);
       }
     });
     const onPageHide = () => this.disconnect('the page was hidden or closed');
@@ -101,6 +110,7 @@ export class DashboardSession {
     window.addEventListener('offline', onOffline);
     return () => {
       unsubscribe();
+      clearTimeout(lostTimer);
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('offline', onOffline);
       this.disconnect('the dashboard was closed or reloaded');

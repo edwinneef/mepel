@@ -86,8 +86,8 @@ export class EngineClient {
     try {
       await this.readStatus();
     } catch (error) {
-      this.update({ connected: false });
       this.fail(error);
+      this.update({ connected: false });
     } finally {
       this.pollInFlight = false;
       if (this.running && this.state.process === 'running') {
