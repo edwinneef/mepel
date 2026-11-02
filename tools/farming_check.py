@@ -34,8 +34,11 @@ def combat_progress(samples: list[dict]) -> dict:
 
 
 
-def rotation_blocker(status: dict) -> str | None:
-    """Reject impossible rotation connectivity; engine planning still owns route safety."""
+def rotation_blocker(status: dict, *, learn_moves: bool = False) -> str | None:
+    """Reject impossible rotation connectivity; engine planning still owns route safety.
+
+    With `learn_moves`, one unproven computed move to another platform also suffices.
+    """
     position = status.get("position") or {}
     if position.get("stale") or position.get("held") or not position.get("feet"):
         return "Wait for a fresh mapped position before rotation"
@@ -47,6 +50,11 @@ def rotation_blocker(status: dict) -> str | None:
     targets = {key for key, node in nodes.items() if key != origin
                and node.get("kind") == "platform"
                and not node.get("excluded") and not node.get("unproven")}
+    if learn_moves and any(
+            edge.get("from") == origin and not edge.get("proven") and edge.get("to") in nodes
+            and edge["to"] != origin and nodes[edge["to"]].get("kind") == "platform"
+            and not nodes[edge["to"]].get("excluded") for edge in graph.get("edges", [])):
+        return None
     reached, frontier = {origin}, {origin}
     for _ in range(8):
         frontier = {edge["to"] for edge in graph.get("edges", [])
@@ -57,7 +65,7 @@ def rotation_blocker(status: dict) -> str | None:
     return "No proven rotation route from this platform; move to a connected combat platform"
 
 def run(api, output: Path, *, area: str, single_platform=False, session_minutes=15,
-        checkpoint_seconds=None, consumables=False, require_enemy=False,
+        checkpoint_seconds=None, consumables=False, require_enemy=False, learn_moves=False,
         clock=time.monotonic, sleep=time.sleep):
     if type(session_minutes) is not int or not 1 <= session_minutes <= 120:
         raise ValueError("session_minutes must be an integer between 1 and 120")
@@ -66,6 +74,8 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
         raise ValueError("checkpoint_seconds must be an integer between 1 and 10")
     if consumables and checkpoint_seconds is not None:
         raise ValueError("Checkpoints run without consumables")
+    if learn_moves and single_platform:
+        raise ValueError("learn_moves needs platform rotation, not single_platform")
     # Reserve evidence storage before reading readiness or sending any commands.
     output.mkdir(parents=True, exist_ok=False)
     before = api.status()
@@ -89,7 +99,7 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
     player = before.get("player") or {}
     if player.get("tracked") or player.get("confidence", 0) < .9:
         raise RuntimeError("Player not freshly recognized; no farming started")
-    if not single_platform and (problem := rotation_blocker(before)):
+    if not single_platform and (problem := rotation_blocker(before, learn_moves=learn_moves)):
         raise RuntimeError("No farming started: " + problem)
     if require_enemy:
         box = player.get("box") or {}
@@ -103,6 +113,8 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
                 "no_consumables": not consumables}
     if single_platform:
         settings["single_platform"] = True
+    if learn_moves:
+        settings["learn_moves"] = True
     if checkpoint_seconds is not None:
         settings["checkpoint_seconds"] = checkpoint_seconds
     # Apply the same health policy before taking control, while safe staging is possible.
@@ -218,6 +230,8 @@ def main():
                         help="Clear continuous floor only; no route rotation")
     parser.add_argument("--require-enemy", action="store_true",
                         help="Require a fresh same-platform enemy immediately before starting")
+    parser.add_argument("--learn-moves", action="store_true",
+                        help="Supervised: rotation may try one unproven move at a time")
     parser.add_argument("--session-minutes", type=int, default=15)
     parser.add_argument("--consumables", action="store_true",
                         help="Sustain HP/MP with the verified potion keys instead of stopping")
@@ -228,7 +242,8 @@ def main():
     output = Path("artifacts/farming-checks") / time.strftime("%Y%m%d-%H%M%S")
     result = run(Debugger(), output, area=args.area, single_platform=args.single_platform,
                  session_minutes=args.session_minutes, checkpoint_seconds=args.checkpoint_seconds,
-                 consumables=args.consumables, require_enemy=args.require_enemy)
+                 consumables=args.consumables, require_enemy=args.require_enemy,
+                 learn_moves=args.learn_moves)
     print(json.dumps({"result": str(output / "result.json"), "error": result["error"],
                       "stop_error": result["stop_error"], "outcome": result["outcome"]}))
     if result["outcome"] not in {"functional_success", "checkpoint_success"}:

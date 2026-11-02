@@ -53,3 +53,13 @@ def test_route_mode_starts_one_prepared_route_with_its_arguments():
     assert module == ["tools.prepared_route_check", "--area", "a" * 32, "--origin",
                       "fh315", "--target", "fh308", "--run", "--focus"]
     assert batch([])[3] == ["tools.prepared_floor_check", "--run", "--focus"]
+
+
+def test_farm_mode_starts_one_bounded_learn_moves_session():
+    title, instructions, label, module = batch(
+        ["--farm", "a" * 32, "fh308", "--minutes", "5", "--label", "Stand on Level 7"])
+    assert (title, instructions, label) == (
+        "Supervised learn_moves farming", "Stand on Level 7",
+        "Start one 5-minute learn_moves farm from fh308")
+    assert module == ["tools.prepared_farm_check", "--area", "a" * 32, "--origin", "fh308",
+                      "--minutes", "5", "--run", "--focus"]

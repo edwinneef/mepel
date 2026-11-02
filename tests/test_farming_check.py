@@ -300,3 +300,27 @@ def test_enemy_ready_snapshot_is_followed_by_arm(tmp_path):
     run(api, tmp_path / "run", area="island", require_enemy=True)
     assert api.calls[0][0] == "arm"
     assert api.calls[-1][0] == "stop"
+
+
+def test_learn_moves_accepts_one_unproven_move_and_requests_it_from_the_engine(tmp_path):
+    status = Api().status()
+    graph = status["navigation"]["map"]
+    graph["edges"] = [{"from": "a", "to": "b", "proven": False}]
+    assert "No proven rotation route" in rotation_blocker(status)
+    assert rotation_blocker(status, learn_moves=True) is None
+    graph["edges"] = [{"from": "a", "to": "a", "proven": False},
+                      {"from": "b", "to": "a", "proven": False}]
+    assert "No proven rotation route" in rotation_blocker(status, learn_moves=True)
+
+    class Unproven(Api):
+        def status(self):
+            status = super().status()
+            status["navigation"]["map"]["edges"][0]["proven"] = False
+            return status
+
+    api = Unproven()
+    run(api, tmp_path / "run", area="island", session_minutes=5, learn_moves=True)
+    assert api.calls[0][1]["farming"]["learn_moves"] is True
+    assert api.calls[-1][0] == "stop"
+    with pytest.raises(ValueError, match="learn_moves needs platform rotation"):
+        run(Api(), tmp_path / "other", area="island", single_platform=True, learn_moves=True)
