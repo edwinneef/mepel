@@ -14,10 +14,14 @@ it('shows detection outlines and attack range without native settings or HUD', a
     confidence: 1, template: 'enemy', tracked: false }], attack_setup: {
     minimum_px: 0, maximum_px: 55, measured: false, reason: 'Configured band',
   } });
+  let frames = 0;
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
     if (url === '/api/v1/status') return json(current);
+    // A live stream: each poll is a new frame. One repeated frame expires after 500 ms,
+    // which a loaded full-suite run reaches before the toggles below.
     if (url === '/api/v1/drawings') return json({ display: true,
-      frame: { ...current.frame, id: 'display:1', source_id: `${current.session_id}:source:1` }, player: current.player,
+      frame: { ...current.frame, id: `display:${++frames}`, captured_at: Date.now() / 1000,
+        source_id: `${current.session_id}:source:1` }, player: current.player,
       monsters: current.monsters, target: current.target });
     const command = JSON.parse(String(options?.body));
     return json(command.name === 'area_list' ? { areas: [] } : { ok: true });
@@ -47,11 +51,12 @@ it('shows detection outlines and attack range without native settings or HUD', a
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
   fireEvent.click(screen.getByRole('checkbox', { name: 'Enemies' }));
   expect(screen.queryByLabelText('Detection boxes')).toBeNull();
-  expect(screen.getByLabelText('Configured attack range')).toBeTruthy();
+  // A loaded run can spend over 500 ms here; the range returns with the next fresh frame.
+  expect(await screen.findByLabelText('Configured attack range')).toBeTruthy();
   fireEvent.click(screen.getByRole('checkbox', { name: 'Range' }));
   expect(screen.queryByLabelText('Configured attack range')).toBeNull();
   fireEvent.click(screen.getByRole('checkbox', { name: 'Range' }));
-  expect(screen.getByLabelText('Configured attack range')).toBeTruthy();
+  expect(await screen.findByLabelText('Configured attack range')).toBeTruthy();
 });
 
 it('shows passive position learning progress over the focused game only', async () => {
@@ -396,7 +401,7 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
   let listener: (event: OverlayEvent) => void = () => {};
   const batch = vi.fn(async () => ({ started: true }));
   const interactive = vi.fn();
-  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), batch, interactive,
+  window.mapleOverlay = { companion: true, settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), batch, interactive,
     subscribe: callback => {
       listener = callback;
       callback({ type: 'game-bounds', value: { x: 0, y: 0, width: 1366, height: 768, visible: true } });
@@ -414,6 +419,8 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
   expect(screen.getByText('Capture player screenshots')).toBeTruthy();
   expect(screen.getByText(/Standing on fh320/)).toBeTruthy();
+  expect((screen.getByText('Start single platform') as HTMLButtonElement).disabled).toBe(true);
+  act(() => listener({ type: 'controller', value: true }));
   const names = screen.getByRole('checkbox', { name: /Map/ }) as HTMLInputElement;
   expect(names.checked).toBe(true);
   fireEvent.click(names);
@@ -428,5 +435,7 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
     output: '{"blocked": "Stand still on a recognized platform of this map first", "input_sent": false}' } }));
   expect(screen.getByText('Last batch: Refused, no keys sent: Stand still on a recognized platform of this map first'))
     .toBeTruthy();
+  act(() => listener({ type: 'controller', value: false }));
+  expect((screen.getByText('Start single platform') as HTMLButtonElement).disabled).toBe(true);
 });
 

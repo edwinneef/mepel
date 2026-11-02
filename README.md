@@ -72,6 +72,9 @@ token, and all input keeps the focus, calibration, probe, watchdog and F8 gates.
 
 ### Restarting the engine
 
+From the project root, run `.\restart-input.ps1` to restart with gameplay input enabled.
+The bot stays Off. This shortcut uses the managed restart below; optional `-Port` defaults to 8765.
+
 Restart a running engine with `tools/restart_engine.ps1` (add `-EnableGameplayInput`
 for an input-capable session). It stops the engine through its own API, waits for the
 port to close, closes `run.ps1` windows that no longer host it, and opens one new
@@ -80,6 +83,11 @@ stays open (`-NoExit`) after its engine stops, so repeated restarts pile up empt
 terminals. To turn the bot off, run `tools/stop_all.ps1`. It calls
 `tools/restart_engine.ps1 -StopOnly`, which does the same shutdown and window cleanup without
 starting a new engine, and also closes the overlay.
+
+Run `.\start-widget.ps1` from the project root for the in-game widget alongside the
+browser dashboard. The widget reports its health without owning or renewing the
+dashboard's control lease. Its batch starts require a live dashboard connection;
+Stop/F8 and disconnect/crash stops remain in force. Starting the widget leaves the bot Off.
 
 ## Prepare the game window
 
@@ -244,8 +252,10 @@ Unlabeled frames are excluded from accuracy metrics. Without labels, accuracy is
 The default edit/check workflow is `./tools/dev_cycle.ps1`. It runs focused
 navigation tests and lint without requiring the game. Choose test files with
 `-PythonTests`, or use `-Scope ui -UiTests client.test.ts` for a focused UI check.
-`-Scope all -BuildUi` checks both sides and builds the installed UI, backing up
-the previous assets first. Add `-Restart` only when the running engine needs the
+`-Scope all` runs the full Python suite, lint, UI tests and a bundle-freshness
+diff (`tools/check_workbench_bundle.ps1` builds `ui/` into a scratch folder and fails
+if the installed bundle differs). `-Scope all -BuildUi` also rebuilds the installed
+UI first, backing up the previous assets. Add `-Restart` only when the running engine needs the
 change (`-EnableGameplayInput` explicitly selects an input-capable restart).
 `-DryRun` lists the steps without running them. A failed step stops the sequence;
 timings and build backups go to `artifacts/dev-cycle/<timestamp>/`.

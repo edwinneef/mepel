@@ -43,6 +43,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const [map, setMap] = useState<AreaProfile | null>(null);
   const [areas, setAreas] = useState<{ id: string; name: string; revision: number }[]>([]);
   const [starting, setStarting] = useState(false);
+  const [controllerReady, setControllerReady] = useState(!window.mapleOverlay?.companion);
   const [supervised, setSupervised] = useState(false);
   const [batch, setBatch] = useState<BatchState>({ running: false });
   const startRef = useRef(false);
@@ -60,6 +61,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const drawingFresh = freshDetections(drawing, state.connected, Math.max(now, Date.now()))
     && (!fastDrawing || Date.now() - (fastDrawing.frame.captured_at ?? 0) * 1000 <= 500);
   const disabled = !state.connected || state.busy || state.needsReload || Boolean(dashboard?.disconnected);
+  const builderDisabled = !state.connected || state.busy || state.needsReload;
   const readinessKey = action.name === 'probe' ? `probe:${action.payload.action}`
     : action.name === 'arm' ? 'combat' : action.name === 'autopotter_live' ? 'potions' : 'preview';
   const selectedGate = s?.readiness[readinessKey];
@@ -87,6 +89,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       if (event.type === 'layers') setLayers(value => !value);
       if (event.type === 'error') client.fail(event.value);
       if (event.type === 'batch') setBatch(event.value as BatchState);
+      if (event.type === 'controller') setControllerReady(event.value === true);
     });
     return () => { clearInterval(timer); unsub?.(); };
   }, [client, host]);
@@ -197,7 +200,9 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     {gameBounds && <OverlayMenu s={s ?? null} status={status} game={game}
       layers={layers} attackRange={attackRange} names={terrain}
       setLayers={setLayers} setAttackRange={setAttackRange} setNames={setTerrain}
-      batch={batch} canBatch={Boolean(window.mapleOverlay?.batch)}
+      batch={batch} canBatch={Boolean(window.mapleOverlay?.batch) && controllerReady}
+      startBlocker={window.mapleOverlay?.companion && !controllerReady
+        ? 'Open the browser dashboard to enable starting. Stop and F8 remain available.' : undefined}
       onStart={kind => void act(async () => {
         const area = s?.position?.area_id;
         const launch = window.mapleOverlay?.batch;
@@ -255,6 +260,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     </>}
     {tab === 'Map' && toolProps && <>
       <MapTab snapshot={toolProps.snapshot} client={client} act={act} disabled={disabled}
+        builderDisabled={builderDisabled}
         onCircuit={selectCircuit}
         onPreview={() => setAction({ name: 'nav_start', label: 'Previewed navigation route', payload: { opt_in: false } })} />
       <NavigationPanel snapshot={toolProps.snapshot} client={client} act={act} disabled={disabled}
@@ -286,6 +292,13 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
         <p className="dash-side-foot">{!s ? 'Waiting for the engine.' : s.capture_only ? 'Capture-only session. Gameplay keys are locked.' : 'Input-capable session. Existing safety checks apply.'}</p>
       </nav>
       <main className="dash-main">
+        {dashboard.disconnected && <section className="dash-panel" role="alert" aria-label="Dashboard controls disconnected">
+          <h2>Dashboard controls are disconnected</h2>
+          <p>{dashboard.connectionIssue}</p>
+          <p>Saved-path editing remains available while the engine is connected and the bot is Off.</p>
+          <p>Connecting the MapleStory window supplies the picture; it does not reconnect dashboard controls.
+            Close any other dashboard or native overlay that owns controls, then reload this dashboard. The bot stays Off.</p>
+        </section>}
         {s && <AlarmBanner snapshot={s} onAcknowledge={id => void act(() => client.command('acknowledge', { incident_id: id }))} />}
         <div className="dash-top">
           <section className="dash-panel dash-stage dashboard-preview" aria-label="Dashboard game view">

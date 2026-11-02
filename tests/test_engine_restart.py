@@ -10,7 +10,7 @@ import pytest
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows engine launcher")
-def test_restart_restores_existing_overlay_after_engine_ready_and_stop_only_does_not(tmp_path):
+def test_restart_keeps_browser_control_and_native_overlay_requires_opt_in(tmp_path):
     tools = tmp_path / "tools"
     tools.mkdir()
     source = Path(__file__).resolve().parents[1] / "tools/restart_engine.ps1"
@@ -55,11 +55,14 @@ def test_restart_restores_existing_overlay_after_engine_ready_and_stop_only_does
         }
         function Start-Sleep { param($Milliseconds, $Seconds) }
         $rows = @()
-        foreach ($case in @('restart-overlay', 'headless', 'stop-only')) {
+        foreach ($case in @('browser-default', 'restart-overlay', 'headless', 'stop-only')) {
             $global:events.Clear()
             $global:stopped = $false
             $global:hasOverlay = $case -ne 'headless'
             if ($case -eq 'stop-only') { $result = & $restart -StopOnly -Port 8877 }
+            elseif ($case -eq 'restart-overlay') {
+                $result = & $restart -StartNativeOverlay -Port 8877
+            }
             else { $result = & $restart -Port 8877 }
             $rows += @{ case = $case; events = @($global:events.ToArray());
                 result = ($result | ConvertFrom-Json) }
@@ -69,10 +72,14 @@ def test_restart_restores_existing_overlay_after_engine_ready_and_stop_only_does
     result = subprocess.run(["pwsh", "-NoProfile", "-File", str(runner), str(tools / source.name)],
                             capture_output=True, text=True, timeout=20)
     assert result.returncode == 0, result.stderr
-    restored, headless, stopped = json.loads(result.stdout)
+    browser, restored, headless, stopped = json.loads(result.stdout)
+    assert browser["events"] == ["engine-stop", "overlay-stop", "engine-start", "engine-ready"]
+    assert browser["result"]["overlay_restarted"] is False
     assert restored["events"] == ["engine-stop", "overlay-stop", "engine-start", "engine-ready",
                                   "overlay-start:8877"]
     assert restored["result"]["overlay_restarted"] is True
     assert headless["events"] == ["engine-stop", "engine-start", "engine-ready"]
     assert headless["result"]["overlay_restarted"] is False
     assert stopped["events"] == ["engine-stop", "overlay-stop"]
+
+

@@ -2,6 +2,8 @@ param(
     [switch]$EnableGameplayInput,
     # Shut the engine down and close its launcher windows without starting a new one.
     [switch]$StopOnly,
+    # Browser dashboard owns controls by default; native overlay is an explicit opt-in.
+    [switch]$StartNativeOverlay,
     [int]$Port = 8765
 )
 
@@ -14,8 +16,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $base = "http://127.0.0.1:$Port"
-# A session change makes the overlay exit deliberately. Remember it before shutdown
-# so a restart can replace it with a fresh renderer, token and input lease.
+# Close old native renderers before restarting; their former presence does not opt
+# the operator into taking the control lease away from the browser dashboard.
 $overlays = @(Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Where-Object {
     $_.CommandLine -and $_.CommandLine.Replace('/', '\') -like "*$root\ui\overlay\main.cjs*"
 })
@@ -85,13 +87,13 @@ while ((Get-Date) -lt $deadline -and -not $status) {
     try { $status = Invoke-RestMethod "$base/api/status" -TimeoutSec 2 } catch { }
 }
 if (-not $status) { throw "The engine did not answer on $base within 120 s; check its window" }
-if ($overlays.Count -gt 0) {
+if ($StartNativeOverlay) {
     & "$PSScriptRoot/start_overlay.ps1" -WaitForEngine -Port $Port
 }
 [pscustomobject]@{
     window = if ($process) { $process.Id } else { 'MapleBot task (elevated)' }
     capture_only = $status.capture_only
     mode = $status.mode
-    overlay_restarted = $overlays.Count -gt 0
+    overlay_restarted = [bool]$StartNativeOverlay
     url = $base
 } | ConvertTo-Json -Compress

@@ -93,6 +93,26 @@ it('never renews a stale open-panel state after a queued close', async () => {
   expect(fetcher.mock.calls.map(call => JSON.parse(String(call[1]?.body)).panel)).toEqual([true, false, false]);
 });
 
+it('explains a refused control connection while the game picture stays connected and never retries it', async () => {
+  const { client, dashboard, fetcher } = setup();
+  const original = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation((url, options) => url === '/api/dashboard'
+    ? Promise.resolve(json({ error: 'Another overlay is connected' }, 409)) : original(url, options));
+  render(<OverlayApp client={client} dashboard={dashboard} />);
+  const banner = await screen.findByRole('alert', { name: 'Dashboard controls disconnected' });
+  expect(banner.textContent).toContain('Another overlay is connected');
+  expect(banner.textContent).toContain('Connecting the MapleStory window supplies the picture');
+  expect(client.getState().connected).toBe(true);
+  const denied = fetcher.mock.calls.filter(call => call[0] === '/api/dashboard').length;
+  dashboard.heartbeat();
+  await Promise.resolve();
+  expect(fetcher.mock.calls.filter(call => call[0] === '/api/dashboard')).toHaveLength(denied);
+  expect(screen.getByRole('button', { name: 'Turn On · F6' }).hasAttribute('disabled')).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Map' }));
+  await waitFor(() => expect(client.getState().busy).toBe(false));
+  expect(screen.getByRole('button', { name: 'Load saved farming maps' }).hasAttribute('disabled')).toBe(false);
+});
+
 it('disconnects the lease if status polling loses the engine and never resumes automatically', async () => {
   const { client, dashboard, fetcher, requests } = setup();
   render(<OverlayApp client={client} dashboard={dashboard} />);

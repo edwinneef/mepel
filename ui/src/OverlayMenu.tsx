@@ -53,7 +53,8 @@ export function batchSummary(batch: BatchState): string | null {
 
 /** Small in-game menu: what the bot is doing, display switches and the two batch starts. */
 export function OverlayMenu({ s, status, game, layers, attackRange, names, setLayers, setAttackRange, setNames,
-  batch, canBatch, onStart, onStop, capture }: {
+  batch, canBatch, onStart, onStop, capture, startBlocker }: {
+  startBlocker?: string;
   capture?: ReactNode;
   s: Snapshot | null; status: string; game: Rect;
   layers: boolean; attackRange: boolean; names: boolean;
@@ -121,6 +122,7 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
         <button disabled={!ready} onClick={() => onStart('single')}
           title="15 minutes on the platform you stand on; uses your confirmed potion keys">Start single platform</button>
       </div>
+      {startBlocker && <p className="overlay-menu-result">{startBlocker}</p>}
       {summary && <p className="overlay-menu-result" role="status">{batch.running ? summary : `Last batch: ${summary}`}</p>}
     </>}
   </section>;

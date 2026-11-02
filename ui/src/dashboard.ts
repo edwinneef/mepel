@@ -7,6 +7,7 @@ export class DashboardSession {
   private desiredPanel = true;
   private closed = false;
   private denied = false;
+  private denialReason = '';
   private pending: Promise<void> = Promise.resolve();
   private renewing = false;
   private listeners = new Set<(event: OverlayEvent) => void>();
@@ -14,6 +15,9 @@ export class DashboardSession {
   constructor(private readonly token: string, private readonly fetcher: typeof fetch = globalThis.fetch.bind(globalThis)) {}
 
   get disconnected() { return this.closed || this.denied; }
+  get connectionIssue() {
+    return this.denialReason || 'The dashboard control connection ended. The game picture can still update while controls are disconnected.';
+  }
 
   subscribe = (listener: (event: OverlayEvent) => void) => {
     this.listeners.add(listener);
@@ -32,6 +36,7 @@ export class DashboardSession {
       const result = await response.json();
       if (!response.ok) {
         this.denied = response.status >= 400 && response.status < 500;
+        if (this.denied) this.denialReason = result.error ?? 'Dashboard control connection refused';
         throw new Error(result.error ?? 'Dashboard lease unavailable');
       }
       if (this.closed) return;

@@ -17,6 +17,7 @@ interface Props {
   act: (operation: () => Promise<unknown>) => Promise<void>;
   onPreview: () => void;
   onCircuit?: (route: FarmingRoute | null) => void;
+  builderDisabled?: boolean;
 }
 
 const line = (item: Segment) => (item.points ?? [item.start, item.end]).map(p => `${p.x},${p.y}`).join(' ');
@@ -66,7 +67,7 @@ function useSize(fallback: number) {
 }
 
 /** The whole saved map with every place named; picking a platform previews a route there. */
-export function MapTab({ snapshot: s, client, disabled, act, onPreview, onCircuit }: Props) {
+export function MapTab({ snapshot: s, client, disabled, act, onPreview, onCircuit, builderDisabled = disabled }: Props) {
   const [profile, setProfile] = useState<AreaProfile | null>(null);
   const [error, setError] = useState('');
   const [showMoves, setShowMoves] = useState(false);
@@ -97,7 +98,7 @@ export function MapTab({ snapshot: s, client, disabled, act, onPreview, onCircui
   }, [areaId, map?.map_hash, client]);
 
   const nodes = useMemo(() => new Map((map?.nodes ?? []).map(n => [n.id, n])), [map]);
-  const builder = <PathBuilderLibrary client={client} disabled={disabled || Boolean(nav?.active) || s.mode !== 'capture'}
+  const builder = <PathBuilderLibrary client={client} disabled={builderDisabled || Boolean(nav?.active) || s.mode !== 'capture'}
     initialArea={areaId} onSelect={onCircuit} />;
   if (!areaId) return <section className="map-tab" aria-label="Map"><h3>See the whole map</h3>
     <p>Track a map from Routes to draw it here with every platform, rope and ladder named.</p>{builder}</section>;
