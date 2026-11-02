@@ -9,7 +9,7 @@ type Act = (operation: () => Promise<unknown>) => Promise<void>;
 export interface ToolProps {
   snapshot: Snapshot; client: EngineClient; act: Act; disabled: boolean;
   selected: () => Selection; clear: () => void;
-  runMode: 'preview' | 'live' | 'navigation' | 'farming'; setRunMode: (mode: 'preview' | 'live' | 'navigation') => void;
+  runMode: 'preview' | 'live' | 'farming'; setRunMode: (mode: 'preview' | 'live') => void;
   selectOnly?: boolean;
   startInstruction?: string;
 }
@@ -59,7 +59,6 @@ export function CombatTool({ snapshot: s, runMode, setRunMode }: ToolProps) {
   return <><p className="tool-intro">Preview decisions first. Use Start in the header when ready.</p>
     <Group title="Run mode"><label>Output<select value={runMode} onChange={e => setRunMode(e.target.value as 'preview' | 'live')}>
       {runMode === 'farming' && <option value="farming" disabled>Farming selected in header</option>}
-      {runMode === 'navigation' && <option value="navigation" disabled>Navigation selected in header</option>}
       <option value="preview">Preview · no input</option><option value="live" disabled={s.capture_only}>Live combat · sends input</option>
     </select></label><p>{s.readiness[runMode === 'preview' ? 'preview' : 'combat'].reason}</p>
       {runMode === 'live' && <p className="warning-copy">Start gives you three seconds to focus the game. F8 cancels. Acknowledging an alarm never resumes combat.</p>}

@@ -18,6 +18,8 @@ interface Props {
   /** Farmable platforms and trusted moves from `farm_route_map`; older engines omit them. */
   options?: RouteOptions;
   onSelect?: (route: FarmingRoute | null) => void;
+  /** Live player feet in map pixels; faded while the reading is briefly stale. */
+  player?: { feet: [number, number]; stale: boolean } | null;
 }
 type Platform = AreaProfile['platforms'][number] & { points?: AreaPoint[] };
 const DEFAULT_NAME = 'New farming circuit';
@@ -39,7 +41,7 @@ function LegDrawing({ leg, index, centers, selected }: { leg: PlannedLeg; index:
   </g>;
 }
 
-export function PathBuilder({ profile, mapHash, client, disabled, options, onSelect }: Props) {
+export function PathBuilder({ profile, mapHash, client, disabled, options, onSelect, player }: Props) {
   const fresh = (): FarmingRoute => ({ version: 1, revision: 0, id: crypto.randomUUID(), name: DEFAULT_NAME,
     area_id: profile.id, map_hash: mapHash, stops: [], loop: true });
   const draftKey = `maple-farming-draft:${profile.id}`;
@@ -261,6 +263,7 @@ export function PathBuilder({ profile, mapHash, client, disabled, options, onSel
               <text className="path-name" x={Math.min(p.start.x, p.end.x) + 4} y={Math.max(p.start.y, p.end.y) + 22}>{names.get(p.id)}</text></g>)}
             {shownLegs.map((item, index) => <LegDrawing key={index} leg={item} index={index} centers={centers} selected={index === leg && !sketch} />)}
             {shown.map((id, index) => { const at = badgeAt(index); return at ? <g key={index} className="path-badge"><circle cx={at.x} cy={at.y - 30} r={14} /><text x={at.x} y={at.y - 30}>{index + 1}</text></g> : null; })}
+            {player && <circle className={player.stale ? 'path-player stale' : 'path-player'} cx={player.feet[0]} cy={player.feet[1] - 10} r={10}><title>You</title></circle>}
             {sketch && <polyline className="path-trail" points={sketch.trail.map(point => `${point.x},${point.y}`).join(' ')} />}
           </svg></div>
           <p className="path-legend"><span><b>Drag</b> across platforms to draw the order</span><span><b>Click</b> a platform to switch it on or off</span><span><b>Shift+drag</b> pans when zoomed</span></p>

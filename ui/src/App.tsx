@@ -9,7 +9,6 @@ import { useAreaEditor } from './useAreaEditor';
 import { AreaCanvas, AreaEditor } from './AreaEditor';
 import { PositionOverlay, PositionPanel } from './PositionPanel';
 import { MapTab } from './MapTab';
-import { NavigationPanel } from './NavigationPanel';
 import { GoBar } from './GoBar';
 import type { FarmingRoute } from './PathBuilder';
 
@@ -17,8 +16,8 @@ export function App({ client }: { client: EngineClient }) {
   const state = useSyncExternalStore(client.subscribe, client.getState);
   const s = state.snapshot;
   const [tool, setTool] = useState<Tool | null>(null);
-  const [runMode, setRunMode] = useState<'preview' | 'live' | 'navigation' | 'farming'>('preview');
-  const [navigationTab, setNavigationTab] = useState<'map' | 'routes' | 'setup'>('map');
+  const [runMode, setRunMode] = useState<'preview' | 'live' | 'farming'>('preview');
+  const [navigationTab, setNavigationTab] = useState<'map' | 'setup'>('map');
   const [farmMinutes, setFarmMinutes] = useState(15);
   const [circuit, setCircuit] = useState<FarmingRoute | null>(null);
   useEffect(() => {
@@ -28,8 +27,6 @@ export function App({ client }: { client: EngineClient }) {
   const [farmHp, setFarmHp] = useState(50);
   const [farmMp, setFarmMp] = useState(50);
   const [learnMoves, setLearnMoves] = useState(false);
-  const [supervised, setSupervised] = useState(false);
-  const [routeCurrent, setRouteCurrent] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [readySince, setReadySince] = useState<number | null>(null);
   const view = useViewport(client, s, state.connected);
@@ -37,12 +34,9 @@ export function App({ client }: { client: EngineClient }) {
   const areaEditing = area.editing || Boolean(s?.area_editing);
   useEffect(() => client.start(), [client]);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 100); return () => clearInterval(timer); }, []);
-  useEffect(() => { setRunMode('preview'); setSupervised(false); setRouteCurrent(false); }, [s?.session_id]);
+  useEffect(() => { setRunMode('preview'); }, [s?.session_id]);
   const disabled = state.busy || !state.connected || state.needsReload || state.process !== 'running';
-  const gate = runMode === 'navigation' ? {
-    ready: Boolean(!s?.capture_only && s?.navigation?.ready && routeCurrent && supervised),
-    reason: s?.navigation?.blocker ?? (!routeCurrent ? 'Preview the selected route first' : !supervised ? 'Confirm that you will supervise this route' : 'Navigation ready'),
-  } : s?.readiness[runMode === 'preview' ? 'preview' : 'combat'];
+  const gate = s?.readiness[runMode === 'preview' ? 'preview' : 'combat'];
   const fresh = Boolean(s?.frame.available && s.frame.captured_at != null && now - s.frame.captured_at * 1000 <= 1500);
   const displayFrame = s?.preview_frame ?? s?.frame;
   const displayed = Boolean(view.image && !view.frozen && (s?.preview_frame
@@ -60,11 +54,6 @@ export function App({ client }: { client: EngineClient }) {
   };
   const showTool = (value: Tool) => setTool(previous => previous === value ? null : value);
   const start = () => act(async () => {
-    if (runMode === 'navigation') {
-      const result = await client.command('nav_start', { opt_in: supervised });
-      setSupervised(false); // A started route consumes the opt-in; a refused start keeps it.
-      return result;
-    }
     return client.command(runMode === 'preview' ? 'dry_run' : 'arm', runMode === 'farming' ? {
       farming: { session_minutes: farmMinutes, feed_seconds: Number(feedSeconds), hp_threshold: farmHp, mp_threshold: farmMp, learn_moves: learnMoves },
       ...(circuit ? { circuit: { id: circuit.id, revision: circuit.revision } } : {}),
@@ -88,12 +77,11 @@ export function App({ client }: { client: EngineClient }) {
       {s?.alarm.active && <button className="danger" disabled={!alarmId} onClick={() => alarmId && void act(() => client.command('acknowledge', { incident_id: alarmId }))}>Acknowledge alarm</button>}
       <div className="run-controls" aria-label="Run controls">
         <select aria-label="Run mode" value={runMode} disabled={disabled || areaEditing} onChange={e => {
-          setRunMode(e.target.value as 'preview' | 'live' | 'navigation' | 'farming');
-          if (e.target.value === 'navigation') { setTool('Navigation'); setNavigationTab('routes'); }
+          setRunMode(e.target.value as 'preview' | 'live' | 'farming');
         }}>
-          <option value="preview">Preview</option><option value="navigation">Navigation</option><option value="live" disabled={!s || s.capture_only}>Live combat</option><option value="farming" disabled={!s || s.capture_only}>Farming (pet potions)</option>
+          <option value="preview">Preview</option><option value="live" disabled={!s || s.capture_only}>Live combat</option><option value="farming" disabled={!s || s.capture_only}>Farming (pet potions)</option>
         </select>
-        <button className="primary" disabled={!canStart} title={gate?.reason ?? 'Waiting for the engine'} onClick={() => void start()}><span aria-hidden="true">▶</span> {runMode === 'preview' ? 'Start preview' : runMode === 'navigation' ? 'Start navigation' : runMode === 'farming' ? 'Start farming' : 'Start combat'}</button>
+        <button className="primary" disabled={!canStart} title={gate?.reason ?? 'Waiting for the engine'} onClick={() => void start()}><span aria-hidden="true">▶</span> {runMode === 'preview' ? 'Start preview' : runMode === 'farming' ? 'Start farming' : 'Start combat'}</button>
         <button disabled={state.process !== 'running'} onClick={() => void stop('pause')}>Pause</button>
         <button className="stop-button" disabled={state.process !== 'running'} onClick={() => void stop('stop')}>Stop <kbd>F8</kbd></button>
       </div>
@@ -154,13 +142,9 @@ export function App({ client }: { client: EngineClient }) {
         <div className="dock-body"><div hidden={tool !== 'Navigation'}>
           <nav className="navigation-tabs" aria-label="Navigation pages">
             <button aria-pressed={navigationTab === 'map'} onClick={() => setNavigationTab('map')}>Map</button>
-            <button aria-pressed={navigationTab === 'routes'} onClick={() => setNavigationTab('routes')}>Routes</button>
             <button aria-pressed={navigationTab === 'setup'} onClick={() => setNavigationTab('setup')}>Setup</button>
           </nav>
-          <div hidden={navigationTab !== 'map'}>{props && <MapTab snapshot={props.snapshot} client={client} act={act} disabled={props.disabled} onCircuit={setCircuit} active={tool === 'Navigation' && navigationTab === 'map'}
-            onPreview={() => { setRouteCurrent(true); setSupervised(false); setRunMode('navigation'); setNavigationTab('routes'); }} />}</div>
-          <div hidden={navigationTab !== 'routes'}>{props && <NavigationPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} client={client} act={act} disabled={props.disabled}
-            onInvalidate={() => { setRouteCurrent(false); setSupervised(false); }} onPreview={() => { setRouteCurrent(true); setRunMode('navigation'); }} supervised={supervised} onSupervised={setSupervised} areas={area.areas} />}</div>
+          <div hidden={navigationTab !== 'map'}>{props && <MapTab snapshot={props.snapshot} client={client} disabled={props.disabled} onCircuit={setCircuit} active={tool === 'Navigation' && navigationTab === 'map'} />}</div>
           <div hidden={navigationTab !== 'setup'}>{props && <PositionPanel key={s?.position?.area_id ?? 'no-map'} snapshot={props.snapshot} image={view.frozen ? null : view.image} client={client} act={act} disabled={props.disabled} areas={area.areas} refreshAreas={area.refresh} />}
             <details className="advanced-editor"><summary>Advanced: draw by hand</summary><AreaEditor workspace={area} active={tool === 'Navigation' && navigationTab === 'setup'} connected={state.connected} disabled={disabled} /></details></div></div>
           {tool !== 'Navigation' && (!props ? <p>Waiting for the engine connection…</p> : tool === 'Tracking' ? <TrackingTool {...props} /> : tool === 'Combat' ? <CombatTool {...props} /> : tool === 'Potions' ? <PotionsTool key={s!.session_id} {...props} /> : tool === 'Settings' ? <SettingsTool key={s!.session_id} {...props} /> : tool === 'Diagnostics' ? <DiagnosticsTool {...props} /> : null)}</div>

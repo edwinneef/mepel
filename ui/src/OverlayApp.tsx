@@ -11,7 +11,6 @@ import { GameViewport } from './GameViewport';
 import { SettingsTool, TrackingTool, PotionsTool, DiagnosticsTool } from './tools';
 import { PositionPanel } from './PositionPanel';
 import { GoBar } from './GoBar';
-import { NavigationPanel } from './NavigationPanel';
 import { MapTab } from './MapTab';
 import type { FarmingRoute } from './PathBuilder';
 import { AlarmBanner } from './AlarmBanner';
@@ -45,7 +44,6 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const [areas, setAreas] = useState<{ id: string; name: string; revision: number }[]>([]);
   const [starting, setStarting] = useState(false);
   const [controllerReady, setControllerReady] = useState(!window.mapleOverlay?.companion);
-  const [supervised, setSupervised] = useState(false);
   const [batch, setBatch] = useState<BatchState>({ running: false });
   const startRef = useRef(false);
   const wasRunning = useRef(false);
@@ -193,7 +191,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const toolProps = s ? { snapshot: s, client, act, disabled, selected: view.selected, clear: view.clear, selectOnly: true,
     startInstruction: dashboard ? 'Select an activity, click Turn On in the dashboard, then focus the game during the countdown.' : undefined,
     runMode: (action.name === 'arm' ? 'live' : 'preview') as 'live' | 'preview',
-    setRunMode: (mode: 'live' | 'preview' | 'navigation') => choose(mode === 'live' ? 'arm' : 'dry_run', mode),
+    setRunMode: (mode: 'live' | 'preview') => choose(mode === 'live' ? 'arm' : 'dry_run', mode),
   } : null;
   const game = gameBounds ?? { x: 0, y: 0, width: innerWidth, height: innerHeight };
   const recordingFull = Boolean(s?.recorder?.full);
@@ -284,17 +282,12 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       {toolProps && (tab === 'Connection' ? <SettingsTool {...toolProps} /> : tab === 'Recognition' ? <TrackingTool {...toolProps} /> : <PotionsTool {...toolProps} />)}
     </>}
     {tab === 'Map' && toolProps && <>
-      <MapTab snapshot={toolProps.snapshot} client={client} act={act} disabled={disabled}
+      <MapTab snapshot={toolProps.snapshot} client={client} disabled={disabled}
         builderDisabled={builderDisabled}
-        onCircuit={selectCircuit}
-        onPreview={() => setAction({ name: 'nav_start', label: 'Previewed navigation route', payload: { opt_in: false } })} />
-      <NavigationPanel snapshot={toolProps.snapshot} client={client} act={act} disabled={disabled}
-        areas={areas} supervised={supervised}
-        onInvalidate={() => { setSupervised(false); choose('dry_run', 'Decision preview'); }}
-        onPreview={() => setAction({ name: 'nav_start', label: 'Previewed navigation route', payload: { opt_in: false } })}
-        onSupervised={value => { setSupervised(value); setAction(previous => previous.name === 'nav_start'
-          ? { ...previous, payload: { opt_in: value } } : previous); }} />
-      <PositionPanel {...toolProps} image={view.frozen ? null : view.image} areas={areas} refreshAreas={refreshAreas} />
+        onCircuit={selectCircuit} />
+      <details className="map-tracking" open={!toolProps.snapshot.position?.area_id}><summary>Map tracking</summary>
+        <PositionPanel {...toolProps} image={view.frozen ? null : view.image} areas={areas} refreshAreas={refreshAreas} />
+      </details>
     </>}
     {tab === 'Diagnostics' && toolProps && <DiagnosticsTool {...toolProps} />}
   </>;

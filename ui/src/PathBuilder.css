@@ -84,3 +84,5 @@
 .path-builder .path-map-tools { margin: 0; padding: 8px 10px; gap: 6px; border-bottom: 1px solid var(--line-soft, var(--border)); }
 .path-builder .path-map-tools label { display: flex; align-items: center; gap: 8px; margin: 0 6px 0 0; }
 .path-map-tools input[type=range] { width: 120px; margin: 0; }
+.path-player { fill: #f2c14e; stroke: #121a22; stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+.path-player.stale { opacity: .55; }

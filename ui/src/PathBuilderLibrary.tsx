@@ -9,9 +9,11 @@ type Loaded = { profile: AreaProfile; map_hash: string } & RouteOptions;
 const text = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 /** Saved maps load by themselves; the map the player stands on is preselected and opens at once. */
-export function PathBuilderLibrary({ client, disabled, initialArea, onSelect }: {
+export function PathBuilderLibrary({ client, disabled, initialArea, onSelect, player }: {
   client: EngineClient; disabled: boolean; initialArea?: string;
   onSelect?: (route: FarmingRoute | null) => void;
+  /** Where the player stands; drawn only on the map they are on. */
+  player?: { area: string; feet: [number, number]; stale: boolean } | null;
 }) {
   const [areas, setAreas] = useState<{ id: string; name: string }[] | null>(null);
   const [chosen, setChosen] = useState(initialArea ?? '');
@@ -60,6 +62,7 @@ export function PathBuilderLibrary({ client, disabled, initialArea, onSelect }: 
       {message && !busy && <button disabled={disabled} onClick={() => { setMessage(''); setAttempt(value => value + 1); }}>Try again</button>}</div>
     {message && <p role="status">{message}</p>}
     {loaded && <PathBuilder key={loaded.profile.id} profile={loaded.profile} mapHash={loaded.map_hash}
-      options={loaded} client={client} disabled={disabled || busy} onSelect={onSelect} />}
+      options={loaded} client={client} disabled={disabled || busy} onSelect={onSelect}
+      player={player?.area === loaded.profile.id ? player : null} />}
   </section>;
 }
