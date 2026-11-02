@@ -113,6 +113,9 @@ class DisplayTracks:
     def update(self, gray: np.ndarray, now: float) -> None:
         """Move existing tracks into a fresh frame."""
         for track in self.tracks.values():
+            if track.kind == "player":
+                track.updated = now  # Drawn where recognition put it; see anchor().
+                continue
             dt = max(0.0, now - track.updated)
             px, py = track.x + track.vx * dt, track.y + track.vy * dt
             found = self._search(gray, track.template, px, py, min(120.0, 12 + self.SPEED * dt))
@@ -202,6 +205,16 @@ class DisplayTracks:
             old = self.tracks.get(key)
             template = gray[top:bottom, left:right].copy()
             recognized = (moment, (left + right) / 2, (top + bottom) / 2)
+            if kind == "player":
+                # The player's box is mostly scenery that scrolls with the camera, so patch
+                # matching and speed prediction dragged it 100-200 px away from the player
+                # (live, 2026-11-02). Draw recognition's own box: late, but never elsewhere.
+                track = Track(key, kind, identity(item), item, template, float(left),
+                              float(top), arrival, arrival, arrival)
+                track.recognized = recognized
+                track.history.append((arrival, track.x, track.y))
+                tracks[key] = track
+                continue
             if (old is not None and self.gray is not None and self.time is not None
                     and self.time - old.seen <= self.VISIBLE):
                 rvx, rvy = self._speed(old.recognized, recognized)

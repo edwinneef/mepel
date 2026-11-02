@@ -156,6 +156,26 @@ def test_tracks_hide_without_image_support_and_expire_without_recognition():
     assert tracks.tracks == {} and tracks.items(3.1) == (None, [], None)
 
 
+def test_player_box_stays_on_recognition_and_ignores_scrolling_scenery():
+    tracks = DisplayTracks()
+    player = {**monster(600, 300), "kind": "player", "template": "nametag:x"}
+    image = scene([((600, 300), 1)])
+    tracks.update(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), 1.0)
+    tracks.anchor(drawing("a", 0.9, [], player=player), image)
+    # The camera scrolls: the scenery (and a sprite-like patch) moves 120 px. Patch matching
+    # used to follow it; the player box stays where recognition put it.
+    scrolled = np.roll(image, 120, axis=1)
+    tracks.update(cv2.cvtColor(scrolled, cv2.COLOR_BGR2GRAY), 1.2)
+    box = tracks.items(1.2)[0]["box"]
+    assert (box["x"], box["y"]) == (600, 300)
+    moved = {**player, "box": {**player["box"], "x": 640, "y": 260}}
+    tracks.anchor(drawing("b", 1.15, [], player=moved), scrolled)
+    box = tracks.items(1.25)[0]["box"]
+    assert (box["x"], box["y"]) == (640, 260)
+    tracks.update(cv2.cvtColor(scrolled, cv2.COLOR_BGR2GRAY), 1.9)
+    assert tracks.items(1.9)[0] is None  # no recognition for over VISIBLE seconds
+
+
 def test_late_recognition_refreshes_boxes_before_they_expire():
     # Recognition arrives about 0.5 s after its capture, every 0.55 s.
     tracks = DisplayTracks()
