@@ -139,7 +139,8 @@ class OverlaySession:
             same_owner = self.owner == owner and self.surface == surface
             live = self.owner is not None and not self.expired and self.clock() < self.deadline
             if live and not same_owner:
-                raise ValueError("Another overlay is connected")
+                raise ValueError("Another dashboard tab holds controls; close it" if self.surface == "dashboard"
+                                 else "Another overlay is connected")
             replacing = not same_owner or not live
             if replacing:
                 self.close_requested = False

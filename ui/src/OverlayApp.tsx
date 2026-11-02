@@ -35,6 +35,9 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const s = state.snapshot;
   const [panel, setPanel] = useState(Boolean(dashboard));
   const [gameBounds, setGameBounds] = useState<(Rect & { visible: boolean }) | null>(null);
+  // The widget keeps the last known game position: one failed poll or a missing preview
+  // frame clears gameBounds, and unmounting there made the widget vanish and fold.
+  const [widgetGame, setWidgetGame] = useState<Rect | null>(null);
   const layout = useOverlayLayout(panel && !dashboard);
   const [tab, setTab] = useState('Bot');
   const [layers, setLayers] = useState(true);
@@ -124,7 +127,11 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     const timer = setInterval(() => { setNow(Date.now()); host?.heartbeat(); }, 200);
     const unsub = host?.subscribe(event => {
       if (event.type === 'panel') setPanel(Boolean(event.value));
-      if (event.type === 'game-bounds') setGameBounds(event.value as (Rect & { visible: boolean }) | null);
+      if (event.type === 'game-bounds') {
+        const bounds = event.value as (Rect & { visible: boolean }) | null;
+        setGameBounds(bounds);
+        if (bounds) setWidgetGame({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+      }
       if (event.type === 'toggle') currentToggle.current();
       if (event.type === 'off') { startRef.current = false; setStarting(false); void act(() => client.command('stop')); }
       if (event.type === 'layers') setLayers(value => !value);
@@ -251,7 +258,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       {layers && <LiveDetectionBoxes drawing={drawing} compact />}
       {attackRange && <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
     </svg>}
-    {gameBounds && widget && <OverlayMenu s={s ?? null} status={status} game={game}
+    {widgetGame && widget && <OverlayMenu s={s ?? null} status={status} game={widgetGame}
       layers={layers} attackRange={attackRange} names={terrain}
       setLayers={setLayers} setAttackRange={setAttackRange} setNames={setTerrain}
       batch={batch} canBatch={Boolean(window.mapleOverlay?.batch) && controllerReady} paths={paths}

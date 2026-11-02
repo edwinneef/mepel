@@ -96,6 +96,10 @@ it('hides and shows the in-game widget with F7 and releases its mouse area while
   render(<OverlayApp client={new OverlayClient('token', fetcher)} outlinesOnly />);
   act(() => listener({ type: 'game-bounds', value: { x: 0, y: 0, width: 1024, height: 768, visible: true } }));
   await waitFor(() => expect(screen.getByLabelText('Bot menu')).toBeTruthy());
+  // A failed poll clears the game position; the widget stays where it was, still open.
+  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+  act(() => listener({ type: 'game-bounds', value: null }));
+  expect(screen.getByLabelText('Bot menu').className).toContain('is-open');
   act(() => listener({ type: 'widget' }));
   expect(screen.queryByLabelText('Bot menu')).toBeNull();
   expect(interactive).toHaveBeenLastCalledWith([]);

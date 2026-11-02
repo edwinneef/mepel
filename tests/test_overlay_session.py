@@ -116,7 +116,8 @@ def test_native_and_dashboard_cannot_share_or_take_over_live_lease(first):
     other = "dashboard" if first == "overlay" else "overlay"
     methods[first]({"owner": "a" * 32, "panel": False})
     for owner in ("a" * 32, "b" * 32):
-        with pytest.raises(ValueError, match="Another overlay"):
+        held = "Another dashboard tab holds controls" if first == "dashboard" else "Another overlay"
+        with pytest.raises(ValueError, match=held):
             methods[other]({"owner": owner, "panel": False})
     now[0] = 2
     # Even before the watchdog gets a turn, an expired lease reconnects stopped.

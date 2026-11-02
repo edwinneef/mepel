@@ -42,10 +42,11 @@ def test_start_restart_and_stop_launch_engine_overlay_and_dashboard(tmp_path):
             & "$root\start.ps1" -EnableGameplayInput -NoOverlay -NoBrowser -Port 8800 }
         $global:running = $true; $global:captureOnly = $false
         Run 'start-while-running' { & "$root\start.ps1" }
-        Run 'restart-keeps-input' { & "$root\restart.ps1" -NoBrowser }
-        Run 'restart-forced-capture' { & "$root\restart.ps1" -CaptureOnly -NoBrowser }
+        Run 'restart-keeps-input' { & "$root\restart.ps1" }
+        Run 'restart-forced-capture' { & "$root\restart.ps1" -CaptureOnly }
         $global:captureOnly = $true
-        Run 'restart-keeps-capture' { & "$root\restart.ps1" -NoBrowser }
+        Run 'restart-keeps-capture' { & "$root\restart.ps1" }
+        Run 'restart-with-tab' { & "$root\restart.ps1" -Browser }
         Run 'restart-both-flags' { & "$root\restart.ps1" -CaptureOnly -EnableGameplayInput }
         Run 'stop' { & "$root\stop.ps1" }
         $rows | ConvertTo-Json -Depth 4
@@ -61,6 +62,7 @@ def test_start_restart_and_stop_launch_engine_overlay_and_dashboard(tmp_path):
     assert rows["restart-keeps-input"] == ["engine input=True stop=False overlay=True port=8765"]
     capture = ["engine input=False stop=False overlay=True port=8765"]
     assert rows["restart-forced-capture"] == capture
-    assert rows["restart-keeps-capture"] == capture
+    assert rows["restart-keeps-capture"] == capture  # no second dashboard tab
+    assert rows["restart-with-tab"] == capture + ["browser http://127.0.0.1:8765/"]
     assert "not both" in rows["restart-both-flags"][0]
     assert rows["stop"] == ["engine input=False stop=True overlay=True port=8765"]

@@ -18,7 +18,7 @@ For bot changes, follow [AGENTS.md: Default test loop](AGENTS.md#default-test-lo
 
 Start, restart and stop the bot only with `.\start.ps1`, `.\restart.ps1` and `.\stop.ps1`
 in the project root. Each handles the engine and the in-game overlay together (`-NoOverlay`
-skips the overlay, `-NoBrowser` the dashboard tab). `restart.ps1` keeps the running session's
+skips the overlay; `start.ps1 -NoBrowser` skips the dashboard tab, `restart.ps1 -Browser` opens one). `restart.ps1` keeps the running session's
 mode; `-EnableGameplayInput` or `-CaptureOnly` overrides it. All three use
 `tools/restart_engine.ps1`. Never `Start-Process` `run.ps1` again for a restart: the previous
 `-NoExit` launcher window stays open after its engine stops, and repeated restarts left four

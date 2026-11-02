@@ -149,5 +149,11 @@ it('docks bottom-left inside the game, clear of every coverage sample point, and
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
   expect(parseInt(menu.style.height)).toBe(dock.openHeight);
   expect(edge()).toBe(dock.bottom);  // opening grows it upward; the bottom edge stays put
+  // A docked widget cannot be dragged: dragging dropped its scale and dock.
+  const head = menu.querySelector('header')!;
+  fireEvent.pointerDown(head, { button: 0, clientX: 20, clientY: 700, pointerId: 1 });
+  fireEvent.pointerMove(head, { clientX: 400, clientY: 300, pointerId: 1 });
+  expect(menu.className).toContain('is-docked');
+  expect(edge()).toBe(dock.bottom);
   cleanup();
 });

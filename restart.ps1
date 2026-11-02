@@ -5,8 +5,9 @@ param(
     [switch]$CaptureOnly,
     # Skip the in-game overlay (drawings and widget).
     [switch]$NoOverlay,
-    # Do not open the dashboard in the browser.
-    [switch]$NoBrowser,
+    # Also open a dashboard tab. Off by default: the open tab reconnects by itself, and a
+    # second tab would compete with it for dashboard controls.
+    [switch]$Browser,
     [int]$Port = 8765
 )
 
@@ -23,4 +24,4 @@ if (-not $EnableGameplayInput -and -not $CaptureOnly) {
     } catch { $gameInput = $false }
 }
 & (Join-Path $PSScriptRoot 'tools/restart_engine.ps1') -EnableGameplayInput:$gameInput -NoOverlay:$NoOverlay -Port $Port
-if (-not $NoBrowser) { Start-Process "http://127.0.0.1:$Port/" }
+if ($Browser) { Start-Process "http://127.0.0.1:$Port/" }

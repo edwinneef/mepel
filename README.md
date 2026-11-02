@@ -14,7 +14,8 @@ Dependencies are already installed in this workspace's `.venv`. From this direct
 ```
 
 Each script handles the engine and the in-game overlay together. Add `-NoOverlay` to skip
-the overlay or `-NoBrowser` to skip opening the dashboard. `start.ps1` refuses when the
+the overlay. `start.ps1` opens the dashboard unless you add `-NoBrowser`; `restart.ps1`
+opens no new tab (the open one reconnects) unless you add `-Browser`. `start.ps1` refuses when the
 engine is already running; `restart.ps1` keeps the running session's mode unless you add
 `-EnableGameplayInput` or `-CaptureOnly`. Keys changed in Set up › Keys take effect at the
 next restart. The bot is always Off after a start or restart.

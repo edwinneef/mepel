@@ -199,7 +199,9 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
     : blocker ? `Can't start: ${blocker}` : 'Ready to hunt';
   const whereText = `${mapName ?? 'Map not recognised'}${where ? ` · ${where}` : ''}`;
   const viewport = { width: window.innerWidth, height: window.innerHeight };
-  // Docked bottom-left inside the game picture unless dragged; it grows upward when opened.
+  // Docked bottom-left inside the game picture; it grows upward when opened. Only the fallback
+  // placement, for a game too small to dock in, can be dragged: dragging a docked widget
+  // dropped its scale.
   const dock = offset ? null : dockPlacement(game, viewport);
   const style = dock
     ? { left: dock.left, top: dock.top(open), width: WIDTH, height: open ? dock.openHeight : FOLDED_HEIGHT,
@@ -210,8 +212,8 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   return <section ref={menu} className={`overlay-menu clear-widget ${open ? 'is-open' : 'is-folded'}${dock ? ' is-docked' : ''}`}
     aria-label="Bot menu" style={style}
     onTransitionEnd={event => { if (event.target === event.currentTarget) setSettled(value => value + 1); }}>
-    <header className="w-head" title="Drag to move" onPointerDown={event => {
-      if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
+    <header className="w-head" title={dock ? undefined : 'Drag to move'} onPointerDown={event => {
+      if (dock || event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
       const rect = menu.current!.getBoundingClientRect();
       drag.current = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
       event.currentTarget.setPointerCapture(event.pointerId);
