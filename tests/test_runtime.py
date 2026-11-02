@@ -2073,3 +2073,40 @@ def test_player_screenshot_activation_preserves_old_templates(app, monkeypatch):
     with pytest.raises(ValueError, match="Invalid candidate"):
         app._command("pose_collection", {"use": "../escape"})
     app.pose_collection.close()
+
+
+def test_player_examples_batch_validates_before_writing_and_is_repeatable(app, monkeypatch):
+    from dataclasses import asdict
+    from types import SimpleNamespace
+
+    app.detector.nametags = [SimpleNamespace(name="alice")]
+    app.pose_collection.configure("alice", "batch")
+    for seed in (1, 2):
+        crop = np.random.default_rng(seed).integers(0, 255, (40, 40, 3), dtype=np.uint8)
+        app.pose_collection.submit(crop, np.full((40, 40), 255, np.uint8),
+                                   asdict(Rect(0, 0, 40, 40)),
+                                   {"provenance": "two-full-name-observations"})
+        app.pose_collection.jobs.join()
+    app.pose_collection.configure()
+    selected = [candidate["id"] for candidate in app.pose_collection.snapshot()["candidates"]]
+    target = app.data / "templates" / "player"
+    before = set(target.glob("*.png"))
+    directory = app.pose_collection.root / "alice" / "batch"
+    bad = directory / f"{selected[1]}.json"
+    original = bad.read_text()
+    data = json.loads(original)
+    data["crop_sha256"] = "corrupt"
+    bad.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="checksum"):
+        app._command("pose_collection", {"use_selected": selected})
+    assert set(target.glob("*.png")) == before
+    bad.write_text(original)
+    loaded = []
+    monkeypatch.setattr(app.detector, "reload", lambda: loaded.append(True))
+    result = app._command("pose_collection", {"use_selected": selected})
+    assert result["added"] == selected and loaded == [True]
+    assert len(set(target.glob("*.png")) - before) == 2
+    app._command("pose_collection", {"use_selected": selected})
+    assert len(set(target.glob("*.png")) - before) == 2
+    assert all(candidate["added"] for candidate in app.snapshot()["pose_collection"]["candidates"])
+    app.pose_collection.close()

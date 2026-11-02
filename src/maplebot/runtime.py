@@ -478,6 +478,9 @@ class Application:
                 **self.status,
                 "pose_collection": {
                     **self.pose_collection.snapshot(),
+                    "candidates": [dict(candidate, added=(self.data / "templates" / "player" /
+                                   f"captured-{candidate['id']}.png").is_file())
+                                   for candidate in self.pose_collection.snapshot()["candidates"]],
                     "identities": [tag.name for tag in getattr(self.detector, "nametags", [])],
                 },
                 "schema_version": 1,
@@ -1196,30 +1199,46 @@ class Application:
                 gate = self.snapshot()["readiness"].get(activity)
                 if gate is None or not gate["ready"]:
                     raise ValueError(gate["reason"] if gate else "Invalid control probe")
-        if name == "pose_collection" and payload.get("use"):
+        if name == "pose_collection" and ("use" in payload or "use_selected" in payload):
             if self.pose_collection.enabled or self.pose_collection.jobs.unfinished_tasks:
                 raise ValueError("Stop capture and wait for saved screenshots")
-            candidate = str(payload["use"])
-            if not re.fullmatch(r"[a-f0-9]{32}", candidate):
-                raise ValueError("Invalid candidate")
+            selected = payload.get("use_selected", [payload.get("use")])
+            if (not isinstance(selected, list) or not selected or
+                    len(selected) > self.pose_collection.limit or
+                    any(not isinstance(item, str) or not re.fullmatch(r"[a-f0-9]{32}", item)
+                        for item in selected)):
+                raise ValueError("Invalid candidate selection")
             directory = (self.pose_collection.root / self.pose_collection.identity /
                          self.pose_collection.outfit)
-            data = json.loads((directory / f"{candidate}.json").read_text())
-            crop = cv2.imdecode(np.frombuffer(base64.b64decode(data["crop"]), np.uint8), 1)
-            if crop is None or hashlib.sha256(crop.tobytes()).hexdigest() != data["crop_sha256"]:
-                raise ValueError("Candidate checksum mismatch")
-            if data["identity"] not in {tag.name for tag in self.detector.nametags}:
-                raise ValueError("Candidate needs its taught name")
-            self.detector.validate(crop)
-            if data.get("provenance") != "two-full-name-observations":
-                raise ValueError("Candidate lacks verified capture provenance")
-            self._stop("CALIBRATION", "Adding player screenshot; input disabled")
             target = self.data / "templates" / "player"
+            prepared = []
+            for candidate in dict.fromkeys(selected):
+                data = json.loads((directory / f"{candidate}.json").read_text())
+                crop = cv2.imdecode(np.frombuffer(base64.b64decode(data["crop"]), np.uint8), 1)
+                if (crop is None or
+                        hashlib.sha256(crop.tobytes()).hexdigest() != data["crop_sha256"]):
+                    raise ValueError("Candidate checksum mismatch")
+                if (data["identity"] != self.pose_collection.identity or
+                        data["outfit"] != self.pose_collection.outfit or
+                        data["identity"] not in {tag.name for tag in self.detector.nametags}):
+                    raise ValueError("Candidate needs its taught name and collection")
+                self.detector.validate(crop)
+                if data.get("provenance") != "two-full-name-observations":
+                    raise ValueError("Candidate lacks verified capture provenance")
+                path, content = target / f"captured-{candidate}.png", png(crop)
+                if path.exists() and path.read_bytes() != content:
+                    raise ValueError("Existing player example differs; preserved")
+                prepared.append((candidate, path, content))
+            self._stop("CALIBRATION", "Adding player examples; input disabled")
             target.mkdir(parents=True, exist_ok=True)
-            path = target / f"{uuid.uuid4().hex}.png"
-            path.write_bytes(png(crop))
+            added = []
+            for candidate, path, content in prepared:
+                if not path.exists():
+                    with path.open("xb") as output:
+                        output.write(content)
+                added.append(candidate)
             self.detector.reload()
-            return {"saved": str(path)}
+            return {"saved": str(prepared[0][1]), "added": added}
         if name == "pose_collection":
             if not isinstance(payload.get("enabled", False), bool):
                 raise ValueError("enabled must be a boolean")

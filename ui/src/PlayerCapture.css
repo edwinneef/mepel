@@ -1,0 +1,10 @@
+.player-picker { margin: 8px 0; }
+.player-picker-toggle { display: flex; justify-content: space-between; gap: 12px; width: 100%; text-align: left; }
+.player-picker-options { display: grid; gap: 3px; margin-top: 5px; padding: 6px; border: 1px solid #435167; border-radius: 6px; max-height: 160px; overflow-y: auto; }
+.player-picker-options button { text-align: left; }
+.player-picker-options button[aria-pressed="true"] { border-color: #b6cfca; color: #b6cfca; }
+.player-example-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 8px; max-height: 260px; overflow-y: auto; }
+.player-example { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid #435167; border-radius: 6px; font-size: 11px; }
+.player-example img { width: 100%; height: 72px; object-fit: contain; image-rendering: pixelated; }
+.player-example input, .player-example-select-all input { width: auto; margin-right: 5px; }
+.player-example-select-all { display: block; margin-bottom: 8px; }
