@@ -78,7 +78,11 @@ def problems(platforms: list[dict], ropes: list[dict], links: list[dict]) -> dic
 
 
 def map_hash(profile: dict) -> str:
-    return hashlib.sha256(json.dumps(profile, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    """Fingerprint navigation geometry independently of saves and calibration."""
+    geometry = {key: profile[key] for key in
+                ("boundary", "platforms", "ropes", "links", "zones")}
+    payload = json.dumps(geometry, sort_keys=True, allow_nan=False).encode()
+    return hashlib.sha256(payload).hexdigest()
 
 
 def intersects(a: tuple, b: tuple, rect: dict) -> bool:

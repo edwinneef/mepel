@@ -34,6 +34,23 @@ def fixture():
     return profile, evidence
 
 
+def test_proofs_survive_metadata_changes_but_not_geometry_changes(tmp_path):
+    from maplebot.move_proofs import MoveProofs
+
+    profile, _ = fixture()
+    proofs = MoveProofs(tmp_path)
+    proofs.record(profile["id"], map_hash(profile), "up")
+    profile.update(revision=5, minimap_calibration={"scale": 2}, name="Renamed")
+    assert proofs.load(profile["id"], map_hash(profile)) == {"up"}
+    for key in ("boundary", "platforms", "ropes", "links", "zones"):
+        changed = copy.deepcopy(profile)
+        if key == "boundary":
+            changed[key]["width"] += 1
+        else:
+            changed[key].append({"id": "changed"})
+        assert proofs.load(profile["id"], map_hash(changed)) == set()
+
+
 def test_routes_use_only_evidenced_round_trip_surfaces():
     profile, evidence = fixture()
     graph = RouteMap(profile, evidence)
@@ -163,3 +180,4 @@ def test_jumping_onto_a_rope_needs_the_sideways_jump_and_the_climb():
         "climb/back", "air/any"}
     assert required_poses(climb((100, 300), (100, 200), "rope"), {"rope"}) == walking | {
         "climb/back"}
+
