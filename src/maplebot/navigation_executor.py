@@ -205,6 +205,17 @@ class Navigator:
             return self._replan(f)
         if self.stage == "approach":
             rope = origin in {p["id"] for p in self.graph.profile["ropes"]}
+            if (not rope and f.surface == edge.target and edge.kind in {"jump", "drop"}
+                    and edge.landing[1] > edge.launch[1]):
+                # Live (Tree Dungeon): one step toward a drop launch 32 px from the end slid
+                # about 70 px, off the end and onto the drop's own target. Landing there
+                # completes the move; the flight stage verifies the settled landing.
+                self.stage, self.takeoff_at = "flight", f.now
+                if not self.retries:
+                    self.edge_started = f.now
+                self.departed, self.settle_since = True, None
+                self.reason = "Slid off the launch end onto the target; verifying landing"
+                return Motion(release=True)
             # No surface for a frame is a name-tag dropout, bounded by the runtime's grace.
             if not rope and f.surface not in (origin, None):
                 return self.stop("Lost launch platform before takeoff")

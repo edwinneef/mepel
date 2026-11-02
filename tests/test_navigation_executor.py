@@ -526,3 +526,26 @@ def test_end_launches_are_reached_without_sliding_off_the_platform(step_px):
     near = RouteMap.computed(profile, moves=old)
     if step_px == 48:
         assert any(_approach(near, start, step_px) is None for start in range(610, 846, 9))
+
+
+def test_sliding_off_the_launch_end_onto_a_drops_target_completes_the_drop():
+    # Live (Tree Dungeon batch 5): a step toward the proven fh315 -> fh308 drop launch slid
+    # off fh315's end and landed on fh308, the drop's target, and stopped as a lost launch.
+    profile, evidence = fixture()
+    graph = RouteMap(profile, evidence)
+    nav = Navigator(graph, graph.plan("ledge", "floor"), 0)
+    f = Feedback(0, graph.fingerprint, (330, 300), "ledge", True)
+    for now in (0, .2, .4):
+        nav.step(replace(f, now=now))
+    assert nav.stage == "approach"
+    nav.step(replace(f, now=.6, feet=(200, 400), surface="floor"))
+    assert nav.stage == "flight" and "Slid off" in nav.reason
+    for now in (.8, 1.0, 1.2):
+        motion = nav.step(replace(f, now=now, feet=(200, 400), surface="floor"))
+    assert nav.stage == "arrived" and motion.release and nav.completed == 1
+    # Sliding onto some other platform is still a lost launch.
+    nav = Navigator(graph, graph.plan("ledge", "floor"), 0)
+    for now in (0, .2, .4):
+        nav.step(replace(f, now=now))
+    nav.step(replace(f, now=.6, feet=(100, 200), surface="island"))
+    assert nav.stage == "stopped"
