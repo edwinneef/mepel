@@ -62,3 +62,9 @@ it('keeps the last position faded briefly on the builder map instead of blinking
     vi.useRealTimers();
   }
 });
+
+it('keeps naming your platform through a brief stale reading', () => {
+  const { rerender } = render(view('platform', 'fh1', [500, 500]));
+  rerender(view('unknown', null, null));
+  expect(screen.getByRole('heading', { name: 'You are on Floor' })).toBeTruthy();
+});

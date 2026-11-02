@@ -1,0 +1,35 @@
+import { useEffect, useRef, useState } from 'react';
+import type { Snapshot } from './contracts';
+
+// The engine marks a reading stale after 0.5 s; at low capture rates that is every other
+// update. Displays keep the last fresh reading this long (marked held) instead of blinking.
+// Display only: safety checks keep reading the engine's own stale flag.
+export const HOLD_MS = 2000;
+
+export interface HeldPosition {
+  area?: string; surface: string | null; kind?: string; feet: [number, number] | null;
+  /** True while showing the previous fresh reading through a brief gap. */
+  held: boolean;
+}
+
+export function useHeldPosition(position: Snapshot['position'] | undefined): HeldPosition {
+  const fresh = Boolean(position?.feet && !position.stale);
+  const last = useRef<{ value: HeldPosition; at: number } | null>(null);
+  const [, tick] = useState(0);
+  const current: HeldPosition = {
+    area: position?.area_id, kind: position?.kind, feet: position?.feet ?? null,
+    surface: position?.kind === 'platform' || position?.kind === 'rope' ? position.surface_id ?? null : null,
+    held: false,
+  };
+  if (fresh) last.current = { value: current, at: Date.now() };
+  useEffect(() => {
+    if (fresh) return;
+    const timer = setTimeout(() => tick(n => n + 1), HOLD_MS);
+    return () => clearTimeout(timer);
+  }, [fresh]);
+  const previous = last.current;
+  if (!fresh && previous && previous.value.area === position?.area_id && Date.now() - previous.at < HOLD_MS) {
+    return { ...previous.value, held: true };
+  }
+  return current;
+}

@@ -354,6 +354,35 @@ def test_rotation_preflight_refuses_stale_or_disconnected_origin_without_command
     assert api.calls == []
 
 
+def test_rotation_preflight_names_a_rope_without_commands(tmp_path):
+    class Rope(Api):
+        def status(self):
+            status = super().status()
+            status["position"]["kind"] = "rope"
+            return status
+
+    api = Rope()
+    with pytest.raises(RuntimeError, match="You're on a rope; stand on a platform"):
+        run(api, tmp_path / "run", area="island")
+    assert api.calls == []
+
+
+def test_rotation_preflight_waits_through_a_brief_recognition_gap(tmp_path):
+    class Gap(Api):
+        reads = 0
+
+        def status(self):
+            status = super().status()
+            self.reads += 1
+            if self.reads == 1:
+                status["position"] |= {"stale": True, "held": True, "feet": None}
+            return status
+
+    api = Gap()
+    run(api, tmp_path / "run", area="island", session_minutes=5)
+    assert api.reads > 1 and api.calls[0][0] == "arm"
+
+
 def test_rotation_connectivity_uses_computed_edges_but_not_unrotatable_platforms():
     # Operator rule (2026-11-02): computed moves count; a platform the engine marks as
     # outside the rotation round trip is still no destination.

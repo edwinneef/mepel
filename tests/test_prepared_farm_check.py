@@ -80,6 +80,20 @@ class _Quick(Api):
         return super().status()
 
 
+def test_without_an_origin_a_rope_says_so_before_any_command(capsys):
+    class OnRope(_Quick):
+        def status(self):
+            status = super().status()
+            status["position"]["kind"] = "rope"
+            return status
+
+    api = OnRope("rope3")
+    assert prepared_farm_check.main(["--run", "--area", "tree"], api=api) == 1
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out == {"blocked": "You're on a rope; stand on a platform", "input_sent": False}
+    assert api.calls == []
+
+
 def test_single_platform_mode_farms_in_place_with_potions(capsys, monkeypatch):
     monkeypatch.setattr(prepared_farm_check, "settle", lambda api, status, *a: (status, True))
     seen = []

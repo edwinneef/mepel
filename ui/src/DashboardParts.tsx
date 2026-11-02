@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { AreaProfile, Snapshot } from './contracts';
+import { useHeldPosition } from './heldPosition';
 
 // Presentational pieces of the dashboard page. They read the snapshot and never send commands.
 
@@ -21,13 +22,14 @@ export function Gauge({ label, kind, percent, threshold }: {
 }
 
 export function Facts({ snapshot: s }: { snapshot: Snapshot | null }) {
-  const feet = s?.position?.feet;
+  const spot = useHeldPosition(s?.position);
+  const feet = spot.feet;
   const tracks = s?.enemy_tracks?.filter(track => track.state !== 'lost').length;
   const player = s?.player_tracking?.state ?? (s?.player ? (s.player.tracked ? 'tracked' : 'confirmed') : 'not recognized');
   const confidence = s?.player_tracking?.confidence ?? s?.player?.confidence;
   const rows: [string, ReactNode][] = [
     ['Map', s?.position?.area_name || s?.catalog?.active_map || s?.window?.title || '—'],
-    ['Foothold', s?.position?.surface_id || '—'],
+    ['Foothold', spot.surface || '—'],
     ['Position', feet ? `${Math.round(feet[0])}, ${Math.round(feet[1])}` : '—'],
     ['Player', `${player[0].toUpperCase()}${player.slice(1)}${confidence != null && s?.player ? ` (${confidence.toFixed(2)})` : ''}`],
     ['Enemies', `${tracks ?? s?.monsters?.length ?? 0} tracked`],
@@ -37,17 +39,18 @@ export function Facts({ snapshot: s }: { snapshot: Snapshot | null }) {
 }
 
 export function SpotMap({ map, snapshot: s }: { map: AreaProfile | null; snapshot: Snapshot | null }) {
+  const spot = useHeldPosition(s?.position);
   if (!map) return <p className="dash-empty">No saved map for this spot yet. Open Map to teach or import one.</p>;
   const b = map.boundary;
-  const position = s?.position?.area_id === map.id && !s.position.stale ? s.position : null;
-  const feet = position?.feet;
+  const here = spot.area === map.id;
+  const feet = here ? spot.feet : null;
   const stroke = Math.max(b.width, b.height) / 120;
   return <svg className="dash-spot" viewBox={`${b.x} ${b.y} ${b.width} ${b.height}`} role="img"
     aria-label={`Saved map ${map.name}: ${map.platforms.length} platforms, ${map.ropes.length} ropes`}>
     {map.ropes.map(rope => <line key={rope.id} x1={rope.start.x} y1={rope.start.y} x2={rope.end.x} y2={rope.end.y}
       className="rope" strokeWidth={stroke * .7} />)}
     {map.platforms.map(platform => <line key={platform.id} x1={platform.start.x} y1={platform.start.y} x2={platform.end.x} y2={platform.end.y}
-      className={platform.id === position?.surface_id ? 'platform current' : 'platform'} strokeWidth={stroke} strokeLinecap="round" />)}
+      className={here && platform.id === spot.surface ? 'platform current' : 'platform'} strokeWidth={stroke} strokeLinecap="round" />)}
     {feet && <circle cx={feet[0]} cy={feet[1] - stroke * 2} r={stroke * 2} className="player" />}
   </svg>;
 }

@@ -10,7 +10,7 @@ import json
 import time
 from pathlib import Path
 
-from tools.farming_check import run
+from tools.farming_check import ON_ROPE, run
 from tools.navigation_check import Debugger
 from tools.prepared_floor_check import restore_focus
 from tools.prepared_route_check import route_blocker, settle
@@ -66,7 +66,9 @@ def main(argv: list[str] | None = None, *, api=None) -> int:
         status = restore_focus(api) if args.focus else api.status()
         args.origin = args.origin or standing_platform(api, status, args.area)
         if args.origin is None:
-            raise RuntimeError("Stand still on a recognized platform of this map first")
+            on_rope = (api.status().get("position") or {}).get("kind") == "rope"
+            raise RuntimeError(ON_ROPE if on_rope else
+                               "Stand still on a recognized platform of this map first")
         status, steady = settle(api, status, args.area, args.origin)
     except RuntimeError as error:
         print(json.dumps({"blocked": str(error), "input_sent": False}), flush=True)

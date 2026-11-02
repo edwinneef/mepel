@@ -34,6 +34,8 @@ def combat_progress(samples: list[dict]) -> dict:
             "hits_confirmed": None, "kills_confirmed": None}
 
 
+ON_ROPE = "You're on a rope; stand on a platform"
+
 
 def rotation_blocker(status: dict, *, learn_moves: bool = False) -> str | None:
     """Reject impossible rotation connectivity; engine planning still owns route safety.
@@ -43,6 +45,8 @@ def rotation_blocker(status: dict, *, learn_moves: bool = False) -> str | None:
     changes nothing.
     """
     position = status.get("position") or {}
+    if position.get("kind") == "rope":
+        return ON_ROPE
     if position.get("stale") or position.get("held") or not position.get("feet"):
         return "Wait for a fresh mapped position before rotation"
     graph = (status.get("navigation") or {}).get("map") or {}
@@ -61,6 +65,20 @@ def rotation_blocker(status: dict, *, learn_moves: bool = False) -> str | None:
             return None
         reached |= frontier
     return "No rotation route from this platform; move to a connected combat platform"
+
+def fresh_position(api, status: dict, *, seconds: float = 2, clock=time.monotonic,
+                   sleep=time.sleep) -> dict:
+    """Re-read status through a brief recognition gap. Reads only; sends no input."""
+    deadline = clock() + seconds
+    while True:
+        position = status.get("position") or {}
+        if not (position.get("stale") or position.get("held") or not position.get("feet")):
+            return status
+        if clock() >= deadline:
+            return status
+        sleep(.1)
+        status = api.status()
+
 
 def circuit_progress(samples: list[dict], stops: list[str]) -> dict:
     """Observed movement and subsequent dispatches; never native hit evidence."""
@@ -124,6 +142,8 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
     # Reserve evidence storage before reading readiness or sending any commands.
     output.mkdir(parents=True, exist_ok=False)
     before = api.status()
+    if not single_platform:
+        before = fresh_position(api, before)
     if checkpoint_seconds is not None:
         if not before.get("farming_checkpoint_available"):
             raise RuntimeError("Installed engine lacks bounded farming checkpoint support")
@@ -151,7 +171,7 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
         route = checked_circuit(api, area, circuit)
         circuit = {"id": route["id"], "revision": route["revision"]}
         # Route reads can take time; reacquire all preflight evidence before arm.
-        before = api.status()
+        before = fresh_position(api, api.status())
         if problem := readiness(before):
             raise RuntimeError(problem)
         if (before.get("position") or {}).get("area_id") != area:

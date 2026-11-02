@@ -29,3 +29,22 @@ it('waits while the bot runs, then loads by itself', async () => {
   view.rerender(<PathBuilderLibrary client={{ command } as unknown as EngineClient} disabled={false} initialArea="here" />);
   await waitFor(() => expect(command).toHaveBeenCalledWith('area_list'));
 });
+
+it('asks for the map only after the map list, and retries a busy refusal by itself', async () => {
+  let refusals = 1;
+  const order: string[] = [];
+  const command = vi.fn(async (name: string, payload?: Record<string, unknown>) => {
+    order.push(name);
+    if (name === 'area_list') return { areas: [{ id: 'here', name: 'Tree Dungeon' }] };
+    if (name === 'farm_route_map') {
+      if (refusals-- > 0) throw new Error('Wait for the current operation to finish. Stop remains available.');
+      return { profile: profile(payload!.area_id as string), map_hash: 'a'.repeat(64), farmable: ['a'], moves: [] };
+    }
+    return { routes: [] };
+  });
+  render(<PathBuilderLibrary client={{ command } as unknown as EngineClient} disabled={false} initialArea="here" />);
+  await screen.findByRole('region', { name: 'Farming path builder' }, { timeout: 3000 });
+  expect(order.slice(0, 2)).toEqual(['area_list', 'farm_route_map']);
+  expect(order.filter(name => name === 'farm_route_map')).toHaveLength(2);
+  expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+});
