@@ -46,6 +46,25 @@ def batch_report(value):
     return report
 
 
+DISPLAY_LAYERS = ("enemies", "range", "lines")
+OVERLAY_KEYS = ("start_stop", "drawings")
+
+
+def display_settings(value):
+    """The dashboard's drawing toggles, or None when the payload carries none or is invalid."""
+    if not isinstance(value, dict) or any(type(value.get(name)) is not bool for name in DISPLAY_LAYERS):
+        return None
+    return {name: value[name] for name in DISPLAY_LAYERS}
+
+
+def key_counts(value):
+    """Hotkey press counters from the in-game overlay, or None when invalid."""
+    if not isinstance(value, dict) or any(type(value.get(name)) is not int or not 0 <= value[name] < 2 ** 31
+                                          for name in OVERLAY_KEYS):
+        return None
+    return {name: value[name] for name in OVERLAY_KEYS}
+
+
 class OverlaySession:
     def __init__(self, app, *, clock=time.monotonic):
         self.app = app
@@ -59,6 +78,10 @@ class OverlaySession:
         self.worker = None
         self.close_requested = False
         self.companions = {}
+        # The dashboard's drawing toggles, shown in game too, and the in-game overlay's hotkey
+        # press counters, which the dashboard acts on as if its own key had been pressed.
+        self.display = None
+        self.overlay_keys = {name: 0 for name in OVERLAY_KEYS}
         # One dashboard batch request waits here until the in-game overlay takes it. The host runs
         # it through its own guarded batch launcher; this lease never starts input itself.
         self.batch_pending = None
@@ -77,6 +100,8 @@ class OverlaySession:
             self._start_watch()
             if (report := batch_report(payload.get("batch"))) is not None:
                 self.batch_state = report
+            if (counts := key_counts(payload.get("keys"))) is not None:
+                self.overlay_keys = counts
             ack = payload.get("batch_ack")
             pending = self.batch_pending
             if isinstance(ack, dict) and pending and ack.get("id") == pending["id"]:
@@ -84,8 +109,9 @@ class OverlaySession:
                     reason = str(ack.get("reason") or "The in-game overlay refused the batch")[:300]
                     self.batch_state = {"running": False, "output": json.dumps({"blocked": reason})}
                 self.batch_pending = None
-            return {"connected": True, "controller_ready": self.dashboard_ready(),
-                    "batch_request": self.batch_pending}
+            ready = self.dashboard_ready()
+            return {"connected": True, "controller_ready": ready,
+                    "batch_request": self.batch_pending, "display": self.display if ready else None}
 
     def _companion_live(self):
         return any(deadline is not None and self.clock() < deadline
@@ -128,7 +154,11 @@ class OverlaySession:
     def dashboard_heartbeat(self, payload):
         # The browser never covers the game with a transparent native window.
         # Its authenticated route retains the same exclusive, expiring lease.
-        return self._heartbeat(payload, "dashboard")
+        result = self._heartbeat(payload, "dashboard")
+        with self.lock:
+            if (display := display_settings(payload.get("display"))) is not None:
+                self.display = display
+            return {**result, "overlay_keys": dict(self.overlay_keys)}
 
     def _heartbeat(self, payload, surface):
         owner = payload.get("owner")

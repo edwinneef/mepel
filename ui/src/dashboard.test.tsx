@@ -191,7 +191,7 @@ it('scales all layers with the displayed frame and hides them on source mismatch
   expect(layer.getAttribute('viewBox')).toBe('0 0 1024 768');
   expect(layer.parentElement?.querySelector('img')?.width).toBe(1024);
   expect(screen.getByLabelText('Configured attack range').closest('svg')).toBe(layer);
-  await waitFor(() => expect(screen.getByLabelText('Saved terrain projected onto game').closest('svg')).toBe(layer));
+  await waitFor(() => expect(screen.getByLabelText('Platform names').closest('svg')).toBe(layer));
   fireEvent.click(screen.getByRole('button', { name: '200%' }));
   expect(layer.getAttribute('viewBox')).toBe('0 0 1024 768');
   expect(layer.closest('.game-scroll')?.firstElementChild?.getAttribute('style')).toContain('2048px');
@@ -228,4 +228,15 @@ it('starts One platform through the in-game overlay and explains a refusal', asy
   expect(typeof queued.at(-1)!.owner).toBe('string');
   // Nothing goes to the engine's own start commands for a batch plan.
   expect(requests.some(r => ['arm', 'dry_run'].includes(String(r.body.name)))).toBe(false);
+});
+
+it('sends its drawing toggles with each heartbeat and relays in-game hotkey presses', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json({ connected: true, overlay_keys: { start_stop: 1, drawings: 0 } }));
+  const dashboard = new DashboardSession('token', fetcher);
+  const events: { type: string; value?: unknown }[] = [];
+  dashboard.subscribe(event => events.push(event));
+  dashboard.setDisplay({ enemies: false, range: true, lines: true });
+  await dashboard.settings(false);
+  expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).display).toEqual({ enemies: false, range: true, lines: true });
+  expect(events).toContainEqual({ type: 'overlay-keys', value: { start_stop: 1, drawings: 0 } });
 });

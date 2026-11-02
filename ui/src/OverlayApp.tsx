@@ -64,6 +64,9 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const dataKey = useRef('');
   const dataRetryAfter = useRef(0);
   const currentToggle = useRef<() => void>(() => {});
+  // In-game hotkey presses the dashboard has already seen, and the overlay's brief key confirmation.
+  const seenKeys = useRef<Record<'start_stop' | 'drawings', number> | null>(null);
+  const [flash, setFlash] = useState<{ text: string; at: number } | null>(null);
   const view = useViewport(client, s, state.connected && (panel || Boolean(dashboard)), Boolean(dashboard && layers));
   const running = isRunning(s);
   // Status can arrive between timer ticks; don't compare a new frame against
@@ -128,6 +131,21 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       if (event.type === 'layers') setLayers(value => !value);
       if (event.type === 'error') client.fail(event.value);
       if (event.type === 'batch') setBatch(event.value as BatchState);
+      // In game: the dashboard's drawing toggles, and a confirmation for each hotkey.
+      if (event.type === 'display' && event.value) {
+        const display = event.value as { enemies: boolean; range: boolean; lines: boolean };
+        setLayers(display.enemies); setAttackRange(display.range); setTerrain(display.lines);
+      }
+      if (event.type === 'hotkey') setFlash({ text: String(event.value), at: Date.now() });
+      // Dashboard: F6 and F9 pressed in game act as if pressed here. Counters restart with
+      // the overlay, so only an increase over the last reading counts.
+      if (event.type === 'overlay-keys') {
+        const keys = event.value as Record<'start_stop' | 'drawings', number>;
+        const seen = seenKeys.current;
+        seenKeys.current = keys;
+        if (seen && keys.start_stop > seen.start_stop) currentToggle.current();
+        if (seen && keys.drawings > seen.drawings) setLayers(value => !value);
+      }
     });
     return () => { clearInterval(timer); unsub?.(); };
   }, [client, host]);
@@ -229,15 +247,21 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     && drawing && drawing.frame.source_id === analyzed.frame.source_id
     && analyzed.frame.source_id === s.frame.source_id && analyzed.frame.source_id === view.image.sourceId
     && analyzed.frame.id === view.image.key ? analyzed : null;
-  const drawingLayers = (packet: NonNullable<typeof drawing>, paired = false) => <>
+  useEffect(() => dashboard?.setDisplay({ enemies: layers, range: attackRange, lines: terrain }),
+    [dashboard, layers, attackRange, terrain]);
+  // The dashboard preview draws like the game: outlines only (compact), each layer on its own toggle.
+  const drawingLayers = (packet: NonNullable<typeof drawing>, paired = false, compact = false) => <>
     {terrain && <SavedTerrainOverlay key={packet.frame.source_id} map={map} position={packet.position}
       alignment={paired || fastDrawing === undefined ? undefined : fastDrawing?.terrain ?? null}
-      now={paired ? (packet.frame.captured_at ?? 0) * 1000 : Math.max(now, Date.now())} />}
-    <LiveDetectionBoxes drawing={packet} />
+      now={paired ? (packet.frame.captured_at ?? 0) * 1000 : Math.max(now, Date.now())} compact={compact} />}
+    {(layers || !compact) && <LiveDetectionBoxes drawing={packet} compact={compact} />}
     {attackRange && <AttackRangeOverlay player={packet.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
   </>;
   const learning = positionLearning(s?.position, Math.max(now, Date.now()));
+  const flashing = flash && now - flash.at < 2000 ? flash.text : null;
   if (outlinesOnly && !dashboard) return <div className="native-overlay">
+    {flashing && <div className="overlay-learning" role="status" aria-label="Hotkey"
+      style={{ left: game.x + game.width / 2, top: game.y + 40 }}>{flashing}</div>}
     {learning && gameBounds?.visible && <div className="overlay-learning" aria-label="Position learning"
       style={{ left: game.x + game.width / 2, top: game.y + 8 }}>{learning}</div>}
     {(layers || attackRange) && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
@@ -314,7 +338,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       layers={{ enemies: layers, range: attackRange, lines: terrain }}
       toggleLayer={id => (id === 'enemies' ? setLayers : id === 'range' ? setAttackRange : setTerrain)(value => !value)}
       game={<GameViewport image={view.image} frozen={Boolean(view.frozen)} stale={!fresh || (layers && !previewDrawing)} selection={view.selection}
-        onSelection={view.setSelection} overlay={layers && previewDrawing ? drawingLayers(previewDrawing, true) : undefined}
+        onSelection={view.setSelection} overlay={previewDrawing ? drawingLayers(previewDrawing, true, true) : undefined}
         onStop={stopNow} />}
       frozen={Boolean(view.frozen)} image={view.image} freeze={() => void act(view.freeze)} live={() => void act(view.live)}
       map={map} areas={areas} refreshAreas={refreshAreas} routes={paths.state === 'ready' ? paths.routes ?? [] : undefined}

@@ -11,6 +11,8 @@ export class DashboardSession {
   private pending: Promise<void> = Promise.resolve();
   private renewing = false;
   private listeners = new Set<(event: OverlayEvent) => void>();
+  // Drawing toggles, sent with each heartbeat so the in-game overlay shows the same layers.
+  private display: Record<'enemies' | 'range' | 'lines', boolean> | null = null;
 
   constructor(private readonly token: string, private readonly fetcher: typeof fetch = globalThis.fetch.bind(globalThis)) {}
 
@@ -31,7 +33,8 @@ export class DashboardSession {
       if (this.closed || this.denied) throw new Error('Dashboard disconnected. Reload to reconnect.');
       const response = await this.fetcher('/api/dashboard', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Token': this.token },
-        body: JSON.stringify({ owner: this.owner, panel }), signal: AbortSignal.timeout(1000),
+        body: JSON.stringify({ owner: this.owner, panel, ...(this.display ? { display: this.display } : {}) }),
+        signal: AbortSignal.timeout(1000),
       });
       const result = await response.json();
       if (!response.ok) {
@@ -43,12 +46,14 @@ export class DashboardSession {
       this.panel = panel;
       this.emit({ type: 'panel', value: panel });
       if (result.batch) this.emit({ type: 'batch', value: result.batch });
+      if (result.overlay_keys) this.emit({ type: 'overlay-keys', value: result.overlay_keys });
     });
     this.pending = request;
     return request;
   }
 
   settings = (open: boolean) => { this.desiredPanel = open; return this.renew(open); };
+  setDisplay = (display: Record<'enemies' | 'range' | 'lines', boolean>) => { this.display = display; };
   /** Queue a guarded batch for the in-game overlay to run. The engine only stores the request. */
   startBatch = async (request: Record<string, unknown>) => {
     if (this.closed || this.denied) throw new Error('Dashboard disconnected. Reload to reconnect.');
