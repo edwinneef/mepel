@@ -106,3 +106,40 @@ def test_a_success_clears_an_earlier_miss_and_a_miss_never_revokes_a_proof(tmp_p
     assert proofs.failures("a" * 32, "m") == {}
     proofs.record_failure("a" * 32, "m", "m_b_a", shape)
     assert proofs.load("a" * 32, "m") == {"m_a_b", "m_b_a"}
+
+
+def test_a_proven_move_in_the_learning_path_misses_safely_and_loses_its_proof_at_two(app):
+    # Batches 8 and 10: the proven rope grab m_fh320_rope3 dropped the player safely onto
+    # fh315 and stopped the batch. Operator rule: it may miss safely; twice drops the proof.
+    from maplebot.move_proofs import MoveProofs
+
+    def proven_miss(now):
+        nav = exploring(app, now)
+        nav.graph = RouteMap.computed(imported(), {"m_floor_ledge"})
+        nav.route = nav.graph.plan("floor", "ledge", max_edges=1)
+        nav.agent = Navigator(nav.graph, nav.route, now)
+        nav.exploring, nav.resume_combat = ("m_floor_ledge",), True
+        nav.agent.stop("Movement departed the recorded corridor")
+        assert nav._begin_miss(now)
+        f = Feedback(now, nav.graph.fingerprint, (100, 400), "floor", True)
+        nav._settle_miss(f, now)
+        nav._settle_miss(replace(f, now=now + .35), now + .35)
+        assert app.mode == "live"
+        return nav
+
+    now = time.perf_counter()
+    nav = proven_miss(now)
+    assert nav.misses[-1]["proof"] == "kept"
+    assert "m_floor_ledge" in nav.graph.edges and "m_floor_ledge" in nav.graph.proven
+    nav = proven_miss(now + 1)
+    assert nav.misses[-1]["proof"] == "dropped"
+    assert "m_floor_ledge" not in nav.graph.edges and "m_floor_ledge" not in nav.graph.proven
+
+    proofs, shape = MoveProofs(app.areas.directory / "x"), {
+        "from": "a", "to": "b", "kind": "jump", "trace": [[0, 0], [10, 0]]}
+    proofs.record("a" * 32, "m", "m_a_b", shape)
+    proofs.record_failure("a" * 32, "m", "m_a_b", shape)
+    assert proofs.load("a" * 32, "m") == {"m_a_b"}
+    proofs.record_failure("a" * 32, "m", "m_a_b", shape)
+    assert proofs.load("a" * 32, "m") == set()
+    assert proofs.failure_counts("a" * 32, "m") == {"m_a_b": 2}

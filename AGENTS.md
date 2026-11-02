@@ -80,6 +80,8 @@ Limits that still apply:
   misses but lands the player still on a known platform, with fresh agreeing position
   and all gates intact, is a learning outcome, not a failure: the engine records the
   miss and keeps farming, at most 3 times per batch. Any other miss still stops it.
+  Extended the same day: a proven move inside the batch's attempted learning path may miss
+  the same way; a proven move that misses twice loses its proof.
 - Agents may restore focus to the attached MapleStory window whenever focus is lost,
   including after startup or restart, without asking the operator. Use only the engine's
   guarded `focus_game` command; its verified title-bar click fallback is allowed.

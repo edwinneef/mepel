@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
-from .move_proofs import MoveProofs
+from .move_proofs import PROOF_FAILURE_LIMIT, MoveProofs
 from .moves import Move, generate
 from .navigation import Route, RouteMap, map_hash, pose_gaps, required_poses
 from .navigation_executor import EdgeStep, Feedback, Navigator, distance
@@ -58,6 +58,7 @@ class NavigationRuntime:
         self.exploring: str | None = None  # the unproven move a learn_moves rotation tries
         self.miss: dict | None = None  # a missed move waiting for a safe landing
         self.misses: list[dict] = []  # safe misses in the current farming batch
+        self.miss_counts: dict[str, int] = {}  # saved misses per move, for proven moves
         self.last_feedback_failure = None
         self.last_input_refusal = None
         self.identity = None
@@ -112,12 +113,15 @@ class NavigationRuntime:
         key = (profile["id"], profile["revision"], fingerprint)
         if self.moves is None or self.moves[0] != key:
             self.moves = (key, generate(profile))
-        # A move that missed stays off until the generator proposes different geometry.
+        # A move that missed stays off until the generator proposes different geometry; a
+        # proven move stays usable until its proof is dropped.
         current = {m.id: m for m in self.moves[1]}
+        proven = self.proofs.load(profile["id"], fingerprint)
+        self.miss_counts = self.proofs.failure_counts(profile["id"], fingerprint)
         missed = {key for key, shape in self.proofs.failures(profile["id"], fingerprint).items()
-                  if key in current and shape["kind"] == current[key].kind
+                  if key in current and key not in proven and shape["kind"] == current[key].kind
                   and shape["trace"] == [list(point) for point in current[key].trace]}
-        self.graph = RouteMap.computed(profile, self.proofs.load(profile["id"], fingerprint),
+        self.graph = RouteMap.computed(profile, proven,
                                        self.failed | missed, self.moves[1],
                                        self.proofs.geometry(profile["id"], fingerprint))
         self.route = self.agent = None
@@ -697,8 +701,8 @@ class NavigationRuntime:
                 or not isinstance(agent, Navigator) or agent.index >= len(agent.route.edges)):
             return False
         failed = agent.route.edges[agent.index].id
-        if failed not in self.exploring or failed in self.graph.proven:
-            return False  # a proven move failing is an ordinary navigation failure
+        if failed not in self.exploring:
+            return False  # a proven rotation route failing is an ordinary navigation failure
         self._release()
         self.miss = {"edge": failed, "reason": agent.reason, "since": now,
                      "surface": None, "feet": None, "settled_at": None}
@@ -720,14 +724,22 @@ class NavigationRuntime:
         miss["surface"], miss["feet"] = surface, f.feet
         if surface is not None and f.now - miss["settled_at"] >= .3:
             edge = self.graph.edges.get(miss["edge"])
-            self.failed.add(miss["edge"])
+            # Operator rule (2026-11-02): a proven move in the learning path may miss safely;
+            # it keeps its proof until its PROOF_FAILURE_LIMIT-th miss.
+            count = self.miss_counts.get(miss["edge"], 0) + 1
+            self.miss_counts[miss["edge"]] = count
+            keep = miss["edge"] in self.graph.proven and count < PROOF_FAILURE_LIMIT
+            if not keep:
+                self.failed.add(miss["edge"])
             if edge is not None:
                 self.pending_failures.append((
                     self.graph.profile["id"], self.graph.fingerprint, edge.id,
                     {"from": edge.source, "to": edge.target, "kind": edge.kind,
                      "trace": [list(point) for point in edge.trace]}))
             self.misses.append({"edge": miss["edge"], "reason": miss["reason"],
-                                "landed": surface, "at": time.time()})
+                                "landed": surface, "at": time.time(),
+                                "proof": ("kept" if keep else "dropped")
+                                if miss["edge"] in self.graph.proven else None})
             app.combat_evidence.record(
                 "decision", f"move miss {miss['edge']}; landed on {surface}",
                 action="navigation")
@@ -735,10 +747,12 @@ class NavigationRuntime:
                      f"{len(self.misses)}/{MISS_LIMIT} misses")
             self.miss = self.exploring = None
             self.resume_combat = False
-            graph = self.graph  # the missed move leaves the graph, without disk reads
-            self.graph = RouteMap.computed(graph.profile, graph.proven, moves=[
-                Move(e.id, e.source, e.target, e.kind, e.trace)
-                for e in graph.edges.values() if e.id != miss["edge"]])
+            if not keep:  # the missed move leaves the graph, without disk reads
+                graph = self.graph
+                self.graph = RouteMap.computed(
+                    graph.profile, graph.proven - {miss["edge"]}, moves=[
+                        Move(e.id, e.source, e.target, e.kind, e.trace)
+                        for e in graph.edges.values() if e.id != miss["edge"]])
             app.resume_combat(surface, now)
         elif now - miss["since"] >= MISS_SETTLE_SECONDS:
             app._stop("NAVIGATION_FAILURE", f"{miss['reason']}; no safe landing within "

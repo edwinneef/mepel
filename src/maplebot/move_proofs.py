@@ -9,6 +9,8 @@ from pathlib import Path
 from .profiles import AreaStore
 
 _LOCK = threading.Lock()
+# A proven move that fails this many times loses its proof and must be proven again.
+PROOF_FAILURE_LIMIT = 2
 
 
 class MoveProofs:
@@ -60,6 +62,15 @@ class MoveProofs:
         return {key: shape for key, entry in failed.items()
                 if (shape := self._shape(entry)) is not None}
 
+    def failure_counts(self, area_id: str, fingerprint: str) -> dict[str, int]:
+        """How often each recorded miss happened under the current map."""
+        value = self._read(area_id)
+        failed = value.get("failed")
+        if value.get("map_hash") != fingerprint or not isinstance(failed, dict):
+            return {}
+        return {key: entry.get("count", 1) if type(entry.get("count", 1)) is int else 1
+                for key, entry in failed.items() if isinstance(entry, dict)}
+
     def record_failure(self, area_id: str, fingerprint: str, move_id: str,
                        geometry: dict) -> None:
         self._write(area_id, fingerprint, move_id, geometry, failed=True)
@@ -89,10 +100,17 @@ class MoveProofs:
             moves, misses = ((value.get(key) if same else None) for key in ("moves", "failed"))
             moves = dict(moves) if isinstance(moves, dict) else {}
             misses = dict(misses) if isinstance(misses, dict) else {}
-            # A success clears an earlier miss of the move; a miss never revokes a proof.
+            # A success clears earlier misses of the move. Misses are counted; a proven move
+            # loses its proof at PROOF_FAILURE_LIMIT misses (operator rule, 2026-11-02).
             entry = {"failed_at" if failed else "proved_at": time.time()}
             if geometry is not None:
                 entry["geometry"] = geometry
+            if failed:
+                prior = misses.get(move_id)
+                count = prior.get("count", 1) if isinstance(prior, dict) else 0
+                entry["count"] = (count if type(count) is int else 1) + 1
+                if move_id in moves and entry["count"] >= PROOF_FAILURE_LIMIT:
+                    del moves[move_id]
             (misses if failed else moves)[move_id] = entry
             if not failed:
                 misses.pop(move_id, None)
