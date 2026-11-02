@@ -4,6 +4,7 @@ Without consumables, low HP/MP stops the run. With them, verified potion keys su
 """
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 
@@ -193,6 +194,13 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
             raise RuntimeError("No fresh same-platform enemy; no farming started")
     settings = {"session_minutes": session_minutes, "pet_recovery": False,
                 "no_consumables": not consumables}
+    # Recovery follows the operator's potion thresholds (operator decision, 2026-11-02), so
+    # the engine's rule that potions fire at or before recovery always holds.
+    potion = (before.get("autopotter") or {}).get("settings") or {}
+    for name in ("hp_threshold", "mp_threshold"):
+        value = potion.get(name)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+            settings[name] = min(95, max(1, value))
     if single_platform:
         settings["single_platform"] = True
     if learn_moves:

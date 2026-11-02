@@ -41,23 +41,44 @@ def route_blocker(status: dict, area: str, origin: str, target: str) -> str | No
     return None
 
 
+def frame_gap(status: dict, passed: dict | None) -> bool:
+    """True when only skipped frames block this reading: stale position or feedback, and
+    every preflight passes with the last passing reading's position and feedback."""
+    position = status.get("position") or {}
+    feedback = (status.get("navigation") or {}).get("feedback") or {}
+    if passed is None or not (position.get("stale") or feedback.get("reason") == "stale"):
+        return False
+    navigation = {**(status.get("navigation") or {}),
+                  "feedback": (passed.get("navigation") or {}).get("feedback")}
+    position = passed.get("position") or {}
+    return route_blocker({**status, "position": position, "navigation": navigation},
+                         position.get("area_id"), position.get("surface_id"),
+                         position.get("surface_id")) is None
+
+
 def settle(api, status: dict, area: str, origin: str, *, seconds: float = 8,
-           steady: float = 1.5, clock=time.monotonic, sleep=time.sleep) -> tuple[dict, bool]:
+           steady: float = 1.5, gap: float = 1, clock=time.monotonic,
+           sleep=time.sleep) -> tuple[dict, bool]:
     """Latest status, and whether every preflight held for `steady` seconds; reads only.
 
     Right after focus returns, recognition and the marker/name-tag agreement come back
     within a few frames but drop out now and then for about a second; the move waits
-    until they hold.
+    until they hold. At about 3.5 fps the engine now and then skips frames for over
+    0.5 s, which marks position stale while the player stands still. Such a gap, under
+    `gap` seconds since the last passing reading, does not restart the count (operator
+    decision, 2026-11-02); it never counts as passing, so a steady result always ends
+    on a fresh reading that passes every preflight.
     """
-    deadline, since = clock() + seconds, None
+    deadline, since, passed, passed_at = clock() + seconds, None, None, None
     while True:
         now = clock()
-        if route_blocker(status, area, origin, origin):
-            since = None
-        elif since is None:
-            since = now
-        if since is not None and now - since >= steady:
-            return status, True
+        if route_blocker(status, area, origin, origin) is None:
+            since = now if since is None else since
+            passed, passed_at = status, now
+            if now - since >= steady:
+                return status, True
+        elif not (frame_gap(status, passed) and now - passed_at < gap):
+            since = passed = passed_at = None
         if now >= deadline:
             return status, False
         sleep(.1)

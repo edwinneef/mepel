@@ -90,3 +90,19 @@ def test_failed_route_returns_control_and_sounds_the_alarm_once(monkeypatch, cap
     assert check.main(["--run", "--area", AREA, "--origin", "fh315", "--target", "fh308"]) == 1
     assert routes == [(1, ["fh308"])] and len(played) == 1
     assert "no retry" in capsys.readouterr().out
+
+
+def test_settle_bridges_short_frame_gaps_but_not_long_ones():
+    found = ready()
+    stale = {**found, "position": {"area_id": AREA, "surface_id": None, "stale": True}}
+    off = {**stale, "focused": False}
+    # One step per reading; a stale reading 1 step after a pass is bridged when gap > 1.
+    def steady(readings, gap):
+        statuses, now = iter(readings), iter(range(100))
+        api = type("Api", (), {"status": lambda self: next(statuses)})()
+        return check.settle(api, found, AREA, "fh315", seconds=8, steady=3, gap=gap,
+                            clock=lambda: next(now), sleep=lambda s: None)
+    status, ok = steady([stale, found, found, found], gap=2)
+    assert ok and status is found  # the count ran through the gap and ended on a fresh pass
+    assert steady([stale, found, found, found] + [stale] * 10, gap=1)[1] is False  # gap too long
+    assert steady([off, found, found] + [stale] * 10, gap=2)[1] is False  # a real blocker resets
