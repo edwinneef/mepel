@@ -1,0 +1,100 @@
+/* Design 2a "Clear sky": tokens and shared pieces for the dashboard (.clear) and widget (.clear-widget).
+   Scoped so the workbench (?workbench) keeps its own look. Overlay drawing colours live in theme.ts. */
+@import '@fontsource/atkinson-hyperlegible/latin-400.css';
+@import '@fontsource/atkinson-hyperlegible/latin-700.css';
+
+.clear, .clear-widget {
+  --bg: #e6edf2; --panel: #ffffff; --ink: #12263a; --muted: #55687a; --line: #d2dce5; --soft: #f2f6f9;
+  --green: #17804f; --green-bg: #e1f3ea; --amber: #9a5b00; --amber-bg: #fff1d6;
+  --red: #c4302b; --red-bg: #fde6e4; --sky: #2468b4; --sky-bg: #e8f1fb;
+  --font: 'Atkinson Hyperlegible', 'Segoe UI', system-ui, sans-serif;
+  color: var(--ink); font: 400 15px/1.5 var(--font); color-scheme: light;
+}
+.clear *, .clear-widget * { box-sizing: border-box; }
+.clear button, .clear-widget button { font: inherit; color: inherit; cursor: pointer; }
+.clear button:disabled, .clear-widget button:disabled { cursor: not-allowed; }
+.clear :focus-visible, .clear-widget :focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+.c-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* State badge */
+.c-badge { display: inline-flex; align-items: center; padding: 3px 12px; border-radius: 6px; font-weight: 700; font-size: 14px;
+  background: var(--soft); color: var(--muted); border: 1px solid var(--line); white-space: nowrap; }
+.c-badge[data-tone=go] { background: var(--green-bg); color: var(--green); border-color: #a9d9c0; }
+.c-badge[data-tone=busy] { background: var(--amber-bg); color: var(--amber); border-color: #f0cf90; }
+.c-badge[data-tone=stop] { background: var(--red); color: #fff; border-color: var(--red); }
+
+/* Buttons */
+.c-btn { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 16px; font-weight: 700; font-size: 15px; }
+.c-btn:hover:not(:disabled) { border-color: var(--ink); }
+.c-btn:disabled { opacity: .45; }
+.c-btn.small { padding: 3px 10px; font-size: 14px; }
+.c-btn.icon { width: 32px; padding: 3px 0; }
+.c-btn.quiet { border-color: transparent; color: var(--muted); font-weight: 400; }
+.c-btn.start { background: var(--green); border-color: var(--green); color: #fff; font-size: 18px; padding: 12px; }
+.c-btn.start:disabled { background: #9db3a8; border-color: #9db3a8; opacity: 1; }
+.c-btn.stop { background: var(--red); border-color: var(--red); color: #fff; }
+.c-btn kbd { font: 700 12px var(--font); padding: 1px 6px; border-radius: 4px; background: rgba(255, 255, 255, .22); margin-left: 6px; }
+
+/* Checks */
+.c-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.c-checks li { display: grid; grid-template-columns: 22px 1fr; gap: 2px 10px; align-items: start; padding: 8px 6px; border-radius: 6px; }
+.c-checks li.bad { background: var(--amber-bg); }
+.c-checks .c-fix { grid-column: 2; font-size: 14px; color: var(--amber); }
+.c-checks .c-btn { grid-column: 2; justify-self: start; margin-top: 4px; }
+.c-mark { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-weight: 700; font-size: 13px; }
+.ok > .c-mark { background: var(--green-bg); color: var(--green); }
+.bad > .c-mark { background: var(--amber); color: #fff; }
+.c-next { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+.c-next.bad { color: var(--amber); }
+
+/* Plan, loop, length */
+.c-plans { display: grid; gap: 8px; }
+.c-plans button { position: relative; display: grid; gap: 2px; text-align: left; padding: 10px 12px 10px 38px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.c-plans button::before { content: ""; position: absolute; left: 12px; top: 13px; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--muted); }
+.c-plans button[aria-checked=true] { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.c-plans button[aria-checked=true]::before { border: 5px solid var(--ink); }
+.c-plans span { font-size: 14px; color: var(--muted); }
+.c-plans button:disabled { opacity: .6; }
+.c-seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.c-seg button { flex: 1; border: 0; background: var(--panel); padding: 7px; font-size: 15px; }
+.c-seg button + button { border-left: 1px solid var(--line); }
+.c-seg button[aria-checked=true] { background: var(--ink); color: #fff; font-weight: 700; }
+.c-seg button:disabled { opacity: .6; }
+.c-chooser { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 4px; background: var(--panel); }
+.c-chooser span { flex: 1; min-width: 0; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-chooser small { color: var(--muted); }
+.c-quiet { margin: 0; color: var(--muted); font-size: 14px; }
+
+/* Layer switches */
+.c-layers { display: flex; flex-wrap: wrap; gap: 6px; }
+.c-layers button { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--panel);
+  border-radius: 6px; padding: 4px 10px; font-size: 14px; color: var(--muted); white-space: nowrap; }
+.c-switch { position: relative; width: 26px; height: 14px; border-radius: 7px; background: var(--line); }
+.c-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: #fff; transition: left .15s; }
+.c-layers button[aria-pressed=true] { color: var(--ink); }
+.c-layers button[aria-pressed=true] .c-switch { background: var(--green); }
+.c-layers button[aria-pressed=true] .c-switch::after { left: 14px; }
+
+/* HP / MP */
+.c-gauge { display: grid; grid-template-columns: 28px minmax(80px, 1fr) 42px; gap: 8px; align-items: center; font-weight: 700; font-size: 14px; }
+.c-g-bar { position: relative; display: block; height: 10px; border-radius: 5px; background: var(--soft); border: 1px solid var(--line); }
+.c-g-bar i { display: block; height: 100%; border-radius: 5px; transition: width .3s; }
+.c-gauge.hp .c-g-bar i { background: #d9443a; }
+.c-gauge.mp .c-g-bar i { background: var(--sky); }
+.c-g-bar b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
+.c-gauge.low .c-g-val { color: var(--red); }
+.c-g-val { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Keys */
+.c-keycap { min-width: 84px; padding: 6px 12px; border: 1px solid #b9c7d4; border-bottom-width: 3px; border-radius: 7px; background: #fff;
+  font-weight: 700; font-size: 15px; color: var(--ink); }
+.c-keycap:hover:not(:disabled) { border-color: var(--ink); }
+.c-keycap:disabled { opacity: 1; cursor: default; }
+.c-keycap.empty { color: var(--muted); font-weight: 400; }
+.c-keycap[aria-pressed=true] { border-color: var(--sky); background: var(--sky-bg); color: var(--sky); }
+@media (prefers-reduced-motion: no-preference) {
+  .c-keycap[aria-pressed=true] { animation: c-pulse 1.2s ease-in-out infinite; }
+}
+@keyframes c-pulse { 50% { box-shadow: 0 0 0 4px rgba(36, 104, 180, .18); } }
+@media (prefers-reduced-motion: reduce) { .c-switch::after, .c-g-bar i { transition: none; } }

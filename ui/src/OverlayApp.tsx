@@ -23,6 +23,7 @@ import type { DashboardSession } from './dashboard';
 import { Facts, Gauge, Journal, NavIcon, SpotMap } from './DashboardParts';
 import './overlay.css';
 import './dashboard.css';
+import './clear.css';
 
 export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   client: OverlayClient; dashboard?: DashboardSession; outlinesOnly?: boolean;
