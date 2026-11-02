@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from collections import deque
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -162,6 +162,18 @@ def png(frame: Image) -> bytes:
     return encoded.tobytes()
 
 
+def identify_area(store, image: Image, title: str | None) -> str:
+    """The saved map to track: the one named like the minimap title, else the one whose
+    reference minimap matches. Tall maps scroll their minimap, so the terrain picture only
+    matches near where the map was saved; the title reads the same everywhere on it."""
+    if title:
+        named = [item["id"] for item in store.list()["areas"]
+                 if item["name"].strip().casefold() == title.strip().casefold()]
+        if len(named) == 1:
+            return named[0]
+    return detect_area(store, image)
+
+
 class Application:
     """One worker owns capture, calibration, perception and ordered commands."""
 
@@ -192,6 +204,13 @@ class Application:
         self.areas = AreaStore(self.data / "areas")
         self.area_editing = False
         self.position: LivePosition | None = None
+        # Track the saved map recognised from the minimap without an operator click, until the
+        # operator stops tracking. Restarts otherwise left every map "not recognised".
+        self.auto_track, self.auto_track_at = True, 0.0
+        # Matching every saved minimap takes ~0.4 s, so it runs off the frame loop.
+        self.auto_track_pool = ThreadPoolExecutor(1, thread_name_prefix="auto-track")
+        self.auto_track_job: Future | None = None
+        self.auto_track_state = {"attempts": 0, "last": "Waiting for the first frame"}
         self.windows = Windows()
         self.detector = TemplateDetector(self.data / "templates", config.perception)
         self.pose_collection = PoseCollection(
@@ -364,6 +383,7 @@ class Application:
         self.recorder.close()
         self.pose_collection.close()
         self.alarm.close()
+        self.auto_track_pool.shutdown(wait=False, cancel_futures=True)
 
     def request(
         self, name: str, payload: dict, *, context: CommandContext | None = None
@@ -525,6 +545,7 @@ class Application:
                 "mode": self.mode,
                 "calibrating": self.calibrating,
                 "area_editing": self.area_editing,
+                "auto_track": {**self.auto_track_state, "enabled": self.auto_track},
                 "sustain": list(self.sustain),
                 "navigation": self.navigation.snapshot(),
                 "rotation": {**self.rotation.snapshot(), "enabled": self.rotating},
@@ -1858,10 +1879,47 @@ class Application:
             self.arbiter.submitted(submitted, "combat")
         return submitted
 
+    AUTO_TRACK_SECONDS = 10.0
+
+    def _auto_track(self, image: Image, now: float) -> None:
+        """Start tracking the one saved map whose minimap matches. Read-only; never creates
+        a map. The match runs in the background, one at a time, every AUTO_TRACK_SECONDS
+        while no saved map matches; a finished match is applied on the next frame."""
+        eligible = (self.position is None and getattr(self, "auto_track", False)
+                    and not self.area_editing and self.mode in {"capture", "dry_run"})
+        job = self.auto_track_job
+        if job is not None:
+            if not job.done():
+                return
+            self.auto_track_job = None
+            try:
+                area_id = job.result()
+            except Exception as error:  # A failed match never stops the frame loop.
+                self.auto_track_state = {**self.auto_track_state, "last": str(error)}
+                return
+            if area_id is not None and eligible:
+                try:
+                    self._position_command("position_start", {"area_id": area_id})
+                except Exception as error:
+                    self.auto_track_state = {**self.auto_track_state,
+                                             "last": f"Could not start tracking: {error}"}
+                    return
+                self.auto_track_state = {**self.auto_track_state, "last": "Map recognised"}
+                self.note("Tracking the saved map recognised from the minimap")
+            return
+        if not eligible or now < self.auto_track_at:
+            return
+        self.auto_track_at = now + self.AUTO_TRACK_SECONDS
+        self.auto_track_state = {**self.auto_track_state,
+                                 "attempts": self.auto_track_state["attempts"] + 1}
+        title = getattr(getattr(self.detector, "map_filter", None), "title", None)
+        self.auto_track_job = self.auto_track_pool.submit(
+            identify_area, self.areas, image.copy(), title)
+
     def _position_command(self, name: str, payload: dict) -> dict:
         """Read-only position tracking. These commands never enable or send input."""
         if name == "position_stop":
-            self.auto_area_pending = False
+            self.auto_area_pending = self.auto_track = False
             if self.position is not None:
                 self.position.close()
             self.position, self.detector.taught_map = None, False
@@ -2056,6 +2114,7 @@ class Application:
         perception_began = time.perf_counter()
         self.processing_frame = {**self.processing_frame, "stage": "perception"}
         observation = self.detector.detect(image, now, monsters=self.monster_search)
+        self._auto_track(image, now)
         if (getattr(self, "auto_area_pending", False) and not self.area_editing
                 and self.mode in {"capture", "dry_run"}
                 and now >= getattr(self, "auto_area_retry_at", 0)):

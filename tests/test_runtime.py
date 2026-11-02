@@ -2198,3 +2198,58 @@ def test_circuit_preview_does_not_require_or_change_tracked_map(app, monkeypatch
     assert app.position is previous
     assert app.request("farm_route_validate", {"route": example()})["valid"]
     assert not app.controller.enabled
+
+
+def test_engine_tracks_the_recognised_saved_map_without_a_click(app, monkeypatch):
+    import maplebot.runtime as runtime
+
+    calls, started = [], []
+
+    def detect(store, image):
+        calls.append(1)
+        if len(calls) == 1:
+            raise ValueError("no match")
+        return "area-1"
+
+    monkeypatch.setattr(runtime, "detect_area", detect)
+    monkeypatch.setattr(app, "_position_command",
+                        lambda name, payload: started.append((name, payload)))
+    image = np.zeros((10, 10, 3), np.uint8)
+    before = list(app.controller.backend.events)
+
+    def tick(now):
+        app._auto_track(image, now)
+        if app.auto_track_job is not None:
+            app.auto_track_job.exception(timeout=5)  # the match runs off the frame loop
+
+    tick(100.0)  # match submitted in the background; nothing saved matches
+    tick(101.0)  # its result is applied on the next frame: no map
+    tick(105.0)  # waits AUTO_TRACK_SECONDS between attempts
+    assert len(calls) == 1 and started == []
+    tick(110.0)
+    tick(110.3)
+    assert started == [("position_start", {"area_id": "area-1"})]
+    app.auto_track = False  # operator stopped tracking: never restarted behind their back
+    tick(300.0)
+    assert len(calls) == 2
+    assert app.controller.backend.events == before
+
+
+def test_identify_area_prefers_the_minimap_title_over_the_scrolled_terrain(monkeypatch):
+    import maplebot.runtime as runtime
+
+    class Store:
+        def list(self):
+            return {"areas": [{"id": "tree", "name": "Tree Dungeon, Forest Up North I"},
+                              {"id": "a", "name": "Park"}, {"id": "b", "name": "Park"}]}
+
+    def no_terrain_match(store, image):
+        raise ValueError("No saved map matches the minimap")
+
+    monkeypatch.setattr(runtime, "detect_area", no_terrain_match)
+    image = np.zeros((4, 4, 3), np.uint8)
+    assert runtime.identify_area(Store(), image, " tree dungeon, forest up north i") == "tree"
+    with pytest.raises(ValueError):  # two saved maps share the name: the title cannot decide
+        runtime.identify_area(Store(), image, "Park")
+    with pytest.raises(ValueError):
+        runtime.identify_area(Store(), image, None)
