@@ -2,13 +2,14 @@ const { app, BrowserWindow, globalShortcut, ipcMain, screen, dialog } = require(
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
+const { spawn } = require('node:child_process');
 
 const port = Number(process.env.MAPLEBOT_PORT || 8765);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid engine port');
 const base = `http://127.0.0.1:${port}`;
 const owner = randomUUID();
 let win, token, panel = false, quitting = false, lastPaint = 0, polling = false;
-let session = null, lastBounds = '', transition = false;
+let session = null, lastBounds = '', transition = false, batch = null;
 function desktopBounds() {
   const displays = screen.getAllDisplays().map(display => display.bounds);
   const x = Math.min(...displays.map(rect => rect.x));
@@ -35,6 +36,38 @@ function keepAboveGame() {
   win.moveTop();
   win.setAlwaysOnTop(false);
   win.setAlwaysOnTop(true);
+}
+// One guarded batch at a time from the in-game menu: the same tool the start window runs,
+// so its focus handoff, preflight, bounded session, result file and alarm stay identical.
+function startBatch(request) {
+  const kind = request?.kind, area = String(request?.area ?? '');
+  if (!['learn', 'single'].includes(kind) || !/^[a-f0-9]{32}$/.test(area)) {
+    return { started: false, reason: 'Invalid batch request' };
+  }
+  if (batch) return { started: false, reason: 'A batch is already running' };
+  const root = path.resolve(__dirname, '..', '..');
+  const args = ['-m', 'tools.prepared_farm_check', '--area', area, '--run', '--focus',
+    '--minutes', kind === 'single' ? '15' : '5', ...(kind === 'single' ? ['--single'] : [])];
+  let output = '';
+  const child = spawn(path.join(root, '.venv', 'Scripts', 'python.exe'), args,
+    { cwd: root, windowsHide: true });
+  batch = child;
+  const read = chunk => {
+    output = (output + chunk.toString()).slice(-4000);
+    send('batch', { running: true, kind, line: output.trim().split(/\r?\n/).pop() });
+  };
+  child.stdout.on('data', read);
+  child.stderr.on('data', read);
+  child.on('error', error => {
+    if (batch === child) batch = null;
+    send('batch', { running: false, kind, code: -1, output: error.message });
+  });
+  child.on('close', code => {
+    if (batch === child) batch = null;
+    send('batch', { running: false, kind, code, output });
+  });
+  send('batch', { running: true, kind, line: 'Starting one guarded batch; restoring game focus...' });
+  return { started: true };
 }
 async function settings(open) {
   if (open) return; // The native window is outlines only; settings stay in the dashboard.
@@ -115,12 +148,16 @@ else app.whenReady().then(async () => {
     ipcMain.on('overlay-paint', event => { if (own(event)) lastPaint = Date.now(); });
     ipcMain.on('overlay-mouse', (event, interactive) => {
       if (own(event) && typeof interactive === 'boolean') {
-        win.setIgnoreMouseEvents(true, { forward: true });
+        // Only the in-game menu takes the mouse; everywhere else clicks reach the game.
+        // The window is never focusable, so a menu click leaves the game focused.
+        win.setIgnoreMouseEvents(!interactive, { forward: true });
         keepAboveGame();
       }
     });
     ipcMain.handle('overlay-settings', (event, open) => own(event) && settings(Boolean(open)));
     ipcMain.handle('overlay-quit', event => { if (own(event)) app.quit(); });
+    ipcMain.handle('overlay-batch', (event, request) => own(event)
+      ? startBatch(request) : { started: false, reason: 'Unknown sender' });
     win.webContents.on('render-process-gone', () => { void stop(); app.quit(); });
     win.on('unresponsive', () => { void stop(); });
     win.on('close', () => { void stop(); });

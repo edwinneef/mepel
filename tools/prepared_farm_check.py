@@ -51,6 +51,8 @@ def main(argv: list[str] | None = None, *, api=None) -> int:
     parser.add_argument("--area", required=True)
     parser.add_argument("--origin", help="Start platform; default: where the player stands")
     parser.add_argument("--minutes", type=int, choices=range(1, 31), default=5)
+    parser.add_argument("--single", action="store_true",
+                        help="Farm only the start platform, sustained by the verified potion keys")
     args = parser.parse_args(argv)
     started = time.monotonic()
     api = api or Debugger()
@@ -68,13 +70,17 @@ def main(argv: list[str] | None = None, *, api=None) -> int:
     if problem:
         print(json.dumps({"blocked": problem, "input_sent": False}), flush=True)
         return 1
+    kind = "single" if args.single else "farm"
     output = (Path(__file__).resolve().parents[1] / "artifacts" / "farming-checks"
-              / f"prepared-farm-{args.origin}-{time.time_ns()}")
+              / f"prepared-{kind}-{args.origin}-{time.time_ns()}")
     before = proven(status)
-    print(f"Starting one {args.minutes}-minute learn_moves farm from {args.origin}", flush=True)
+    print(f"Starting one {args.minutes}-minute "
+          f"{'single-platform' if args.single else 'learn_moves'} farm from {args.origin}",
+          flush=True)
     try:
         result = run(api, output, area=args.area, session_minutes=args.minutes,
-                     learn_moves=True)
+                     **({"single_platform": True, "consumables": True} if args.single
+                        else {"learn_moves": True}))
     except Exception as error:
         print(json.dumps({"error": str(error), "result": str(output)}), flush=True)
         result = {"outcome": "failure", "error": str(error)}

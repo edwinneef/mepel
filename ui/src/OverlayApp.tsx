@@ -14,6 +14,7 @@ import { NavigationPanel } from './NavigationPanel';
 import { MapTab } from './MapTab';
 import { AlarmBanner } from './AlarmBanner';
 import { SavedTerrainOverlay } from './SavedTerrainOverlay';
+import { OverlayMenu, type BatchState } from './OverlayMenu';
 import { BowmanSetup } from './BowmanSetup';
 import { CombatResults } from './CombatResults';
 import { AttackRangeOverlay } from './AttackRangeOverlay';
@@ -41,6 +42,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const [areas, setAreas] = useState<{ id: string; name: string; revision: number }[]>([]);
   const [starting, setStarting] = useState(false);
   const [supervised, setSupervised] = useState(false);
+  const [batch, setBatch] = useState<BatchState>({ running: false });
   const startRef = useRef(false);
   const wasRunning = useRef(false);
   const dataKey = useRef('');
@@ -81,6 +83,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       if (event.type === 'off') { startRef.current = false; setStarting(false); void act(() => client.command('stop')); }
       if (event.type === 'layers') setLayers(value => !value);
       if (event.type === 'error') client.fail(event.value);
+      if (event.type === 'batch') setBatch(event.value as BatchState);
     });
     return () => { clearInterval(timer); unsub?.(); };
   }, [client, host]);
@@ -170,8 +173,20 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
       viewBox={`0 0 ${drawing.frame.width} ${drawing.frame.height}`} preserveAspectRatio="none" aria-label="Live detections">
       <LiveDetectionBoxes drawing={drawing} compact />
-      <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />
+      {attackRange && <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
     </svg>}
+    {gameBounds?.visible && <OverlayMenu s={s ?? null} status={status} game={game}
+      layers={layers} attackRange={attackRange} names={terrain}
+      setLayers={setLayers} setAttackRange={setAttackRange} setNames={setTerrain}
+      batch={batch} canBatch={Boolean(window.mapleOverlay?.batch)}
+      onStart={kind => void act(async () => {
+        const area = s?.position?.area_id;
+        const launch = window.mapleOverlay?.batch;
+        if (!area || !launch) return;
+        const result = await launch({ kind, area });
+        if (!result.started) setBatch({ running: false, output: JSON.stringify({ blocked: result.reason }) });
+      })}
+      onStop={() => void act(() => client.command('stop'))} />}
     {terrain && map && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
       viewBox={`0 0 ${drawing.frame.width} ${drawing.frame.height}`} preserveAspectRatio="none">

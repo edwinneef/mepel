@@ -4,8 +4,16 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { expect, it, vi } from 'vitest';
 
+function fakeChild() {
+  const handlers = {};
+  const stream = () => ({ on: (name, callback) => { handlers[`out:${name}`] = callback; } });
+  return { handlers, stdout: stream(), stderr: stream(),
+    on: (name, callback) => { handlers[name] = callback; } };
+}
+
 async function startOverlay() {
   const shortcuts = new Map(), requests = [], intervals = [];
+  const spawn = vi.fn(() => fakeChild());
   const win = {
     webContents: { send: vi.fn(), on: vi.fn(), setWindowOpenHandler: vi.fn() },
     setContentProtection: vi.fn(), setMenu: vi.fn(), on: vi.fn(),
@@ -29,7 +37,8 @@ async function startOverlay() {
   dialog: { showErrorBox: vi.fn() } };
   vm.runInNewContext(readFileSync(new URL('./main.cjs', import.meta.url), 'utf8'), {
     require: name => ({ electron, 'node:path': path,
-      'node:crypto': { randomUUID: () => 'overlay-owner' }, 'node:fs/promises': {} })[name],
+      'node:crypto': { randomUUID: () => 'overlay-owner' }, 'node:fs/promises': {},
+      'node:child_process': { spawn } })[name],
     __dirname: '/overlay', process: { env: {} }, Buffer, URL, AbortSignal,
     setInterval: callback => { intervals.push(callback); },
     fetch: async (url, options) => {
@@ -39,7 +48,7 @@ async function startOverlay() {
     },
   });
   await started;
-  return { win, construct, shortcuts, requests, electron, intervals };
+  return { win, construct, shortcuts, requests, electron, intervals, spawn };
 }
 
 it('starts Off with settings closed and click-through without activating the overlay', async () => {
@@ -65,12 +74,14 @@ it('registers only emergency Stop and outline visibility shortcuts', async () =>
   expect([...shortcuts.keys()]).toEqual(['F8', 'F9']);
 });
 
-it('stays click-through and refuses native settings requests', async () => {
+it('takes the mouse only over the in-game menu and refuses native settings requests', async () => {
   const { win, requests, electron } = await startOverlay();
   const mouse = electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-mouse')[1];
   mouse({ sender: win.webContents }, true);
-  expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true, { forward: true });
+  expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(false, { forward: true });
   mouse({ sender: win.webContents }, false);
+  expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true, { forward: true });
+  mouse({ sender: {} }, true);  // another renderer cannot make the overlay take the mouse
   expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true, { forward: true });
   const settings = electron.ipcMain.handle.mock.calls.find(([name]) => name === 'overlay-settings')[1];
   await settings({ sender: win.webContents }, true);
@@ -92,4 +103,27 @@ it('keeps a visible overlay shown without repeating Win32 show transitions on ev
   expect(win.setAlwaysOnTop.mock.calls.slice(-2)).toEqual([[false], [true]]);
   const raised = win.setAlwaysOnTop.mock.invocationCallOrder.at(-1);
   expect(raised).toBeGreaterThan(win.moveTop.mock.invocationCallOrder.at(-1));
+});
+
+
+it('starts one guarded batch tool at a time from the in-game menu, validating the request', async () => {
+  const { win, electron, spawn } = await startOverlay();
+  const launch = electron.ipcMain.handle.mock.calls.find(([name]) => name === 'overlay-batch')[1];
+  const own = { sender: win.webContents };
+  expect(launch({ sender: {} }, { kind: 'learn', area: 'a'.repeat(32) }).started).toBe(false);
+  expect(launch(own, { kind: 'learn', area: '../x' }).started).toBe(false);
+  expect(launch(own, { kind: 'jump', area: 'a'.repeat(32) }).started).toBe(false);
+  expect(spawn).not.toHaveBeenCalled();
+  expect(launch(own, { kind: 'single', area: 'a'.repeat(32) })).toEqual({ started: true });
+  const [, args] = spawn.mock.calls[0];
+  expect(args).toEqual(['-m', 'tools.prepared_farm_check', '--area', 'a'.repeat(32), '--run', '--focus',
+    '--minutes', '15', '--single']);
+  expect(launch(own, { kind: 'learn', area: 'a'.repeat(32) }).reason).toBe('A batch is already running');
+  const child = spawn.mock.results[0].value;
+  child.handlers['out:data'](Buffer.from('{"outcome": "nothing_left"}\n'));
+  child.handlers.close(0);
+  expect(win.webContents.send).toHaveBeenLastCalledWith('overlay-event', { type: 'batch',
+    value: { running: false, kind: 'single', code: 0, output: '{"outcome": "nothing_left"}\n' } });
+  expect(launch(own, { kind: 'learn', area: 'a'.repeat(32) })).toEqual({ started: true });
+  expect(spawn.mock.calls[1][1]).toContain('5');
 });

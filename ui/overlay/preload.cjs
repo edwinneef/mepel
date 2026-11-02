@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 let dragging = false, lastInteractive = null;
 const interactiveAt = event => Boolean(document.elementFromPoint(event.clientX, event.clientY)
-  ?.closest('.editing-layout .overlay-panel, .editing-layout .overlay-hud, .editing-layout .terrain-inset, .editing-layout dialog[open], .hud-settings'));
+  ?.closest('.editing-layout .overlay-panel, .editing-layout .overlay-hud, .editing-layout .terrain-inset, .editing-layout dialog[open], .hud-settings, .overlay-menu'));
 const mouse = interactive => {
   if (interactive === lastInteractive) return;
   lastInteractive = interactive;
@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('mapleOverlay', {
   settings: open => ipcRenderer.invoke('overlay-settings', open),
   quit: () => ipcRenderer.invoke('overlay-quit'),
   heartbeat: () => ipcRenderer.send('overlay-paint'),
+  batch: request => ipcRenderer.invoke('overlay-batch', request),
   subscribe: callback => {
     const handler = (_event, value) => callback(value);
     ipcRenderer.on('overlay-event', handler);

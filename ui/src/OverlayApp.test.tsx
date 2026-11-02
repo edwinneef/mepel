@@ -33,7 +33,11 @@ it('shows detection outlines and attack range without native settings or HUD', a
   await waitFor(() => expect(screen.getByLabelText('Detection boxes')).toBeTruthy());
   expect(screen.queryByRole('status')).toBeNull();
   expect(screen.queryByLabelText('Overlay settings')).toBeNull();
-  expect(view.container.querySelector('button, input, nav, .terrain-inset')).toBeNull();
+  // The only controls in game are the small bot menu's; no settings, tabs or terrain inset.
+  expect(view.container.querySelector('nav, .terrain-inset')).toBeNull();
+  for (const control of view.container.querySelectorAll('button, input')) {
+    expect(control.closest('.overlay-menu')).toBeTruthy();
+  }
   expect(view.container.querySelector('[aria-label="Live detections"]')).toBeTruthy();
   expect(screen.getByLabelText('Configured attack range')).toBeTruthy();
   expect(screen.getByLabelText('Detection boxes').querySelectorAll('rect')).toHaveLength(2);
@@ -365,4 +369,42 @@ it('names the platforms over the game without opening any panel', async () => {
   await waitFor(() => expect(screen.getByLabelText('Platform names')).toBeTruthy());
   expect(screen.getByText('Level 7')).toBeTruthy();
   expect(screen.getByText('Level 8')).toBeTruthy();
+});
+
+
+it('shows the bot menu in game and starts batches through the overlay host', async () => {
+  const current = snapshot({ position: { area_id: 'a'.repeat(32), kind: 'platform', surface_id: 'fh320',
+    reason: 'Matched', input_sent: false }, fps: 6 });
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
+    if (url === '/api/v1/status') return json(current);
+    if (url === '/api/v1/drawings') return json(null);
+    return json({ areas: [] });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  let listener: (event: OverlayEvent) => void = () => {};
+  const batch = vi.fn(async () => ({ started: true }));
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), batch,
+    subscribe: callback => {
+      listener = callback;
+      callback({ type: 'game-bounds', value: { x: 0, y: 0, width: 1366, height: 768, visible: true } });
+      return () => {};
+    } };
+  render(<OverlayApp client={new OverlayClient('token', fetcher)} outlinesOnly />);
+  await waitFor(() => expect(screen.getByLabelText('Bot menu')).toBeTruthy());
+  expect(screen.getByText('6.0 fps')).toBeTruthy();
+  expect(screen.getByText(/Standing on fh320/)).toBeTruthy();
+  const names = screen.getByLabelText('Show platform names') as HTMLInputElement;
+  expect(names.checked).toBe(true);
+  fireEvent.click(names);
+  expect(names.checked).toBe(false);
+  await waitFor(() => expect((screen.getByText('Start single platform') as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByText('Start single platform'));
+  await waitFor(() => expect(batch).toHaveBeenCalledWith({ kind: 'single', area: 'a'.repeat(32) }));
+  act(() => listener({ type: 'batch', value: { running: true, kind: 'single', line: 'Starting one guarded batch' } }));
+  expect(screen.getByText('BATCH RUNNING')).toBeTruthy();
+  expect((screen.getByText('Start run') as HTMLButtonElement).disabled).toBe(true);
+  act(() => listener({ type: 'batch', value: { running: false, kind: 'single', code: 1,
+    output: '{"blocked": "Stand still on a recognized platform of this map first", "input_sent": false}' } }));
+  expect(screen.getByText('Last batch: Refused, no keys sent: Stand still on a recognized platform of this map first'))
+    .toBeTruthy();
 });

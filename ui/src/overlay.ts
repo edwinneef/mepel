@@ -7,6 +7,7 @@ declare global {
   interface Window {
     mapleOverlay?: {
       settings(open: boolean): Promise<void>; quit(): Promise<void>; heartbeat(): void;
+      batch?(request: { kind: 'learn' | 'single'; area: string }): Promise<{ started: boolean; reason?: string }>;
       subscribe(callback: (event: OverlayEvent) => void): () => void;
     };
   }

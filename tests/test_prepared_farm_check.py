@@ -78,3 +78,21 @@ class _Quick(Api):
         import time
         time.sleep(.2)
         return super().status()
+
+
+def test_single_platform_mode_farms_in_place_with_potions(capsys, monkeypatch):
+    monkeypatch.setattr(prepared_farm_check, "settle", lambda api, status, *a: (status, True))
+    seen = []
+
+    def run(api, output, **kwargs):
+        seen.append((output.name, kwargs))
+        return {"outcome": "functional_success", "after": api.status()}
+
+    monkeypatch.setattr(prepared_farm_check, "run", run)
+    assert prepared_farm_check.main(
+        ["--run", "--area", "tree", "--single", "--minutes", "15"], api=Api("fh308")) == 0
+    name, kwargs = seen[0]
+    assert name.startswith("prepared-single-fh308-")
+    assert kwargs == {"area": "tree", "session_minutes": 15, "single_platform": True,
+                      "consumables": True}
+    assert "15-minute single-platform farm from fh308" in capsys.readouterr().out
