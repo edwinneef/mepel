@@ -57,6 +57,41 @@ def test_tiles_find_outside_roi_enemies_and_preserve_player(tmp_path, monkeypatc
         detector.map_filter.close()
 
 
+def test_tiles_taller_than_the_window_use_their_own_covering_zones(tmp_path):
+    # A tall frame makes each grid cell taller than the 420 px local window.
+    rng = np.random.default_rng(904)
+    sprites = [rng.integers(20, 240, (28, 24, 3), dtype=np.uint8) for _ in range(2)]
+    for kind, sprite in zip(("player", "monster"), sprites, strict=True):
+        (tmp_path / kind).mkdir()
+        cv2.imwrite(str(tmp_path / kind / "pose.png"), sprite)
+    frame = np.full((1000, 1100, 3), 30, dtype=np.uint8)
+    frame[150:178, 500:524] = sprites[0]
+    detector = TemplateDetector(tmp_path, PerceptionConfig())
+    try:
+        assert detector.detect(frame, 0).player is not None
+        frame[900:928, 900:924] = sprites[1]  # far below the window, near a cell edge
+        frame[860:888, 100:124] = sprites[1]
+        sizes = []
+        original = detector._candidates
+
+        def candidates(image, gray, templates, floor):
+            sizes.append((image.shape[:2], detector.zone_sums.shape))
+            return original(image, gray, templates, floor)
+
+        detector._candidates = candidates
+        found = set()
+        for step in range(8):
+            observation = detector.detect(frame, .1 * (step + 1))
+            found |= {(x.box.x, x.box.y) for x in observation.monsters if x.confidence > .99}
+        assert {(900, 900), (100, 860)} <= found
+        assert any(shape[0] > 420 for shape, _ in sizes)  # cells taller than the window
+        # Partly covered sprites are scored through this table; it must fit each image.
+        assert all(sums == (h + 1, w + 1) for (h, w), sums in sizes)
+    finally:
+        detector.pool.shutdown()
+        detector.map_filter.close()
+
+
 def test_feedback_rejects_duplicate_and_stale_observations(tmp_path):
     detector = TemplateDetector(tmp_path, PerceptionConfig())
     try:

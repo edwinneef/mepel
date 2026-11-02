@@ -1337,6 +1337,22 @@ class TemplateDetector:
             return found
         return self._observe_full(image, now, templates, floor)
 
+    def _set_occluders(self, shape: tuple[int, int], player: Rect | None,
+                       origin: tuple[int, int]) -> None:
+        """Covering zones for a searched image: the player box widened for a held weapon
+        (already in that image's pixels) and previous monsters (frame pixels)."""
+        ox, oy = origin
+        self.occluders = ((Rect(player.x - 40, player.y - 8, player.width + 80,
+                                player.height + 16),) if player else ()) + tuple(
+            Rect(box.x - ox - 4, box.y - oy - 4, box.width + 8, box.height + 8)
+            for box in self.previous_monsters)
+        # Zone membership per pixel, and a summed table for "does a box touch a zone".
+        self.zones = np.zeros(shape, dtype=np.uint8)
+        for box in self.occluders:
+            self.zones[max(0, box.y):max(0, box.y + box.height),
+                       max(0, box.x):max(0, box.x + box.width)] = 1
+        self.zone_sums = cv2.integral(self.zones)
+
     def _scan_tile(self, image: Image, templates: list[Template], floor: float,
                    player: Detection | None, monsters: list[Detection], failures: list[str],
                    ) -> tuple[list[Detection], list[str]]:
@@ -1371,12 +1387,17 @@ class TemplateDetector:
         self.enemy_cell = cell
         crop = image[cell.y:cell.y + cell.height, cell.x:cell.x + cell.width]
         cache, area = self.masked_cache, self.player_area
+        zones = self.occluders, self.zones, self.zone_sums
         self.player_area = None
+        # Covering zones must match the cell's own size and pixels.
+        self._set_occluders(crop.shape[:2], player.box.translated(-cell.x, -cell.y)
+                            if player else None, (cell.x, cell.y))
         try:
             found = self._candidates(crop, cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), species, floor)
         finally:
             # The window search keeps its native-crop cache; a cell is not searched again soon.
             self.masked_cache, self.player_area = cache, area
+            self.occluders, self.zones, self.zone_sums = zones
         extra = [replace(item, box=item.box.translated(cell.x, cell.y))
                  for item in self._suppress(found) if item.kind == "monster"]
         if not extra:
@@ -1447,19 +1468,8 @@ class TemplateDetector:
         self, image: Image, now: float, templates: list[Template], floor: float
     ) -> tuple[Detection | None, list[Detection], list[str], float]:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        ox, oy = self.origin
-        # Covering zones: the player box widened for a held weapon, and previous monsters.
-        player = self.track[0] if self.track else None
-        self.occluders = ((Rect(player.x - 40, player.y - 8, player.width + 80,
-                                player.height + 16),) if player else ()) + tuple(
-            Rect(box.x - ox - 4, box.y - oy - 4, box.width + 8, box.height + 8)
-            for box in self.previous_monsters)
-        # Zone membership per pixel, and a summed table for "does a box touch a zone".
-        self.zones = np.zeros(image.shape[:2], dtype=np.uint8)
-        for box in self.occluders:
-            self.zones[max(0, box.y):max(0, box.y + box.height),
-                       max(0, box.x):max(0, box.x + box.width)] = 1
-        self.zone_sums = cv2.integral(self.zones)
+        self._set_occluders(image.shape[:2], self.track[0] if self.track else None,
+                            self.origin)
         # Name tags match in the pool while the sprite templates are searched.
         searches = self._nametag_search(gray)
         tag_area = self._tag_first_area(gray, searches, now)
