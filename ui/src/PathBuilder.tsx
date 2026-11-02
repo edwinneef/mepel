@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { EngineClient } from './client';
 import type { AreaPoint, AreaProfile } from './contracts';
-import { center, legPaths, legText, planRoute, platformAt, shortestOrder, suggestions, usableMoves } from './pathPlanning';
+import { center, legPaths, legText, loopOrder, planRoute, platformAt, shortestOrder, suggestions, usableMoves } from './pathPlanning';
 import type { PlannedLeg, RouteOptions } from './pathPlanning';
 import './PathBuilder.css';
 
@@ -64,6 +64,7 @@ export function PathBuilder({ profile, mapHash, client, disabled, options, onSel
   const [auto, setAuto] = useState(false);
   const [source, setSource] = useState<string | null>(null);
   const [connections, setConnections] = useState<Leg['edges']>([]);
+  const [filter, setFilter] = useState('');
   const [sketch, setSketch] = useState<{ seq: string[]; trail: { x: number; y: number }[] } | null>(null);
   const gesture = useRef<{ x: number; y: number; moved: boolean; panning: boolean; seq: string[]; trail: { x: number; y: number }[] } | null>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -126,9 +127,11 @@ export function PathBuilder({ profile, mapHash, client, disabled, options, onSel
     : route.stops.slice(1).map((target, i) => [route.stops[i], target]).concat(route.loop && route.stops.length > 1 ? [[route.stops.at(-1)!, route.stops[0]]] : [])
       .map(([origin, target]) => ({ origin, target, moves: [], start: [0, 0], end: [0, 0] }));
   const blockedLeg = hasMoves ? legs.findIndex(item => !item.moves) : -1;
-  const ideas = hasMoves ? suggestions(profile, options ?? {}) : [];
+  // Suggestions plan many trips; compute once per map rather than on every pointer move.
+  const ideas = useMemo(() => hasMoves ? suggestions(profile, options ?? {}) : [], [hasMoves, profile, options]);
 
-  const ordered = (stops: string[]) => auto && hasMoves ? shortestOrder(profile, moves, stops) : stops;
+  const automatic = (stops: string[]) => (route.loop ? loopOrder(profile, moves, stops) : null) ?? shortestOrder(profile, moves, stops);
+  const ordered = (stops: string[]) => auto && hasMoves ? automatic(stops) : stops;
   const toggle = (id: string) => {
     if (frozen) return;
     if (!canFarm(id)) { setHint(`${names.get(id) ?? id} can't be a farming stop: the bot has no trusted way there and back.`); return; }
@@ -215,13 +218,14 @@ export function PathBuilder({ profile, mapHash, client, disabled, options, onSel
     : blockedLeg >= 0 ? `Trip ${blockedLeg + 1} (${names.get(legs[blockedLeg].origin)} → ${names.get(legs[blockedLeg].target)}) has no trusted move. Change the order or switch a stop off.`
       : dirty || !result?.valid ? `${route.stops.length} stops${hasMoves ? ', and every trip has a trusted move' : ''}. Next: check and save your path.`
         : 'Your path is ready. Select it for farming below.';
-  const sketchSvg = (stops: string[]) => {
-    const planned = planRoute(profile, moves, stops, true);
-    return <svg viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`} aria-hidden="true" className="path-sketch">
-      {platforms.map(p => <polyline key={p.id} className={stops.includes(p.id) ? 'on' : ''} points={(p.points ?? [p.start, p.end]).map(point => `${point.x},${point.y}`).join(' ')} />)}
+  // Card thumbnails plan whole loops; build them once per set of suggestions.
+  const sketches = useMemo(() => ideas.map(idea => {
+    const planned = planRoute(profile, usableMoves(options ?? {}), idea.stops, true);
+    return <svg viewBox={`${profile.boundary.x} ${profile.boundary.y} ${profile.boundary.width} ${profile.boundary.height}`} aria-hidden="true" className="path-sketch">
+      {(profile.platforms as Platform[]).map(p => <polyline key={p.id} className={idea.stops.includes(p.id) ? 'on' : ''} points={(p.points ?? [p.start, p.end]).map(point => `${point.x},${point.y}`).join(' ')} />)}
       {planned.map((item, i) => { const { walks, hops } = legPaths(item); return <g key={i}>{[...walks, ...hops].map((d, j) => <path key={j} d={d} />)}</g>; })}
     </svg>;
-  };
+  }), [ideas, profile, options]);
 
   return <section className="path-builder" aria-label="Farming path builder">
     <div className="path-heading"><div><h3>2. Build your path</h3><p>Start from a ready-made path or draw your own. Then switch stops on or off. The bot fights on each stop until no enemies remain, then travels to the next.</p></div>
@@ -235,8 +239,8 @@ export function PathBuilder({ profile, mapHash, client, disabled, options, onSel
         <button onClick={() => change({ ...route, id: crypto.randomUUID(), revision: 0, name: `${route.name} copy` })}>Duplicate</button>
       </div></details>
       {ideas.length > 0 && <><span className="path-eyebrow">Start from</span>
-        <div className="path-ideas">{ideas.map(idea => <button key={idea.id} className="path-idea" aria-pressed={source === idea.id} onClick={() => pick(idea.id)}>
-          {sketchSvg(idea.stops)}<strong>{idea.name}</strong><small>{idea.why} · {idea.stops.length} stops</small></button>)}
+        <div className="path-ideas">{ideas.map((idea, index) => <button key={idea.id} className="path-idea" aria-pressed={source === idea.id} onClick={() => pick(idea.id)}>
+          {sketches[index]}<strong>{idea.name}</strong><small>{idea.why} · {idea.stops.length} stops</small></button>)}
           <button className="path-idea" aria-pressed={source === 'draw'} onClick={() => { setSource('draw'); setHint('Hold the mouse down on the map and sweep across platforms in the order you want.'); }}>
             <span className="path-idea-draw" aria-hidden="true">✎</span><strong>Draw your own</strong><small>Hold the mouse and sweep across platforms in order.</small></button></div></>}
       <p className={`path-next ${blockedLeg >= 0 ? 'bad' : ''}`} role="status">{hint ? `${hint} ` : ''}{status}</p>
@@ -262,10 +266,17 @@ export function PathBuilder({ profile, mapHash, client, disabled, options, onSel
           <p className="path-legend"><span><b>Drag</b> across platforms to draw the order</span><span><b>Click</b> a platform to switch it on or off</span><span><b>Shift+drag</b> pans when zoomed</span></p>
         </div>
         <div className="path-stops"><label>Path name <input maxLength={100} value={route.name} onChange={event => change({ ...route, name: event.target.value })} /></label>
-          <div role="group" aria-label="Farming platforms">{platforms.map(p => <label key={p.id} className="path-switch">
-            <span>{names.get(p.id)}<small>{!canFarm(p.id) ? 'No trusted way there and back' : route.stops.includes(p.id) ? `Stop ${route.stops.indexOf(p.id) + 1}` : 'Travel only'}</small></span>
-            <input type="checkbox" role="switch" aria-label={`Farm on ${names.get(p.id)}`} checked={route.stops.includes(p.id)} disabled={!canFarm(p.id)} onChange={() => toggle(p.id)} /></label>)}</div>
-          {hasMoves && <label><input type="checkbox" checked={auto} onChange={event => { setAuto(event.target.checked); if (event.target.checked && route.stops.length > 2) change({ ...route, stops: shortestOrder(profile, moves, route.stops) }); }} /> Let the bot choose the order</label>}
+          <div className="path-chips-head"><span>Platforms <small>{route.stops.length} stops · {platforms.filter(p => canFarm(p.id)).length} farmable</small></span>
+            {platforms.length > 12 && <input type="search" aria-label="Find a platform" placeholder="Find…" value={filter} onChange={event => setFilter(event.target.value)} />}</div>
+          {/* Compact chips scale to maps with dozens of platforms; natural order reads Level 3 … 24. */}
+          <div role="group" aria-label="Farming platforms" className="path-chips">{[...platforms]
+            .sort((a, b) => (names.get(a.id) ?? '').localeCompare(names.get(b.id) ?? '', undefined, { numeric: true }))
+            .filter(p => !filter || (names.get(p.id) ?? '').toLowerCase().includes(filter.toLowerCase()))
+            .map(p => { const stop = route.stops.indexOf(p.id); return <label key={p.id} className={['path-chip', stop >= 0 ? 'on' : '', canFarm(p.id) ? '' : 'blocked'].join(' ')}
+              title={!canFarm(p.id) ? 'No trusted way there and back' : stop >= 0 ? `Stop ${stop + 1}` : 'Travel only: click to farm here'}>
+              <input type="checkbox" role="switch" aria-label={`Farm on ${names.get(p.id)}`} checked={stop >= 0} disabled={!canFarm(p.id)} onChange={() => toggle(p.id)} />
+              {stop >= 0 && <b aria-hidden="true">{stop + 1}</b>}<span>{names.get(p.id)}</span></label>; })}</div>
+          {hasMoves && <label><input type="checkbox" checked={auto} onChange={event => { setAuto(event.target.checked); if (event.target.checked && route.stops.length > 2) change({ ...route, stops: automatic(route.stops) }); }} /> Let the bot choose the order</label>}
           {(!auto || !hasMoves) && route.stops.length > 0 && <ol aria-label="Farming stops">{route.stops.map((id, index) => <li key={index}><strong>{names.get(id) ?? `${id} (missing)`}</strong><div>
             <button aria-label={`Move stop ${index + 1} up`} disabled={index === 0} onClick={() => move(index, -1)}>↑</button>
             <button aria-label={`Move stop ${index + 1} down`} disabled={index === route.stops.length - 1} onClick={() => move(index, 1)}>↓</button>

@@ -62,3 +62,18 @@
   text-align: left; white-space: normal; line-height: 1.3; }
 .dash .path-idea small { font: 400 11px/1.35 var(--body, inherit); }
 .dash .path-idea[aria-pressed=true] { outline: 2px solid var(--gold); outline-offset: 1px; }
+/* Long platform lists: compact chips, and a side panel that scrolls instead of outgrowing the map. */
+.path-workspace { align-items: start; }
+.path-stops { max-height: min(78vh, 760px); overflow: auto; scrollbar-width: thin; }
+.path-chips-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 6px; }
+.path-chips-head small { display: block; color: var(--muted); font-weight: 400; }
+.path-chips-head input { width: 110px; padding: 4px 8px; }
+.path-chips { display: flex; flex-wrap: wrap; gap: 5px; max-height: 260px; overflow: auto; padding: 2px; scrollbar-width: thin; }
+.path-builder label.path-chip { display: inline-flex !important; align-items: center; gap: 5px; margin: 0; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--line-soft, var(--border)); background: #ffffff08; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.path-chip input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.path-chip.on { border-color: var(--green, #9ed9ad); background: #9ed9ad22; }
+.path-chip b { display: grid; place-items: center; min-width: 17px; height: 17px; border-radius: 50%; background: var(--gold, #e9d9a8); color: #1a1f27; font-size: 10px; }
+.path-chip.blocked { opacity: .45; cursor: not-allowed; text-decoration: line-through; }
+.path-chip:has(:focus-visible) { outline: 2px solid var(--gold, #a6c2de); outline-offset: 1px; }
+.path-stops ol[aria-label="Farming stops"] { max-height: 240px; overflow: auto; }

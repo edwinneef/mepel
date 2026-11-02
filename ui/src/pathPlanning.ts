@@ -68,6 +68,17 @@ export function shortestOrder(profile: AreaProfile, moves: RouteMove[], stops: s
   return order;
 }
 
+/** An order whose loop plans, or null. Nearest-first ends with one long trip home, which on tall
+ * maps exceeds the planner's eight-move budget; then try a zig-zag: up through every other
+ * level and down through the rest, so every trip stays short. */
+export function loopOrder(profile: AreaProfile, moves: RouteMove[], stops: string[]): string[] | null {
+  const byId = new Map(profile.platforms.map(p => [p.id, p as Platform]));
+  const y = (id: string) => { const p = byId.get(id); return p ? center(p).y : 0; };
+  const byHeight = [...stops].sort((a, b) => y(b) - y(a));
+  const zigzag = [...byHeight.filter((_, i) => i % 2 === 0), ...byHeight.filter((_, i) => i % 2 === 1).reverse()];
+  return [shortestOrder(profile, moves, stops), zigzag].find(order => planRoute(profile, moves, order, true).every(leg => leg.moves)) ?? null;
+}
+
 /** Ready-made starting points from the farmable platforms; each must plan as a loop. */
 export function suggestions(profile: AreaProfile, options: RouteOptions): Suggestion[] {
   const moves = usableMoves(options);
@@ -88,9 +99,10 @@ export function suggestions(profile: AreaProfile, options: RouteOptions): Sugges
   const seen = new Set<string>();
   return candidates.flatMap(({ list, ...rest }) => {
     if (list.length < 2) return [];
-    const stops = shortestOrder(profile, moves, start(list));
-    const key = [...stops].sort().join(',');
-    if (seen.has(key) || planRoute(profile, moves, stops, true).some(leg => !leg.moves)) return [];
+    const key = list.map(p => p.id).sort().join(',');
+    if (seen.has(key)) return [];
+    const stops = loopOrder(profile, moves, start(list));
+    if (!stops) return [];
     seen.add(key);
     return [{ ...rest, stops }];
   });

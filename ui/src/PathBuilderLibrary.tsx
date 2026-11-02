@@ -34,7 +34,7 @@ export function PathBuilderLibrary({ client, disabled, initialArea, onSelect }: 
       }}>{busy ? 'Loading map…' : 'Open path builder'}</button></div>
     {message && <p role="status">{message}</p>}
     {loaded && <PathBuilder key={loaded.profile.id} profile={loaded.profile} mapHash={loaded.map_hash}
-      options={{ farmable: loaded.farmable, moves: loaded.moves }}
+      options={loaded}
       client={client} disabled={disabled || busy} onSelect={onSelect} />}
   </section>;
 }

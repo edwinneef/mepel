@@ -35,3 +35,14 @@ it('finds the platform under a point within reach only', () => {
   expect(platformAt(profile, { x: 600, y: 410 }, 20)).toBe('mid');
   expect(platformAt(profile, { x: 600, y: 470 }, 20)).toBeNull();
 });
+
+it('offers a zig-zag loop on a tall map where nearest-first would need one overlong trip home', () => {
+  // Twelve stacked levels joined only to their neighbours: going home from the top takes 11 moves.
+  const levels = Array.from({ length: 12 }, (_, i) => platform(`L${i + 1}`, 100, 300, 1200 - i * 100));
+  const tall = { ...profile, boundary: { x: 0, y: 0, width: 400, height: 1300 }, platforms: levels } as unknown as AreaProfile;
+  const climbs = levels.slice(1).flatMap((p, i) => [m(`u${i}`, 'climb', levels[i].id, p.id, [200, levels[i].start.y], [200, p.start.y]),
+    m(`d${i}`, 'drop', p.id, levels[i].id, [200, p.start.y], [200, levels[i].start.y])]);
+  const whole = suggestions(tall, { farmable: levels.map(p => p.id), moves: climbs }).find(idea => idea.id === 'all');
+  expect(whole?.stops).toEqual(['L1', 'L3', 'L5', 'L7', 'L9', 'L11', 'L12', 'L10', 'L8', 'L6', 'L4', 'L2']);
+  expect(planRoute(tall, climbs, whole!.stops, true).every(leg => leg.moves && leg.moves.length <= 2)).toBe(true);
+});
