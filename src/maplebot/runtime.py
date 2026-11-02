@@ -17,6 +17,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from . import key_settings
 from .alarm import AlarmManager
 from .attack_ranges import RangeStore, range_options, range_profile
 from .autopotter import BarReading, PotionMonitor
@@ -53,6 +54,7 @@ from .keyboard import (
 )
 from .live_position import STALE_SECONDS, LivePosition, detect_area
 from .navigation_runtime import NavigationRuntime
+from .overlay_session import START_COMMANDS
 from .perception import NameTag, TemplateDetector, annotate, nametag_parts
 from .pose_collection import PoseCollection
 from .potion_evidence import PotionEvidence, PotionFrame
@@ -385,11 +387,36 @@ class Application:
         self.alarm.close()
         self.auto_track_pool.shutdown(wait=False, cancel_futures=True)
 
+    def _key_settings_snapshot(self) -> dict:
+        active = key_settings.current(self.config)
+        saved = getattr(self, "saved_keys", None) or active
+        return {"active": active, "saved": saved, "restart_required": saved != active,
+                "editable": getattr(self, "config_path", None) is not None,
+                "supported": key_settings.supported_keys()}
+
+    def _save_keys(self, payload: dict) -> dict:
+        path = getattr(self, "config_path", None)
+        if path is None:
+            raise ValueError("This engine session has no config file to save keys to")
+        with self.stop_lock:
+            if self.mode != "capture" or self.active_probe is not None or self.farming is not None:
+                raise ValueError("Stop the bot before changing keys")
+            active = key_settings.current(self.config)
+            keys = key_settings.validate(getattr(self, "saved_keys", None) or active,
+                                         payload.get("keys"))
+            backup = key_settings.write(Path(path), keys)
+            self.saved_keys = keys
+        return {"saved": keys, "restart_required": keys != active, "backup": str(backup)}
+
     def request(
         self, name: str, payload: dict, *, context: CommandContext | None = None
     ) -> Any:
         if overlay := getattr(self, "overlay", None):
             overlay.guard(name)
+        if name in START_COMMANDS and self._key_settings_snapshot()["restart_required"]:
+            raise ValueError("Restart the engine to use the new keys")
+        if name == "input_keys_set":
+            return self._save_keys(payload)
         if context is not None:
             with self.stop_lock:
                 context.validate(self.command_epoch)
@@ -580,6 +607,7 @@ class Application:
                 "capture_only": self.capture_only,
                 "input_setup_blocker": self._input_setup_block_reason(),
                 "bindings": asdict(self.config.input),
+                "key_settings": self._key_settings_snapshot(),
                 "combat_evidence": self.combat_evidence.snapshot(),
                 "attack_setup": {
                     "minimum_px": self.config.agent.attack_min_range,
@@ -1472,7 +1500,8 @@ class Application:
             return {"variants": len(self.detector.templates), "catalog": self.detector.catalog_info}
         if name == "dry_run":
             self._stop("DRY_RUN_STOP", "Dry run: no keyboard input")
-            farming = Farming(payload["farming"]) if "farming" in payload else None
+            farming = (Farming({"feed_seconds": self.config.input.pet_feed_seconds,
+                                **payload["farming"]}) if "farming" in payload else None)
             if payload.get("circuit") is not None and farming is None:
                 raise ValueError("Circuits require a bounded farming session")
             if farming and not all(r in self.potter.bars for r in ("hp", "mp")):
@@ -1520,7 +1549,8 @@ class Application:
             missing = sorted(REQUIRED_PROBES - self.probed)
             if missing:
                 raise ValueError("Confirm required probes first: " + ", ".join(missing))
-            farming = Farming(payload["farming"]) if "farming" in payload else None
+            farming = (Farming({"feed_seconds": self.config.input.pet_feed_seconds,
+                                **payload["farming"]}) if "farming" in payload else None)
             if payload.get("circuit") is not None and farming is None:
                 raise ValueError("Circuits require a bounded farming session")
             if farming and not all(r in self.potter.bars for r in ("hp", "mp")):

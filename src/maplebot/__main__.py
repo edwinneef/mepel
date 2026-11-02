@@ -208,6 +208,7 @@ def main() -> None:
     from .runtime import Application
 
     app = Application(config, capture_only=args.capture_only)
+    app.config_path = args.config  # key settings save here; they apply at the next restart
     restart_requested = threading.Event()
     server = serve(
         app, config.debugger.port,

@@ -91,6 +91,8 @@ class InputConfig:
     vertical_lease_seconds: float = 1.0
     vertical_lease_max_seconds: float = 8.0
     emergency_key: str = "f8"
+    # Temporary: feed the pet on a timer until feeding follows a hunger reading.
+    pet_feed_seconds: int = 600
 
     def __post_init__(self) -> None:
         for name in (
@@ -110,6 +112,22 @@ class InputConfig:
             raise ValueError(
                 "input.vertical_lease_max_seconds must not be below vertical_lease_seconds"
             )
+        if type(self.pet_feed_seconds) is not int or not 60 <= self.pet_feed_seconds <= 3600:
+            raise ValueError("input.pet_feed_seconds must be a whole number from 60 to 3600")
+
+
+@dataclass(frozen=True)
+class HotkeyConfig:
+    """Bot hotkeys handled by the overlay and dashboard; Stop is input.emergency_key."""
+    start_stop: str = "f6"
+    widget: str = "f7"
+    drawings: str = "f9"
+
+    def __post_init__(self) -> None:
+        for name in ("start_stop", "widget", "drawings"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"hotkeys.{name} must be a non-empty key name")
 
 
 @dataclass(frozen=True)
@@ -205,6 +223,7 @@ class Config:
     perception: PerceptionConfig = field(default_factory=PerceptionConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     input: InputConfig = field(default_factory=InputConfig)
+    hotkeys: HotkeyConfig = field(default_factory=HotkeyConfig)
     probe: ProbeConfig = field(default_factory=ProbeConfig)
     timing: TimingConfig = field(default_factory=TimingConfig)
     recording: RecordingConfig = field(default_factory=RecordingConfig)
@@ -223,6 +242,7 @@ class Config:
                     ("perception", PerceptionConfig),
                     ("agent", AgentConfig),
                     ("input", InputConfig),
+                    ("hotkeys", HotkeyConfig),
                     ("probe", ProbeConfig),
                     ("timing", TimingConfig),
                     ("recording", RecordingConfig),
