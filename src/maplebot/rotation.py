@@ -33,17 +33,26 @@ def routable(graph: RouteMap) -> list[str]:
     return [p["id"] for p in graph.profile["platforms"] if p["id"] not in graph.trusted_excluded]
 
 
-def unproven_neighbours(graph: RouteMap, surface: str) -> dict[str, str]:
+# Standing feet sit about 115 px above the chat box. On Tree Dungeon (2026-11-02) a 323 px
+# drop fell behind it before the camera followed, so recognition lost the player mid-fall.
+LEARN_MAX_FALL_PX = 100
+
+
+def unproven_neighbours(graph: RouteMap, surface: str, *,
+                        max_fall: float = LEARN_MAX_FALL_PX) -> dict[str, str]:
     """Platforms outside the round-trip map one unproven computed move away: target -> edge.
 
     Only a supervised farming batch that opted in may try these; one failure stops it.
+    Moves falling more than `max_fall` below their launch are skipped: the player would
+    leave the visible play area before the camera catches up.
     """
     known, platforms = set(routable(graph)), {p["id"] for p in graph.profile["platforms"]}
     found: dict[str, str] = {}
     for edge in sorted(graph.edges.values(), key=lambda e: e.id):
         if (edge.source == surface and edge.id not in graph.proven and edge.target != surface
                 and edge.target in platforms and edge.target not in known
-                and edge.target not in graph.excluded):
+                and edge.target not in graph.excluded and edge.trace
+                and max(y for _, y in edge.trace) - edge.trace[0][1] <= max_fall):
             found.setdefault(edge.target, edge.id)
     return found
 

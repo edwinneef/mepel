@@ -1,4 +1,5 @@
 import time
+from dataclasses import replace
 
 import pytest
 from test_keyboard import controller as _controller
@@ -164,6 +165,17 @@ def test_unproven_neighbours_are_one_move_platforms_outside_the_round_trip_map()
     assert unproven_neighbours(RouteMap(profile, evidence, proven=set()), "floor") == {
         "ledge": "up"}
     assert unproven_neighbours(RouteMap(profile, evidence), "floor") == {}
+
+
+def test_unproven_neighbours_skip_falls_that_leave_the_visible_play_area():
+    profile, evidence = fixture()
+    graph = RouteMap(profile, evidence, proven=set())
+    up = graph.edges["up"]
+    # Launch at y=400; a trace dipping 100 px is still tried, 101 px is not.
+    graph.edges["up"] = replace(up, trace=((150, 400), (180, 500), (280, 300)))
+    assert unproven_neighbours(graph, "floor") == {"ledge": "up"}
+    graph.edges["up"] = replace(up, trace=((150, 400), (180, 501), (280, 300)))
+    assert unproven_neighbours(graph, "floor") == {}
 
 
 def test_a_clear_platform_tries_an_unproven_neighbour_without_routable_platforms():
