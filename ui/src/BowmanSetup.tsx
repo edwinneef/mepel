@@ -10,9 +10,6 @@ type RangeSetup = NonNullable<Snapshot['attack_setup']> & {
 
 export function BowmanSetup({ onSetup, ...props }: ToolProps & { onSetup: (tab: string) => void }) {
   const s = props.snapshot;
-  const range = s.attack_setup as RangeSetup | undefined;
-  const [profile, setProfile] = useState(range?.profile ?? 'custom');
-  useEffect(() => setProfile(range?.profile ?? 'custom'), [range?.profile]);
   return <section aria-label="Combat setup">
     <h2>Combat on one platform</h2>
     <p>Choose your weapon range, then preview before combat.</p>
@@ -26,6 +23,16 @@ export function BowmanSetup({ onSetup, ...props }: ToolProps & { onSetup: (tab: 
       <button onClick={() => onSetup('Potions')}>Potion setup</button>
     </div>
     <Controls {...props} bowman />
+    <WeaponRange {...props} />
+  </section>;
+}
+
+export function WeaponRange(props: ToolProps) {
+  const s = props.snapshot;
+  const range = s.attack_setup as RangeSetup | undefined;
+  const [profile, setProfile] = useState(range?.profile ?? 'custom');
+  useEffect(() => setProfile(range?.profile ?? 'custom'), [range?.profile]);
+  return (
     <section className="tool-group" aria-label="Attack setup">
       <h3>Weapon range</h3>
       {range?.profiles && <>
@@ -54,5 +61,5 @@ export function BowmanSetup({ onSetup, ...props }: ToolProps & { onSetup: (tab: 
       </details>
       <p>Below minimum reach the bot stops for manual repositioning. No retreat or platform crossing.</p>
     </section>
-  </section>;
+  );
 }

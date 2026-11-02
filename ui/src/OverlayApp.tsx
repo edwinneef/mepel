@@ -17,7 +17,7 @@ import type { FarmingRoute } from './PathBuilder';
 import { AlarmBanner } from './AlarmBanner';
 import { SavedTerrainOverlay } from './SavedTerrainOverlay';
 import { OverlayMenu, type BatchState } from './OverlayMenu';
-import { BowmanSetup } from './BowmanSetup';
+import { BowmanSetup, WeaponRange } from './BowmanSetup';
 import { CombatResults } from './CombatResults';
 import { AttackRangeOverlay } from './AttackRangeOverlay';
 import type { DashboardSession } from './dashboard';
@@ -324,6 +324,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
             <button className="dash-btn ghost" disabled={disabled} onClick={record}>{recordingFull ? `Stop recording${recordLeft == null ? '' : ` · ${Math.ceil(recordLeft)} s left`}` : 'Record 30 s'}</button>
             <hr />
             {s && <PlayerCapture snapshot={s} client={client} act={act} disabled={disabled} />}
+            {!panel && toolProps && <WeaponRange {...toolProps} />}
             <Facts snapshot={s} />
             <hr />
             <p className="dash-keys">F6 on/off · F7 settings · F9 layers · F8 stops from anywhere.</p>
