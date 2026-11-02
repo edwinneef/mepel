@@ -89,6 +89,8 @@ offset_variation_seconds = 0.006
 
 # Decisions are logged for every dry run / armed run. Frames are kept in memory
 # and saved only around stops, uncertain player detection and "Save last clip".
+# Nothing under data/recordings is deleted automatically (docs/recording-preservation.md);
+# max_total_mb and max_age_days are kept for compatibility and no longer prune anything.
 [recording]
 auto = true
 buffer_seconds = 10

@@ -101,3 +101,24 @@ The browser panel was checked at 1280×800 and 390×844 with no horizontal overf
 The installed capture-only debugger was restarted at port 8765 with no source attached and potion preview stopped. A combined restart command was rejected by automatic command review; separately validating ownership, stopping the known debugger, and starting the replacement succeeded. Existing calibration, screenshots, catalog and templates are unchanged: all **111 preexisting data-file hashes** matched. The only new installed data is `data/autopotter.json`, derived from the saved screenshot HUD; prior task-owned source copies are in `artifacts/autopotter/before-20261024-131719/`.
 
 Live damaged/recovered HUD readings, alternative HUD layouts, actual potion bindings, inventory availability and potion effects remain unverified/unimplemented. No live game capture or gameplay input was used for this work.
+
+## Status roll-up — 2026-11-02
+
+The entries above are historical measurements from 2026-10-23/24 against a MapleUnity target.
+The project now targets the MapleStory client on the bot-friendly server; live evidence is
+recorded per topic under `docs/` and summarized here. Tests were not rerun for this entry.
+
+| Area | Live evidence | Offline evidence |
+| --- | --- | --- |
+| Control probes, town movement | Accepted left/right/jump and ladder controls, 14/14 calibration pulses ([henesys-park-session.md](henesys-park-session.md), [town-validation.md](town-validation.md)) | `tests/test_town_check.py`, navigation harness |
+| Single-platform combat | Supervised approach, skill use and operator-confirmed hit on 2026-10-28; a 32 s session ended with F8 ([single-platform-combat.md](single-platform-combat.md), [warrior-ranges.md](warrior-ranges.md)) | Policy replay of the saved sessions |
+| Potions | One observed MP gain after a live potion ticket; HP recovery unverified ([passive-potion-evidence.md](passive-potion-evidence.md)) | `tests/test_autopotter.py`, `tests/test_potion_evidence.py` |
+| Multi-platform farming, rotation, circuits | **No live acceptance** ([farming.md](farming.md), [BACKLOG.md](BACKLOG.md)); the floor-batch start control did not work on 2026-11-01 ([AGENTS.md](../AGENTS.md)) | `tests/test_farming*.py`, `tests/test_rotation.py` |
+| Recording retention | Automatic deletion removed on 2026-11-01; nothing under `data/recordings` is pruned ([recording-preservation.md](recording-preservation.md)) | `tests/test_recorder.py` |
+
+Test suite: 110 files under `tests/`. `docs/BACKLOG.md` records two tests that fail on a clean
+HEAD (`tests/test_navigation_recovery.py::test_up_is_not_released_when_the_jump_ticket_completes`,
+`tests/test_meowdb.py::test_classic_routes_replay_at_three_fps`). The local gate is
+`tools/dev_cycle.ps1`; there is no CI. Unattended operation, the project's stated core value,
+has not been demonstrated: every live batch still needs operator presence and explicit
+authorization.

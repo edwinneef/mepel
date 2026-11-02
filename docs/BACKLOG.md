@@ -15,11 +15,15 @@ Source: navigation challenge of 2026-11-02 (HEAD d942ebf). Setup by hand cost 6 
 
 ## Autopotter
 
-Use HP/MP potions automatically when either bar drops below a configured threshold.
+Done (see README "HP/MP autopotter", `src/maplebot/autopotter.py`, `potion_evidence.py`):
+HP/MP bar reading with confidence, preview without input, live potions through
+`KeyboardController` with thresholds, shared cooldown, HP priority, HUD-missing pause and
+stop, potion-key probes, and passive per-ticket evidence recordings
+(`docs/passive-potion-evidence.md`).
 
-- Read HP and MP from the status bar in the screen capture. Nothing reads them yet, so this has to be built first.
-- Config: separate HP and MP thresholds (percent), a potion key for each, and a minimum cooldown between presses.
-- Send presses through `KeyboardController` so the existing safety checks, timing realism and `input.max_action_seconds` limits still apply.
-- Potion use takes priority over combat actions, but must not interrupt a sequence that holds keys in an unsafe way.
-- Stop and alert when bar readings are missing or don't change after a press (out of potions, wrong key, misread bar).
-- Tests: bar-reading fixtures from recorded screenshots, plus threshold, cooldown and priority logic against a fake input backend.
+Open:
+
+- Verify a potion's effect from the bar after a press (out of potions, wrong key, misread
+  bar). Passive evidence records observed gain but does not prove causation
+  (`docs/potion-evidence-audit.md`).
+- Inventory availability and alternative HUD layouts remain unverified live.

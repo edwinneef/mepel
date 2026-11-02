@@ -48,7 +48,7 @@ Node is not required when running it.
 
 For temporary MapleStory recognition testing, use the default launcher and play manually. Attach the visible game window, confirm the correct crop, then inspect boxes or save screenshots. Enemy matching needs native 1x pixels. Saved screenshots and recordings can be replayed offline.
 
-Dry runs and armed runs are recorded automatically to `data/recordings/session-*`. Every decision goes to `decisions.jsonl`. Frames are kept in memory for the last 10 seconds and written to disk only when the agent stops, when player detection becomes uncertain (plus 2 seconds afterwards), or when you click **Save last clip**, which also works outside a run. One context frame per second is saved as well. Each incident is logged to `events.jsonl`. **Start / stop full recording** saves every frame. Old sessions are deleted beyond 7 days or 2 GB in total. Adjust this under `[recording]` in `config.toml`. Capture-only cannot be unlocked from the debugger.
+Dry runs and armed runs are recorded automatically to `data/recordings/session-*`. Every decision goes to `decisions.jsonl`. Frames are kept in memory for the last 10 seconds and written to disk only when the agent stops, when player detection becomes uncertain (plus 2 seconds afterwards), or when you click **Save last clip**, which also works outside a run. One context frame per second is saved as well. Each incident is logged to `events.jsonl`. **Start / stop full recording** saves every frame. Recordings are never deleted automatically (see [recording preservation](docs/recording-preservation.md)); the `max_total_mb` and `max_age_days` keys under `[recording]` in `config.toml` are kept for compatibility and no longer delete anything, so storage cleanup is an explicit operator decision. Capture-only cannot be unlocked from the debugger.
 
 When returning to an offline or explicitly permitted automation environment, `./run.ps1 -EnableGameplayInput` starts a separate input-capable session. Capture and control verification are still required before any input. Equivalent direct commands are `python -m maplebot debug --capture-only` and `python -m maplebot debug`.
 
@@ -81,11 +81,11 @@ terminals. To turn the bot off, run `tools/stop_all.ps1`. It calls
 `tools/restart_engine.ps1 -StopOnly`, which does the same shutdown and window cleanup without
 starting a new engine, and also closes the overlay.
 
-## Prepare MapleUnity
+## Prepare the game window
 
-The public [MapleUnity README](https://github.com/ilia810/MapleUnity#run-the-local-scene) documents Unity **2023.2.20f1**, **MapleUnity → Play Hunting Ground**, and a **Scale 1x** Game view. MapleUnity documents 1024 × 768; this bot is set up for **1366 × 768** at 1x. Use the existing, locally configured game project. An executable build is unnecessary.
+The target is the MapleStory client on the bot-friendly server, whose title must contain `[capture] window_title` (`MapleStory`) from `config.toml`. Run it windowed at native 1x pixels with the game area unobscured; the client runs elevated, so input-capable sessions use the elevated task described above. Gameplay input is allowed only on that server.
 
-Select the Game tab and keep it unobscured. The documented attack defaults are **Z / Left Ctrl**; bindings may have been reassigned. This bot defaults to **Left / Right**, **Z**, **Space** and verifies each through a bounded probe. Change `[input]` in `config.toml` if the observed controls differ; supported names are `left`, `right`, `a`, `d`, `z`, `ctrl`, `space`. Restart after changing config, and repeat verification. F8 is the emergency stop.
+Key bindings live under `[input]` in `config.toml`. The shipped file maps movement to the arrow keys, attack and skill to `ctrl`, jump to `alt`, potions and pet food to `insert`, `delete` and `home`, and the emergency stop to `f8`. Supported names are `left`, `right`, `up`, `down`, `insert`, `delete`, `home`, `end`, `pageup`, `pagedown`, `ctrl`, `alt`, `space`, single letters `a`-`z`, digits `0`-`9` and `f1`-`f12` (`src/maplebot/keyboard.py`). Every bound control is verified through a bounded probe before combat. Restart after changing config, and repeat verification.
 
 ## Calibration: capture first
 
@@ -94,7 +94,7 @@ Select the Game tab and keep it unobscured. The documented attack defaults are *
 3. Inspect the live pixels. They should show the actual running game at the expected size and detail. Check **I see the correct, unscaled live Game view**, then **Confirm capture**. An evidence screenshot is saved.
 4. To select a screen region without attaching a window, expand **Manual desktop region** and enter physical x, y, width and height. Negative coordinates support monitors to the left/top. This mode is observation only and cannot arm input.
 
-Window coordinates and screenshots use physical pixels with per-thread Per Monitor V2 DPI awareness. Moving a window updates the crop's screen origin. Changing its client size, DPI or title invalidates calibration and stops input. Changing the Game tab layout, Game-view scale, resolution or scene inside an unchanged Editor window requires manual recalibration; Win32 window geometry cannot identify those changes.
+Window coordinates and screenshots use physical pixels with per-thread Per Monitor V2 DPI awareness. Moving a window updates the crop's screen origin. Changing its client size, DPI or title invalidates calibration and stops input. Changing the in-game resolution, UI scale or layout inside an unchanged window requires manual recalibration; Win32 window geometry cannot identify those changes.
 
 If the window moves during a screenshot, that frame is discarded. An alarm is
 raised only after five consecutive failed captures, half a second apart. Position-only
@@ -152,7 +152,7 @@ Platforms, ropes and movement links come from public map data, not from walking 
 .\.venv\Scripts\python.exe -m maplebot import-map "<map name>"
 ```
 
-Use `--map-id` when the saved name does not match a public map title. Restart the engine, track the map under **Setup**, and run walk calibration once so the minimap marker lines up with the saved map. Navigation refuses maps that have not been imported.
+Use `--map-id` when the saved name does not match a public map title. Restart the engine and track the map under **Setup**. An area can also be created automatically from a confirmed tracked frame. The minimap marker is aligned to the saved map by walk calibration, which is learned passively from agreeing marker/screen pairs or run explicitly from **Setup**; public maps with automatic alignment need none, and re-imports keep an existing calibration. Navigation refuses maps that have not been imported.
 
 ## Verify keyboard control, then combat
 
@@ -162,7 +162,7 @@ Use `--map-id` when the saved name does not match a public map title. Restart th
 4. After observing all four effects, check the acknowledgement and **Confirm controls**. This records your observation, not an automatically inferred success.
 5. Click **Arm combat**, then focus the Game view during the three-second countdown. The agent selects a confident same-platform monster, moves in short steps, faces it, attacks, releases input, and checks later screenshots. Initially stop after one visible approach/attack attempt and inspect the saved evidence. **F8** stops immediately; the debugger's **STOP** also releases keys.
 
-The browser never steals focus automatically. Probe/arm commands do not focus Unity. Input is limited to the selected handle with the configured window-title match and verified geometry. A watchdog checks focus, geometry, sampled occlusion and F8 every 5 ms. Holds are capped at 250 ms by default, with release on stop, normal exit and caught errors. Observation processing over 500 ms stops input. Uncertain player detection stops the agent. Losing an enemy releases and cancels combat inputs while combat stays On, waiting without movement for a fresh confident same-platform target. Configured potions remain active. Focus loss and F8 still turn the bot Off; it does not blindly search by walking.
+The browser never steals focus automatically. Probe/arm commands do not focus the game; only the guarded `focus_game` command does. Input is limited to the selected handle with the configured window-title match and verified geometry. A watchdog checks focus, geometry, sampled occlusion and F8 every 5 ms. Holds are capped at 250 ms by default, with release on stop, normal exit and caught errors. Observation processing over 500 ms stops input. Uncertain player detection stops the agent. Losing an enemy releases and cancels combat inputs while combat stays On, waiting without movement for a fresh confident same-platform target. Configured potions remain active. Focus loss and F8 still turn the bot Off; it does not blindly search by walking.
 
 Ordinary SendInput has an unavoidable small race between checking foreground focus and delivering an event; Windows cannot atomically target these events to a Game tab. Releases of the bot's held keys still occur on focus loss. A forced process kill, OS crash or blocked OS input cannot guarantee cleanup. Use the normal stop/exit path.
 
@@ -281,7 +281,7 @@ command timing, modeled movement and route handoffs without running the game.
 .venv\Scripts\python.exe tools\perception_benchmark.py --compare artifacts\perception\golden.jsonl
 ```
 
-The two native smoke tools create and close their own temporary windows. Input smoke sends keys only while its own window is foreground. The synthetic benchmark creates its own generated sprite images, labels and metrics under `artifacts/synthetic`; these are **not MapleUnity accuracy results**. The catalog benchmark composites every cached pose in both directions; optional `--negatives path1.png path2.png` evaluates screenshots you explicitly identify as containing no enemies. Its results under `artifacts/catalog-benchmark` measure reference self-consistency, not native gameplay accuracy. The perception benchmark replays saved clips and screenshots in recorded order and times each detector call; `--write` saves its outputs and `--compare` fails on any changed player, monster or failure result, so recognition speed-ups can be checked offline. `--composite "<map name>"` pastes that map's catalog sprites into a recorded clip to time monster search. `tools/debugger_smoke.py` starts a temporary synthetic capture/debugger on port 8766 after generating that dataset; it never arms game input.
+The two native smoke tools create and close their own temporary windows. Input smoke sends keys only while its own window is foreground. The synthetic benchmark creates its own generated sprite images, labels and metrics under `artifacts/synthetic`; these are **not native gameplay accuracy results**. The catalog benchmark composites every cached pose in both directions; optional `--negatives path1.png path2.png` evaluates screenshots you explicitly identify as containing no enemies. Its results under `artifacts/catalog-benchmark` measure reference self-consistency, not native gameplay accuracy. The perception benchmark replays saved clips and screenshots in recorded order and times each detector call; `--write` saves its outputs and `--compare` fails on any changed player, monster or failure result, so recognition speed-ups can be checked offline. `--composite "<map name>"` pastes that map's catalog sprites into a recorded clip to time monster search. `tools/debugger_smoke.py` starts a temporary synthetic capture/debugger on port 8766 after generating that dataset; it never arms game input.
 
 ## Files and boundaries
 
@@ -300,9 +300,9 @@ The debugger binds only to `127.0.0.1`; write commands require its per-process b
 
 ## Verification status and limitations
 
-See [docs/VERIFICATION.md](docs/VERIFICATION.md) for measured results and exact live-test gaps. A running MapleUnity window was unavailable during development. Real sprite accuracy, Unity Game-view input and a native approach/attack are **not yet verified**. The initial gameplay success criterion remains open.
+See [docs/VERIFICATION.md](docs/VERIFICATION.md) for dated measured results and the current roll-up. Live evidence so far is supervised and bounded: control probes, town movement, and a single-platform approach with an operator-confirmed hit on 2026-10-28 ([single-platform combat](docs/single-platform-combat.md), [warrior ranges](docs/warrior-ranges.md)). Multi-platform farming circuits, the local floor-batch start control and any unattended operation have **no live acceptance yet** ([AGENTS.md](AGENTS.md)). Every live batch requires operator presence and explicit authorization; the core goal of grinding a taught spot without the operator remains open.
 
-Animated poses, occlusion, moving scenery, similarly colored sprites and Game-view scaling can defeat templates. Feet alignment does not prove connected terrain or exclude gaps. The first agent has no ladder/path planning, autonomous jump actions, minimap reading, health/revival handling, damage OCR or reliable death classification. Missing targets release combat input and return to stationary target search; a bounded VERIFY window tolerates brief disappearance after an attack without declaring a kill. Six attack attempts without disappearance stop it.
+Animated poses, occlusion, moving scenery, similarly colored sprites and scaled game views can defeat templates. Feet alignment does not prove connected terrain or exclude gaps. Navigation uses imported public map geometry, minimap localization and proven or computed moves inside bounded batches; there is still no health/revival handling, damage OCR or reliable death classification. Missing targets release combat input and return to stationary target search; a bounded VERIFY window tolerates brief disappearance after an attack without declaring a kill. Six attack attempts without disappearance stop it.
 
 First improvements should use labeled real captures: validate multiple animation poses and hard negatives, measure false positives, compare foreground masks/segmentation, tune the range/platform heuristic and add screenshot-based health/death evidence. Consider learned detectors only after measuring the simple approach on those frames.
 

@@ -10,3 +10,4 @@ ui/node_modules/
 ui/coverage/
 ui/test-results/
 ui/playwright-report/
+build/
