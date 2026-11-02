@@ -70,9 +70,12 @@ it('keeps dashboard drawings paired with the displayed analyzed picture while ne
   let imageNumber = 0;
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => `blob:frame-${++imageNumber}`) });
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+  // Freeze the clock at the frame time so a slow, loaded test run cannot age the frame past 1.5 s.
+  const startedAt = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
   const first = snapshot();
   first.frame = { ...first.frame, source_id: `${first.session_id}:source:1`,
-    captured_at: Date.now() / 1000 - 0.2, age_ms: 200 };
+    captured_at: startedAt / 1000 - 0.2, age_ms: 200 };
   let current = { ...first, player: { ...first.player!, box: { x: 100, y: 200, width: 40, height: 50 } },
     preview_frame: { ...first.frame, id: 'preview:1', captured_at: first.frame.captured_at! + 0.2 } };
   const nextPicture = deferred<Response>();
@@ -106,7 +109,7 @@ it('keeps dashboard drawings paired with the displayed analyzed picture while ne
   expect(oldPicture.getAttribute('src')).not.toBe(oldUrl);
   expect(client.getState().snapshot?.player?.box.x).toBe(200);
   expect(fetcher.mock.calls.some(([, options]) => options?.body && /"name":"(arm|nav_start|probe)"/.test(String(options.body)))).toBe(false);
-  vi.spyOn(Date, 'now').mockReturnValue((first.frame.captured_at! + 2) * 1000);
+  clock.mockReturnValue((first.frame.captured_at! + 2) * 1000);
   await act(async () => { await client.readStatus(); });
   expect(box()).toBeUndefined();
 });

@@ -38,18 +38,3 @@ html:has(.native-overlay), body:has(.native-overlay), body:has(.native-overlay) 
 .overlay-notice { color: #b9e7ce; }
 .hud-settings { margin-top: 6px; pointer-events: auto; }
 .overlay-recording { display: block; margin-top: 6px; color: #ff6b6b; font-weight: 700; }
-.dashboard-overlay { color: #ecf1f7; font: 13px/1.4 system-ui, sans-serif; padding: 18px;
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 460px); gap: 18px; align-items: start; }
-.dashboard-overlay .overlay-hud { position: sticky; top: 10px; z-index: 3; grid-column: 1 / -1; grid-row: 1;
-  width: 100%; max-width: none; pointer-events: auto; }
-.dashboard-overlay .dashboard-preview { min-width: 0; grid-column: 1; grid-row: 2; }
-.dashboard-overlay .overlay-panel { position: static; grid-column: 2; grid-row: 2;
-  width: 100%; height: auto; max-height: max(320px, calc(100vh - 235px)); box-shadow: none; }
-.dashboard-overlay:not(.editing-layout) .dashboard-preview { grid-column: 1 / -1; }
-.dashboard-overlay .panel-drag-handle { cursor: default; }
-.dashboard-overlay .panel-drag-handle small { display: none; }
-.dashboard-controls { display: flex; gap: 8px; margin-top: 10px; }
-@media (max-width: 800px) {
-  .dashboard-overlay { padding: 10px; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .dashboard-overlay .overlay-panel { grid-column: 1; grid-row: 3; }
-}

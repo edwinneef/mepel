@@ -1,0 +1,137 @@
+/* Dashboard page (concept 2f, Autumn wood). Scoped to .dash so the native overlay and workbench keep their look. */
+@import '@fontsource/nunito/latin-500.css';
+@import '@fontsource/nunito/latin-600.css';
+@import '@fontsource/nunito/latin-700.css';
+@import '@fontsource/nunito/latin-800.css';
+@import '@fontsource/baloo-2/latin-600.css';
+@import '@fontsource/baloo-2/latin-700.css';
+@import '@fontsource/baloo-2/latin-800.css';
+
+body:has(.dash) { background: #1c120d; }
+.dash {
+  --night: #1c120d; --deep: #26180f; --panel: #33221a; --line: #6e4b2f; --line-soft: #46301f;
+  --orange: #f0841f; --gold: #ffc94a; --ink: #fbeedb; --muted: #cbb091; --faint: #a08566;
+  --ok: #8bd04e; --stop: #ffb35c; --alarm: #ff5b47; --hp: #e8443a; --mp: #47a6e6;
+  --display: "Baloo 2", "Segoe UI", system-ui, sans-serif; --body: "Nunito", "Segoe UI", system-ui, sans-serif;
+  display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 0; padding: 0; min-height: 100vh;
+  background: var(--night); color: var(--ink); font: 500 14px/1.5 var(--body); color-scheme: dark;
+}
+.dash h1, .dash h2 { font-family: var(--display); line-height: 1.1; margin: 0; }
+.dash :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* Side navigation */
+.dash-side { position: sticky; top: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
+  padding: 16px 10px; background: var(--deep); border-right: 1px solid var(--line-soft); }
+.dash-brand { display: flex; align-items: center; gap: 8px; padding: 2px 10px 16px; color: var(--gold); font: 800 17px/1 var(--display); }
+.dash-brand svg, .dash-side button svg { width: 22px; height: 22px; flex: none; }
+.dash .dash-side button { --face: transparent; display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%;
+  min-height: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; box-shadow: none;
+  color: var(--ink); font: 700 14px/1.2 var(--body); text-align: left; }
+.dash .dash-side button:not(:disabled):hover { --face: #ffa64614; filter: none; }
+.dash .dash-side button[aria-current=page] { --face: #4a2c17; background: #4a2c17; border-color: #a8692c; }
+.dash-side-foot { margin: auto 0 0; padding: 10px; border-top: 1px solid var(--line-soft); font-size: 12px; color: var(--faint); }
+
+/* Page */
+.dash-main { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 1480px; margin: 0 auto; padding: 16px 20px 28px; min-width: 0; }
+.dash-panel { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.dash-panel > h2 { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 17px; font-weight: 700; color: var(--gold); }
+.dash-panel > h2 svg { width: 18px; height: 18px; }
+.dash-top { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+.dash-lower { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); gap: 14px; }
+
+/* Game picture keeps the captured window's own ratio (image-surface sets it from the frame). */
+.dash .dash-stage { padding: 10px; }
+.dash .dash-stage .viewport { min-height: 0; background: #140c07; border-radius: 8px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); }
+.dash .dash-stage .viewport-controls { border: 0; padding: 0 0 8px; gap: 4px; }
+.dash .dash-stage .empty-view h2 { color: var(--ink); }
+
+/* Status bar under the game picture */
+.dash-hud { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 10px;
+  padding: 8px 12px; border-radius: 8px; background: linear-gradient(#2a1b12, #1f140d); border: 1px solid var(--line); box-shadow: inset 0 1px 0 #ffffff14; }
+.dash-who { display: flex; flex-direction: column; line-height: 1.15; min-width: 120px; }
+.dash-who strong { display: flex; align-items: center; font: 800 15px/1 var(--display); color: var(--gold); }
+.dash-who span { font-size: 12px; color: var(--muted); }
+.dash .status-dot { width: 9px; height: 9px; margin-right: 6px; background: var(--faint); }
+.dash-who.on .status-dot { background: var(--ok); }
+.dash-gauge { display: grid; grid-template-columns: 26px minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
+.dash-gauge-label { font: 800 13px/1 var(--display); color: var(--muted); }
+.dash-gauge-value { font: 800 15px/1 var(--display); text-align: right; font-variant-numeric: tabular-nums; }
+.dash-gauge.low .dash-gauge-value { color: #ff8a72; }
+.dash-bar { position: relative; height: 14px; border-radius: 7px; background: #140c07; box-shadow: inset 0 2px 3px #000a, 0 0 0 1px var(--line); }
+.dash-bar i { position: absolute; inset: 0 auto 0 0; border-radius: 7px; background-image: linear-gradient(#ffffff50, #ffffff00 60%); transition: width .35s ease-out; }
+.dash-bar.hp i { background-color: var(--hp); } .dash-bar.mp i { background-color: var(--mp); }
+.dash-bar b { position: absolute; top: -4px; width: 2px; height: 22px; margin-left: -1px; border-radius: 1px; background: var(--gold); box-shadow: 0 0 0 1px var(--night); }
+.dash-under { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-top: 10px; font-size: 12.5px; color: var(--muted); }
+.dash-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.dash .dash-chips label { display: inline-flex; align-items: center; gap: 6px; height: 26px; margin: 0; padding: 0 10px 0 7px; border-radius: 999px;
+  background: var(--deep); border: 1px solid var(--line-soft); color: var(--ink); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.dash .dash-chips label:has(input:not(:checked)) { color: var(--faint); }
+.dash .dash-chips input { width: auto; margin: 0; accent-color: var(--orange); }
+
+/* Run rail */
+.dash-rail { display: flex; flex-direction: column; gap: 12px; }
+.dash-state { display: flex; align-items: baseline; justify-content: space-between; }
+.dash-state strong { font: 800 26px/1 var(--display); }
+.dash-state .overlay-recording { margin: 0; color: var(--alarm); font: 800 13px var(--display); }
+.dash .dash-field { display: flex; flex-direction: column; gap: 3px; margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+.dash select { height: 32px; margin: 0; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--deep);
+  color: var(--ink); font: 600 13.5px var(--body); box-shadow: inset 0 1px 3px #0006; }
+.dash-row { display: flex; gap: 8px; }
+.dash-row .primary { flex: 1; }
+.dash-reason { margin: 0; font-size: 12.5px; color: var(--muted); }
+.dash-reason.block { color: var(--stop); }
+.dash .overlay-notice { margin: 0; font-size: 12.5px; color: var(--ok); }
+.dash-rail hr { width: 100%; margin: 2px 0; border: 0; border-top: 1px solid var(--line-soft); }
+.dash-keys { margin: 0; font-size: 12px; color: var(--faint); }
+.dash-facts { display: grid; gap: 8px; margin: 0; }
+.dash .dash-facts > div { display: flex; justify-content: space-between; gap: 10px; padding: 0; border: 0; font-size: 13px; }
+.dash .dash-facts dt { color: var(--muted); }
+.dash .dash-facts dd { margin: 0; font-weight: 700; text-align: right; overflow-wrap: anywhere; }
+
+/* Buttons: compact, bevelled. Also applied to the settings tabs' existing buttons. */
+.dash button, .dash .dash-btn { --face: linear-gradient(#4a3121, #3a2618); --edge: #140b06;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 0 12px;
+  border-radius: 8px; border: 1px solid var(--edge); background: var(--face); color: var(--ink);
+  font: 700 13.5px/1.1 var(--display); white-space: nowrap; cursor: pointer;
+  box-shadow: inset 0 1px 0 #ffffff26, inset 0 0 0 1px #8a644033, 0 1px 0 var(--edge), 0 2px 6px #0005; transition: transform .06s, filter .15s; }
+.dash button:not(:disabled):hover { background: var(--face); filter: brightness(1.12); }
+.dash button:not(:disabled):active { transform: translateY(1px); box-shadow: inset 0 1px 0 #ffffff26, 0 0 0 var(--edge); }
+.dash button:disabled { opacity: .5; filter: saturate(.4); cursor: not-allowed; }
+.dash .dash-btn.primary, .dash .overlay-panel .primary { --face: linear-gradient(#ffad48, #f0841f 60%, #dc6e12); --edge: #6e3405; color: #2a1405; min-height: 38px; font-size: 15px; }
+.dash .dash-btn.primary.off { --face: linear-gradient(#5e3d21, #482f19); --edge: #140b06; color: var(--gold); }
+.dash .dash-btn.stop, .dash .stop-button { --face: linear-gradient(#b8382b, #8e2219); --edge: #3a0b06; color: #fff3ee; min-height: 38px; font-size: 15px; }
+.dash .dash-btn.ghost { --face: transparent; box-shadow: none; border-color: var(--line); color: var(--gold); }
+.dash kbd { margin-left: 2px; padding: 2px 4px; border: 1px solid currentColor; border-radius: 4px; color: inherit; font: 700 10.5px/1 var(--body); opacity: .8; }
+.dash .viewport-controls button { min-height: 26px; padding: 0 9px; font-size: 12.5px; border-radius: 6px; }
+.dash .viewport-controls button[aria-pressed=true] { border-color: #a8692c; filter: brightness(1.2); }
+
+/* Spot map and journal */
+.dash-spot { display: block; width: 100%; max-height: 300px; border-radius: 8px; background: var(--deep); border: 1px solid var(--line-soft); }
+.dash-spot .platform { stroke: #7a5a3e; } .dash-spot .platform.current { stroke: var(--gold); }
+.dash-spot .rope { stroke: #5a4230; stroke-dasharray: 2 3; } .dash-spot .player { fill: var(--ok); stroke: #fff; }
+.dash-journal { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow: auto; }
+.dash-journal li { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.dash-journal time { flex: none; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.dash-empty { margin: 0; color: var(--faint); font-size: 13px; }
+
+/* Settings tabs open in place of the spot map and journal. */
+.dash .dash-settings { position: static; width: auto; height: auto; max-height: none; overflow: visible; box-shadow: none;
+  background: var(--panel); border-color: var(--line-soft); color: var(--ink); }
+.dash .dash-settings header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.dash .dash-settings h1 { font-size: 22px; color: var(--gold); }
+.dash .dash-settings select, .dash .dash-settings input:not([type=checkbox]):not([type=radio]) { background: var(--deep); border-color: var(--line); color: var(--ink); }
+.dash .dash-settings .tool-group { border-top-color: var(--line-soft); }
+.dash .dash-settings footer { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+/* Alarm banner keeps its existing markup, recoloured. */
+.dash .alarm-banner { margin: 0; background: #3d1712; border-color: var(--alarm); }
+
+@media (max-width: 1100px) { .dash-top, .dash-lower { grid-template-columns: 1fr; } }
+@media (max-width: 900px) {
+  .dash { grid-template-columns: 1fr; }
+  .dash-side { position: static; height: auto; flex-direction: row; overflow-x: auto; padding: 8px; border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  .dash-side button span, .dash-brand, .dash-side-foot { display: none; }
+  .dash .dash-side button { width: auto; }
+  .dash-hud { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { .dash * { transition: none !important; } .dash button:not(:disabled):active { transform: none; } }

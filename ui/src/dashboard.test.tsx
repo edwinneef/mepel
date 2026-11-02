@@ -46,7 +46,7 @@ it('opens the same six tabs in the browser and closes its lease gate before requ
   const start = requests.findIndex(r => r.body.name === 'dry_run');
   expect(requests.slice(0, start).some(r => r.url === '/api/dashboard' && r.body.panel === false)).toBe(true);
   expect(screen.queryByLabelText('Overlay settings')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: '⚙ Settings' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Bot' })); // The side menu reopens settings on the Bot tab.
   await waitFor(() => expect(screen.getByLabelText('Overlay settings')).toBeTruthy());
   expect(requests.filter(r => r.body.name === 'dry_run')).toHaveLength(1);
   fireEvent.keyDown(window, { key: 'F8' });
