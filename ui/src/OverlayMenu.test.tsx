@@ -129,20 +129,14 @@ it('docks bottom-left inside the game, clear of every coverage sample point, and
     const viewport = { width: 2560, height: 1440 };
     const dock = dockPlacement(game, viewport)!;
     expect(dock).not.toBeNull();
-    const bottom = dock.bottom;
-    for (const height of [FOLDED_HEIGHT, dock.openHeight]) {
-      for (const point of samples(game)) {
-        // The visual rect: scaled from its bottom-left corner.
-        const inside = point.x >= dock.left && point.x < dock.left + 300 * DOCK_SCALE
-          && point.y >= bottom - height * DOCK_SCALE && point.y < bottom;
-        expect(inside).toBe(false);
-      }
-    }
-    expect(dock.openHeight).toBeLessThanOrEqual(360);
-    expect(dock.left).toBe(game.x + 8);  // flush with the game's left edge
-    expect(bottom).toBeLessThan(game.y + game.height);
+    // The visual rect, scaled from its bottom-left corner, stays inside the game's left half.
+    expect(dock.left).toBe(game.x + 8);
+    expect(dock.bottom).toBe(game.y + game.height - 8);
+    expect(dock.left + 300 * DOCK_SCALE).toBeLessThan(game.x + game.width / 2);
+    expect(dock.bottom - dock.openHeight * DOCK_SCALE).toBeGreaterThan(game.y);
+    expect(dock.openHeight).toBe(360);
   }
-  expect(dockPlacement({ x: 0, y: 0, width: 600, height: 400 }, { width: 1920, height: 1080 })).toBeNull();
+  expect(dockPlacement({ x: 0, y: 0, width: 400, height: 300 }, { width: 1920, height: 1080 })).toBeNull();
   const props = { s: null, status: 'OFF', layers: false, attackRange: false, names: false, setLayers: () => {},
     setAttackRange: () => {}, setNames: () => {}, canBatch: false, onStart: () => {}, onStop: () => {}, batch: { running: false } };
   render(<OverlayMenu {...props} game={{ x: 0, y: 0, width: 1024, height: 768 }} />);

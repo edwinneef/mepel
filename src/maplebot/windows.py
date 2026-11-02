@@ -37,6 +37,8 @@ class Windows:
         if os.name != "nt":
             raise RuntimeError("Live capture requires Windows; replay works without Win32")
         self.api = ctypes.WinDLL("user32", use_last_error=True)
+        # The in-game overlay window last proven capture-excluded by verify_overlay.
+        self.overlay: int | None = None
         self.api.GetForegroundWindow.restype = wintypes.HWND
         self.api.SetForegroundWindow.argtypes = [wintypes.HWND]
         self.api.SetForegroundWindow.restype = wintypes.BOOL
@@ -182,13 +184,16 @@ class Windows:
 
     def unobscured(self, hwnd: int, region: Rect) -> bool:
         # Sample the Game-view grid: an occluded screenshot is unsafe for input.
+        # One exception (operator decision, 2026-11-02): our own in-game overlay, while
+        # Windows still leaves it out of every capture, so the screenshot under it is the game.
         for fx in (0.05, 0.5, 0.95):
             for fy in (0.05, 0.5, 0.95):
                 point = wintypes.POINT(
                     round(region.x + region.width * fx), round(region.y + region.height * fy)
                 )
-                hit = self.api.WindowFromPoint(point)
-                if self.api.GetAncestor(hit, 2) != hwnd:
+                root = self.api.GetAncestor(self.api.WindowFromPoint(point), 2)
+                if root != hwnd and not (root and root == self.overlay
+                                         and self._capture_excluded(root)):
                     return False
         return True
 
@@ -199,12 +204,16 @@ class Windows:
         """Require Windows capture exclusion before accepting an overlay input lease."""
         if type(hwnd) is not int or not self.api.IsWindow(hwnd):
             raise ValueError("Overlay window is unavailable")
+        if not self._capture_excluded(hwnd):
+            raise ValueError("Overlay capture exclusion is unavailable; gameplay remains stopped")
+        self.overlay = hwnd
+
+    def _capture_excluded(self, hwnd: int) -> bool:
         affinity = wintypes.DWORD()
         self.api.GetWindowDisplayAffinity.argtypes = [wintypes.HWND,
                                                      ctypes.POINTER(wintypes.DWORD)]
         protected = self.api.GetWindowDisplayAffinity(hwnd, ctypes.byref(affinity))
-        if not protected or affinity.value != 17:
-            raise ValueError("Overlay capture exclusion is unavailable; gameplay remains stopped")
+        return bool(protected) and affinity.value == 17  # WDA_EXCLUDEFROMCAPTURE
 
     def outranks_us(self, hwnd: int) -> bool:
         """True when the window's process has a higher integrity level, e.g. runs elevated.

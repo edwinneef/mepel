@@ -49,19 +49,19 @@ export const FOLDED_HEIGHT = 42;
 export const DOCK_SCALE = .82;
 const DOCK_MARGIN = 8;
 
-/** Bottom-left dock inside the game picture, clear of every coverage sample point.
+/** Bottom-left dock inside the game picture, left of MapleStory's chat box.
 
-Flush with the game's left edge, it crosses the 5% sample column, so it stays between the
-50% and 95% sample rows: the folded bar sits just above the 95% row (`bottom`, in page
-pixels) and opening grows it upward, never past the 50% row. It is scaled by DOCK_SCALE
-from its bottom-left corner; `openHeight` and `top` are layout values before that scale.
-Returns null when the game picture is too small or runs off the bottom of the overlay.
+The engine's coverage check lets this capture-excluded overlay cover its sample points
+(operator decision, 2026-11-02), so the folded bar sits in the corner (`bottom`, in page
+pixels) and opening grows it straight up. It is scaled by DOCK_SCALE from its bottom-left
+corner; `openHeight` and `top` are layout values before that scale. Returns null when the
+game picture is too small or runs off the bottom of the overlay.
 */
 export function dockPlacement(game: Rect, viewport: { width: number; height: number }) {
   const left = game.x + DOCK_MARGIN;
   const right = game.x + Math.floor(game.width * .5) - DOCK_MARGIN;
-  const top = game.y + Math.ceil(game.height * .5) + DOCK_MARGIN;
-  const bottom = game.y + Math.floor(game.height * .95) - DOCK_MARGIN;
+  const top = Math.max(0, game.y) + DOCK_MARGIN;
+  const bottom = game.y + game.height - DOCK_MARGIN;
   const room = bottom - top;
   if (right - left < WIDTH * DOCK_SCALE || room < 200 || bottom > viewport.height) return null;
   // Placed by its top edge from the game picture alone, so no window-height reading can shift it.
