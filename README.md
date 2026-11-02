@@ -93,7 +93,7 @@ Stop/F8 and disconnect/crash stops remain in force. Starting the widget leaves t
 
 The target is the MapleStory client on the bot-friendly server, whose title must contain `[capture] window_title` (`MapleStory`) from `config.toml`. Run it windowed at native 1x pixels with the game area unobscured; the client runs elevated, so input-capable sessions use the elevated task described above. Gameplay input is allowed only on that server.
 
-Key bindings live under `[input]` in `config.toml`. The shipped file maps movement to the arrow keys, attack and skill to `ctrl`, jump to `alt`, potions and pet food to `insert`, `delete` and `home`, and the emergency stop to `f8`. Supported names are `left`, `right`, `up`, `down`, `insert`, `delete`, `home`, `end`, `pageup`, `pagedown`, `ctrl`, `alt`, `space`, single letters `a`-`z`, digits `0`-`9` and `f1`-`f12` (`src/maplebot/keyboard.py`). Every bound control is verified through a bounded probe before combat. Restart after changing config, and repeat verification.
+Key bindings live under `[input]` in `config.toml`. The shipped file maps movement to the arrow keys, attack and skill to `ctrl`, jump to `alt`, potions to `insert` and `delete`, pet food to `f` (pressed every 10 minutes during farming sessions that allow consumables), and the emergency stop to `f8`. Supported names are `left`, `right`, `up`, `down`, `insert`, `delete`, `home`, `end`, `pageup`, `pagedown`, `ctrl`, `alt`, `space`, single letters `a`-`z`, digits `0`-`9` and `f1`-`f12` (`src/maplebot/keyboard.py`). Every bound control is verified through a bounded probe before combat. Restart after changing config, and repeat verification.
 
 ## Calibration: capture first
 

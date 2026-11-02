@@ -98,8 +98,14 @@ def test_feeding_waits_for_combat_and_queues_once(app):
     assert app._arbitrate(Action("attack", .1), None) == "deferred: pet food in flight"
 
 
+def test_pet_food_defaults_to_every_ten_minutes():
+    farm = Farming({})
+    farm.start(5)
+    assert farm.settings["feed_seconds"] == 600 and farm.next_feed == 605
+
+
 def test_optional_food_and_three_fps_stall_deadline():
-    farm = Farming({"pet_recovery": False})
+    farm = Farming({"pet_recovery": False, "feed_seconds": None})
     farm.start(0)
     assert farm.next_feed is None
     for frame in range(45):

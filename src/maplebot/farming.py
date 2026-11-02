@@ -39,7 +39,8 @@ class Farming:
             ("hp_threshold", 50, 1, 95),
             ("mp_threshold", 50, 1, 95),
             ("recovery_seconds", 5, 1, 30),
-            ("feed_seconds", None, 1, 3600),
+            # Temporary: feed the pet every 10 minutes until feeding follows a hunger reading.
+            ("feed_seconds", 600, 1, 3600),
         ):
             value = settings.get(name, default)
             if name == "feed_seconds" and value is None:

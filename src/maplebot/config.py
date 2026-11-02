@@ -82,7 +82,7 @@ class InputConfig:
     down: str = "down"
     hp_potion: str = "insert"
     mp_potion: str = "delete"
-    pet_food: str = "home"
+    pet_food: str = "f"
     skill: str = "a"
     max_action_seconds: float = 0.25
     vertical_lease_seconds: float = 1.0
