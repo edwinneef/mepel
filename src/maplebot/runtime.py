@@ -98,6 +98,13 @@ POSITION_COMMANDS = frozenset({
 # Give ordinary dragging a bounded grace period, independent of capture FPS.
 _CAPTURE_MOVE_ATTEMPTS = 5
 _CAPTURE_MOVE_RETRY_SECONDS = 0.5
+# Capture mode with the game unfocused or covered and nothing running: nobody plays, so
+# process about one frame per this interval. Arm and route starts are clicked while the
+# game is unfocused and need a frame under FRESH_FRAME_SECONDS (1.5 s) old; 0.8 s leaves
+# 0.7 s for processing that frame.
+_IDLE_FRAME_SECONDS = 0.8
+# How often an idle wait looks for a command, regained focus or an uncovered view.
+_IDLE_POLL_SECONDS = 0.1
 
 
 @dataclass(frozen=True)
@@ -187,6 +194,7 @@ class Application:
         self.last_action = "none"
         self.pending_at = 0.0
         self.calibrating = False
+        self.idle_paced = False
         self.probed: set[str] = set()
         self.probe_store = ProbeStore(self.data / "confirmed-probes.json")
         self.probe_generation = 0
@@ -2441,9 +2449,7 @@ class Application:
                             "catalog": self.detector.catalog_info,
                         }
                         self.latest, self.raw = None, None
-                self.closed.wait(
-                    max(0, 1 / self.config.capture.fps - (time.perf_counter() - began))
-                )
+                self._pace(began)
         except Exception as error:
             with self.lock:
                 self.status = {"state": "IDLE", "reason": str(error)}
@@ -2454,6 +2460,35 @@ class Application:
                 self.safe_stop("CAPTURE_WORKER_EXIT", "Capture worker exited")
             if capture:
                 capture.close()
+
+    def _idle_view(self) -> bool:
+        """Capture mode with nothing running while the attached game is unfocused or covered."""
+        if (self.mode != "capture" or not self.hwnd or self.region is None
+                or self.calibrating or self.area_editing or self.active_probe is not None
+                or self.potter.enabled or self.recorder.active):
+            return False
+        try:
+            window = self.windows.get(self.hwnd)
+            return not window.focused or not self.windows.unobscured(window.hwnd, self.region)
+        except (OSError, RuntimeError):
+            return False
+
+    def _pace(self, began: float) -> None:
+        """Wait out the frame interval; about 1 fps while the game view is idle."""
+        idle = self._idle_view()
+        if idle != self.idle_paced:
+            self.idle_paced = idle
+            self.note("Game unfocused or covered; capture slowed to about 1 fps" if idle
+                      else "Game view active; capture back to full rate")
+        if idle:
+            # A command, regained focus or an uncovered view resumes full rate at once.
+            deadline = began + _IDLE_FRAME_SECONDS
+            while (remaining := deadline - time.perf_counter()) > 0:
+                if self.closed.wait(min(_IDLE_POLL_SECONDS, remaining)):
+                    return
+                if not self.commands.empty() or not self._idle_view():
+                    break
+        self.closed.wait(max(0, 1 / self.config.capture.fps - (time.perf_counter() - began)))
 
     def _drain_commands(self) -> None:
         while True:

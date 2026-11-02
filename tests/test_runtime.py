@@ -576,6 +576,76 @@ def run_moving_capture(app, monkeypatch, failures, *, bursts=1):
     return seen_alarms, waits
 
 
+def paced(app, monkeypatch, during=None):
+    """Seconds the capture loop waits after a frame that began at 0, on a fake clock."""
+    from types import SimpleNamespace
+
+    clock = [0.0]
+
+    def wait(seconds):
+        clock[0] += seconds
+        if during:
+            during(clock[0])
+        return False
+
+    monkeypatch.setattr("maplebot.runtime.time",
+                        SimpleNamespace(perf_counter=lambda: clock[0], time=time.time))
+    monkeypatch.setattr(app.closed, "wait", wait)
+    app._pace(0.0)
+    return clock[0]
+
+
+@pytest.mark.parametrize("change", ["unfocused", "covered"])
+def test_idle_capture_slows_to_about_one_frame_per_second(app, monkeypatch, change):
+    if change == "covered":
+        app.windows.visible = False
+    else:
+        app.windows.window = replace(app.windows.window, focused=False)
+    assert paced(app, monkeypatch) == pytest.approx(0.8)
+    assert app.idle_paced
+    assert app.history[0]["reason"] == "Game unfocused or covered; capture slowed to about 1 fps"
+
+
+@pytest.mark.parametrize("busy", [
+    "focused", "pending_arm", "live", "navigation_wait", "probe_wait", "potion_live", "dry_run",
+    "calibrating", "area_editing", "potions",
+])
+def test_input_modes_and_running_work_keep_the_full_frame_rate(app, monkeypatch, busy):
+    if busy != "focused":
+        app.windows.window = replace(app.windows.window, focused=False)
+    if busy in {"calibrating", "area_editing"}:
+        setattr(app, busy, True)
+    elif busy == "potions":
+        app.potter.enabled = True
+    elif busy != "focused":
+        app.mode = busy
+    assert paced(app, monkeypatch) == pytest.approx(1 / app.config.capture.fps)
+    assert not app.idle_paced
+
+
+@pytest.mark.parametrize("event", ["command", "focus", "uncovered"])
+def test_idle_wait_ends_at_once_for_a_command_or_the_game_returning(app, monkeypatch, event):
+    if event == "uncovered":
+        app.windows.visible = False
+    else:
+        app.windows.window = replace(app.windows.window, focused=False)
+
+    def during(now):
+        if now < 0.2:
+            return
+        if event == "command":
+            app.commands.put(("status", {}, Future()))
+        elif event == "focus":
+            app.windows.window = replace(app.windows.window, focused=True)
+        else:
+            app.windows.visible = True
+
+    assert paced(app, monkeypatch, during) == pytest.approx(0.2)
+    if event != "command":
+        assert paced(app, monkeypatch) == pytest.approx(1 / app.config.capture.fps)
+        assert app.history[0]["reason"] == "Game view active; capture back to full rate"
+
+
 @pytest.mark.parametrize("mode", ["capture", "dry_run"])
 def test_brief_window_motion_recovers_without_alarm_or_losing_saved_verification(
     app, monkeypatch, mode
