@@ -141,6 +141,16 @@ class Navigator:
         left, right = span(self.graph.nodes[surface])
         return right - x if direction == "right" else x - left
 
+    def _grab_up(self, edge: Edge) -> bool:
+        """Holding Up near this launch can only grab the rope the move climbs.
+
+        Never with a portal or blocked zone within braking distance on either side,
+        where Up could enter it.
+        """
+        return (edge.kind == "climb" and edge.landing[1] < edge.launch[1]
+                and not self._slide_blocked(edge.launch, "left")
+                and not self._slide_blocked(edge.launch, "right"))
+
     def _slide_blocked(self, launch: tuple, direction: str) -> bool:
         """A zone or boundary within braking distance past the launch, like a near end."""
         ahead = (launch[0] + (BRAKE_PX if direction == "right" else -BRAKE_PX), launch[1])
@@ -256,19 +266,22 @@ class Navigator:
                              or self._slide_blocked(edge.launch, direction))):
                     if not self._settled(f, origin):
                         self.reason = "Braking before an edge launch; waiting for settled origin"
+                        if self._grab_up(edge):  # keep Up held through the slide
+                            return Motion((KeyHold("up", self.pulse),))
                         return Motion(release=True)
                     # One step from rest, then settle again. A full pulse moved one
                     # 16 px marker step live (866->882->898->913); 0.06 s taps moved about
                     # 5 px, below the marker's resolution, and never reached the launch.
                     self.settle_since = self.settle_surface = None
                     self.reason = "Stepping from rest toward the edge launch"
-                    if (edge.kind == "climb" and edge.landing[1] < edge.launch[1]
-                            and not self._slide_blocked(edge.launch, direction)):
+                    if self._grab_up(edge):
                         # Live (Tree Dungeon batch 8): rope3 hangs 9 px from fh320's end; a
-                        # step slid past it and off. Holding Up grabs the rope in passing.
-                        # Never near a portal or blocked zone, where Up could enter it.
+                        # step slid past it and off. Up held with the step, and through
+                        # the slide below, grabs the rope in passing. One bounded chord:
+                        # the controller lets only a jump run beside a held key.
                         self.reason = "Stepping toward the rope holding Up to grab it"
-                        return Motion((KeyHold(direction, self.pulse),), vertical="up")
+                        return Motion((KeyHold(direction, self.pulse),
+                                       KeyHold("up", self.pulse)))
                     return Motion((KeyHold(direction, self.pulse),))
                 self.last_feet = f.feet
                 self.settle_since = self.settle_surface = None
@@ -277,6 +290,8 @@ class Navigator:
             if edge.kind == "climb" and not rope:
                 if f.surface != origin or not self._settled(f, origin):
                     self.reason = "Braking at rope launch; waiting for settled origin"
+                    if self._grab_up(edge):
+                        return Motion((KeyHold("up", self.pulse),))
                     return Motion(release=True)
                 rope_x = next((p["start"]["x"] for p in self.graph.profile["ropes"]
                                if p["id"] == edge.target), edge.launch[0])

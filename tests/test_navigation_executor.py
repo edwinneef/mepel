@@ -23,6 +23,12 @@ def takeoff(nav, f):
     assert [hold.action for hold in motion.holds] == ["right", "jump"]
 
 
+def waiting(motion) -> bool:
+    """Braking near a climb launch either releases or holds only Up to grab the rope."""
+    return motion.release or (motion.vertical is None and motion.horizontal is None
+                              and [hold.action for hold in motion.holds] == ["up"])
+
+
 def test_jump_requires_departure_and_settled_destination_not_predicted_elapsed_time():
     nav, f = setup()
     takeoff(nav, f)
@@ -144,11 +150,11 @@ def test_rope_grab_aligns_before_jumping_and_ignores_delayed_launch_feedback():
     assert nav.stage == "approach" and alignment.vertical is None
     assert [hold.action for hold in alignment.holds] == ["right"]
     # A short tap may not move the coarse minimap marker. Settle and tap again.
-    assert nav.step(replace(f, now=.8)).release
+    assert waiting(nav.step(replace(f, now=.8)))
     realign = nav.step(replace(f, now=1.2))
     assert [hold.action for hold in realign.holds] == ["right"]
     assert nav.stage == "approach" and realign.vertical is None
-    assert nav.step(replace(f, now=1.4, feet=(150, 400))).release
+    assert waiting(nav.step(replace(f, now=1.4, feet=(150, 400))))
     grab = nav.step(replace(f, now=1.8, feet=(150, 400)))
     assert nav.stage == "flight"
     assert grab.vertical == "up" and [hold.action for hold in grab.holds] == ["jump"]
@@ -301,12 +307,12 @@ def test_rope_approach_brakes_before_takeoff_instead_of_jumping_with_horizontal_
     nav.stage = "approach"
     f = Feedback(.2, graph.fingerprint, (207, 400), "floor", True)
     # Recorded pre-launch distance: 43 pixels, past the floor's end: step from rest.
-    assert nav.step(f).release and nav.step(replace(f, now=.4)).release
+    assert waiting(nav.step(f)) and waiting(nav.step(replace(f, now=.4)))
     step = nav.step(replace(f, now=.55))
-    assert step.horizontal is None and [h.action for h in step.holds] == ["right"]
+    assert step.horizontal is None and [h.action for h in step.holds] == ["right", "up"]
     assert step.holds[0].seconds == nav.pulse
     for now, x in ((.6, 240), (.7, 250), (.9, 250)):
-        assert nav.step(replace(f, now=now, feet=(x, 400))).release
+        assert waiting(nav.step(replace(f, now=now, feet=(x, 400))))
         assert nav.stage == "approach"
     takeoff = nav.step(replace(f, now=1.1, feet=(250, 400)))
     assert nav.stage == "flight" and takeoff.vertical == "up"
@@ -565,9 +571,15 @@ def test_a_rope_near_a_platform_end_is_grabbed_in_passing_while_holding_up():
     nav = Navigator(graph, route, 0)
     nav.stage = "approach"
     f = Feedback(.2, graph.fingerprint, (160, 400), "floor", True)
-    assert nav.step(f).release and nav.step(replace(f, now=.4)).release
+    assert waiting(nav.step(f)) and waiting(nav.step(replace(f, now=.4)))
     step = nav.step(replace(f, now=.55))
-    assert [h.action for h in step.holds] == ["right"] and step.vertical == "up"
+    assert [h.action for h in step.holds] == ["right", "up"] and step.vertical is None
+    # Up stays held through the slide, never as a lease beside a step (the controller only
+    # lets a jump run beside a held key; batch 9 stopped on exactly that).
+    sliding = nav.step(replace(f, now=.62, feet=(176, 400)))
+    assert [h.action for h in sliding.holds] == ["up"] and sliding.vertical is None
+    from maplebot.input_timing import ACTIONS
+    assert all(h.action in ACTIONS and h.seconds <= .25 for h in step.holds + sliding.holds)
     # The slide carries the player onto the rope: that starts the climb.
     climb = nav.step(replace(f, now=.7, feet=(205, 395), surface="rope"))
     assert nav.stage == "flight" and climb.vertical == "up" and "Grabbed" in nav.reason
@@ -594,3 +606,4 @@ def test_up_is_never_held_while_stepping_toward_a_rope_beside_a_portal():
     nav.step(f), nav.step(replace(f, now=.4))
     step = nav.step(replace(f, now=.55))
     assert [h.action for h in step.holds] == ["right"] and step.vertical is None
+    assert nav.step(replace(f, now=.62, feet=(160, 400))).release  # no Up near a portal

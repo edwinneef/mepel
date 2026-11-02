@@ -176,3 +176,14 @@ def test_missing_vertical_lease_is_a_stop_not_a_recognition_recovery(route):
     observe(tracked=True, confidence=.82522)
     assert nav.recovery is None and app.mode == "capture"
     assert not app.controller.enabled
+
+
+def test_rope_grab_chords_pass_the_keyboard_controller(route):
+    # Batch 9: a step submitted beside a held Up lease raised "Only a navigation jump may
+    # preserve directional holds" in the controller and stopped the capture worker.
+    app, nav, now, _ = route
+    for holds in ((KeyHold("right", .12), KeyHold("up", .12)), (KeyHold("up", .12),)):
+        submitted = app.controller.submit_sequence(holds)  # the runtime's holds-only path
+        assert isinstance(submitted, (int, str))
+    with pytest.raises(ValueError, match="Only a navigation jump"):
+        app.controller.submit_sequence((KeyHold("right", .12),), preserve_movement=True)
