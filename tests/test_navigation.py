@@ -113,6 +113,14 @@ def test_home_is_the_widest_floor_despite_sub_pixel_height_noise():
     assert problems(floors, [], [])["home"] == "main"
 
 
+def test_a_one_way_pit_below_the_map_is_stranded_not_home():
+    flat = [{"id": key, "start": {"x": 0, "y": y}, "end": {"x": width, "y": y}}
+            for key, y, width in (("pit", 900, 600), ("floor", 600, 900), ("ledge", 400, 200))]
+    links = [{"id": a + b, "from": a, "to": b, "kind": "walk"}
+             for a, b in (("floor", "ledge"), ("ledge", "floor"), ("floor", "pit"))]
+    assert problems(flat, [], links) == {"home": "floor", "unreachable": [], "stranded": ["pit"]}
+
+
 def test_surface_height_follows_bends_and_straight_ends():
     bent = {"start": {"x": 0, "y": 640}, "end": {"x": 200, "y": 600},
             "points": [{"x": 0, "y": 640}, {"x": 40, "y": 600}, {"x": 200, "y": 600}]}

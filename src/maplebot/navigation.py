@@ -27,7 +27,9 @@ def surface_y(platform: dict, x: float) -> float:
 def problems(platforms: list[dict], ropes: list[dict], links: list[dict]) -> dict:
     """Surfaces the floor cannot reach, and surfaces with no way back to it.
 
-    The floor ("home") is the lowest platform; among equally low ones, the widest.
+    The floor ("home") is the lowest platform of the largest group of platforms that
+    can all reach each other; among equally low ones, the widest. A one-way pit below
+    that group is then stranded rather than the home that excludes everything else.
     Heights can carry sub-pixel noise, so "equally low" allows FLOOR_PX.
     """
     if not platforms:
@@ -36,9 +38,6 @@ def problems(platforms: list[dict], ropes: list[dict], links: list[dict]) -> dic
     def level(item: dict) -> float:
         return (item["start"]["y"] + item["end"]["y"]) / 2
 
-    lowest = max(level(p) for p in platforms)
-    home = max((p for p in platforms if lowest - level(p) <= FLOOR_PX),
-               key=lambda p: p["end"]["x"] - p["start"]["x"])["id"]
     nodes = [item["id"] for item in (*platforms, *ropes)]
     forward: dict[str, set[str]] = {key: set() for key in nodes}
     backward: dict[str, set[str]] = {key: set() for key in nodes}
@@ -46,15 +45,25 @@ def problems(platforms: list[dict], ropes: list[dict], links: list[dict]) -> dic
         forward[link["from"]].add(link["to"])
         backward[link["to"]].add(link["from"])
 
-    def reach(edges: dict[str, set[str]]) -> set[str]:
-        seen, todo = {home}, [home]
+    def reach(start: str, edges: dict[str, set[str]]) -> set[str]:
+        seen, todo = {start}, [start]
         while todo:
             for key in edges[todo.pop()] - seen:
                 seen.add(key)
                 todo.append(key)
         return seen
 
-    reached, returns = reach(forward), reach(backward)
+    floors = {item["id"] for item in platforms}
+    groups = {frozenset(reach(item["id"], forward) & reach(item["id"], backward) & floors)
+              for item in platforms}
+    # Most platforms wins; equally large groups pool, so the original floor rule decides.
+    size = max(len(keys) for keys in groups)
+    pool = set().union(*(keys for keys in groups if len(keys) == size))
+    members = [item for item in platforms if item["id"] in pool]
+    lowest = max(level(p) for p in members)
+    home = max((p for p in members if lowest - level(p) <= FLOOR_PX),
+               key=lambda p: p["end"]["x"] - p["start"]["x"])["id"]
+    reached, returns = reach(home, forward), reach(home, backward)
     return {"home": home, "unreachable": [key for key in nodes if key not in reached],
             "stranded": [key for key in nodes if key in reached and key not in returns]}
 
