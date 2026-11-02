@@ -86,12 +86,16 @@ def test_runtime_proves_settled_moves_and_switches_off_failed_ones(app):
     nav.agent.completed, nav.agent.index = 1, 1  # the navigator settled on the ledge
     nav._learn()
     fingerprint = nav.graph.fingerprint
-    assert nav.pending_proofs == [("a" * 32, fingerprint, "m_floor_ledge")]
+    edge = nav.graph.edges["m_floor_ledge"]
+    shape = {"from": "floor", "to": "ledge", "kind": "jump",
+             "trace": [list(point) for point in edge.trace]}
+    assert nav.pending_proofs == [("a" * 32, fingerprint, "m_floor_ledge", shape)]
     assert nav.proofs.load("a" * 32, fingerprint) == set()
     app.controller.stop("Offline route complete", notify=False)
     nav.cancel("Offline route complete")
     assert not nav.pending_proofs
     assert nav.proofs.load("a" * 32, fingerprint) == {"m_floor_ledge"}
+    assert nav.proofs.geometry("a" * 32, fingerprint) == {"m_floor_ledge": shape}
     assert "m_floor_ledge" in nav.graph.proven
     back = nav.graph.plan("ledge", "floor")
     nav.agent = Navigator(nav.graph, back, 2.0)
@@ -139,3 +143,25 @@ def test_refresh_reuses_generated_moves_until_the_map_changes(app, monkeypatch):
     profile["revision"] = 3
     nav.refresh()
     assert generated == [2, 3]
+
+
+def test_proven_moves_keep_the_geometry_they_succeeded_with(tmp_path):
+    graph = RouteMap.computed(imported())
+    edge = graph.edges["m_ledge_floor"]
+    shape = {"from": "ledge", "to": "floor", "kind": edge.kind,
+             "trace": [[300.0, 340.0], [300.0, 400.0]]}
+    proofs = MoveProofs(tmp_path)
+    proofs.record("a" * 32, "m", "m_ledge_floor", shape)
+    proofs.record("a" * 32, "m", "m_floor_ledge")  # legacy: no recorded geometry
+    stored = MoveProofs(tmp_path).geometry("a" * 32, "m")
+    assert stored == {"m_ledge_floor": shape}
+    kept = RouteMap.computed(imported(), {"m_ledge_floor", "m_floor_ledge"},
+                             proven_geometry=stored)
+    assert kept.edges["m_ledge_floor"].trace == ((300.0, 340.0), (300.0, 400.0))
+    # A proof without geometry proves nothing once geometry is tracked.
+    assert kept.proven == {"m_ledge_floor"}
+    # A proven move the generator no longer proposes is still available.
+    gone = [m for m in __import__("maplebot.moves", fromlist=["generate"]).generate(imported())
+            if m.id != "m_ledge_floor"]
+    assert "m_ledge_floor" in RouteMap.computed(imported(), {"m_ledge_floor"}, moves=gone,
+                                                proven_geometry=stored).edges

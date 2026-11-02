@@ -38,12 +38,38 @@ class MoveProofs:
             return set()
         return {key for key in moves if isinstance(key, str)}
 
-    def record(self, area_id: str, fingerprint: str, move_id: str) -> None:
+    def geometry(self, area_id: str, fingerprint: str) -> dict[str, dict]:
+        """The from/to/kind/trace each proven move had when it succeeded.
+
+        A move generator change must not carry a proof over to new, untried geometry;
+        entries without a valid recorded geometry are left out.
+        """
+        value = self._read(area_id)
+        moves = value.get("moves")
+        if value.get("map_hash") != fingerprint or not isinstance(moves, dict):
+            return {}
+        found = {}
+        for key, entry in moves.items():
+            shape = entry.get("geometry") if isinstance(entry, dict) else None
+            if (isinstance(shape, dict) and isinstance(shape.get("from"), str)
+                    and isinstance(shape.get("to"), str)
+                    and shape.get("kind") in {"walk", "climb", "drop", "jump"}
+                    and isinstance(shape.get("trace"), list) and len(shape["trace"]) >= 2
+                    and all(isinstance(point, list) and len(point) == 2
+                            and all(type(v) in (int, float) for v in point)
+                            for point in shape["trace"])):
+                found[key] = shape
+        return found
+
+    def record(self, area_id: str, fingerprint: str, move_id: str,
+               geometry: dict | None = None) -> None:
         with _LOCK:
             value = self._read(area_id)
             moves = value.get("moves") if value.get("map_hash") == fingerprint else None
             moves = dict(moves) if isinstance(moves, dict) else {}
             moves[move_id] = {"proved_at": time.time()}
+            if geometry is not None:
+                moves[move_id]["geometry"] = geometry
             body = {"area_id": area_id, "map_hash": fingerprint, "moves": moves}
             self.directory.mkdir(parents=True, exist_ok=True)
             AreaStore._atomic(self._path(area_id),

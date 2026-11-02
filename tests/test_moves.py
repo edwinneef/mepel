@@ -1,4 +1,4 @@
-from maplebot.moves import JUMP_RISE_PX, generate
+from maplebot.moves import JUMP_RISE_PX, TAKEOFF_INSET_PX, _reach, generate
 
 
 def flat(key, x0, x1, y):
@@ -10,8 +10,8 @@ def kinds(profile):
 
 
 def test_staircase_steps_jump_up_and_fall_back():
-    profile = {"platforms": [flat("floor", 0, 1000, 500), flat("step", 300, 450, 440),
-                             flat("high", 430, 600, 380)], "ropes": []}
+    profile = {"platforms": [flat("floor", 0, 1000, 500), flat("step", 300, 560, 440),
+                             flat("high", 500, 800, 380)], "ropes": []}
     moves = kinds(profile)
     assert moves[("floor", "step")] == "jump" and moves[("step", "high")] == "jump"
     assert moves[("step", "floor")] in {"jump", "drop"}
@@ -28,19 +28,22 @@ def test_drop_lands_on_the_first_platform_below():
     assert ("top", "floor") not in drops  # the middle platform is in the way
 
 
-def test_hairline_gap_is_walked_and_wide_gap_is_jumped():
+def test_hairline_gap_is_walked_and_a_level_gap_is_beyond_a_jump_from_rest():
     profile = {"platforms": [flat("a", 0, 200, 300), flat("b", 220, 400, 300),
-                             flat("c", 480, 600, 300), flat("far", 800, 900, 300)], "ropes": []}
+                             flat("c", 480, 600, 300), flat("low", 380, 600, 350)],
+               "ropes": []}
     moves = kinds(profile)
-    assert moves[("a", "b")] == "walk" and moves[("b", "c")] == "jump"
-    assert ("c", "far") not in moves
+    assert moves[("a", "b")] == "walk"
+    # Taking off 64 px in, a level jump lands about 78 px out: short of c's far side.
+    assert ("b", "c") not in moves
+    assert moves[("b", "low")] == "jump"  # falling off the end onto what runs on below
 
 
 def test_supported_rope_top_uses_platform_before_upward_jump():
     rope = {"id": "rope", "start": {"x": 500, "y": 300},
             "end": {"x": 500, "y": 600}}
-    profile = {"platforms": [flat("top", 460, 540, 300),
-                             flat("higher", 570, 700, 240)], "ropes": [rope]}
+    profile = {"platforms": [flat("top", 400, 540, 300),
+                             flat("higher", 500, 700, 240)], "ropes": [rope]}
     pairs = kinds(profile)
     assert pairs[("rope", "top")] == "climb"
     assert ("rope", "higher") not in pairs
@@ -69,13 +72,29 @@ def test_rope_foot_within_a_jump_is_reached_by_jumping():
     assert kinds(profile) == {("floor", "rope"): "climb"}
 
 
-def test_jumps_off_an_end_take_off_well_inside_it():
+def test_jumps_and_drops_take_off_with_room_to_brake_and_land_within_reach():
     profile = {"platforms": [flat("a", 0, 200, 300), flat("b", 220, 400, 300),
-                             flat("c", 480, 600, 300), flat("low", 620, 700, 400),
-                             flat("tiny", 900, 930, 300)], "ropes": []}
+                             flat("low", 380, 600, 350), flat("tiny", 900, 1000, 300),
+                             flat("under", 850, 1100, 400), flat("src", 600, 850, 1025),
+                             flat("dst", 794, 965, 972)], "ropes": []}
     moves = {(m.source, m.target): m for m in generate(profile)}
     assert moves[("a", "b")].trace[0] == (192.0, 300.0)  # walks still start at the end
-    assert moves[("b", "c")].trace[0] == (376.0, 300.0)  # level jump: 24 px from the end
-    assert moves[("c", "low")].trace[0] == (576.0, 300.0)  # fall off the end
-    tiny = [m for m in moves.values() if m.source == "tiny" and m.kind == "jump"]
-    assert all(915 - 15 <= m.trace[0][0] <= 915 + 15 for m in tiny)  # narrow: centre
+    off_end = moves[("b", "low")]
+    assert off_end.trace[0] == (400 - TAKEOFF_INSET_PX, 300.0)
+    assert off_end.trace[-1][0] - off_end.trace[0][0] <= _reach(-50)
+    up = moves[("src", "dst")]  # Tree Dungeon m_fh315_fh320 slid off from 24 px in
+    assert up.trace[0][0] == 850 - TAKEOFF_INSET_PX
+    assert 794 + 16 <= up.trace[-1][0] and up.trace[-1][0] - up.trace[0][0] <= _reach(53)
+    # 100 px is too narrow to brake on from either side: no jump or drop leaves it.
+    assert not [m for m in moves.values() if m.source == "tiny" and m.kind in {"jump", "drop"}]
+    for move in moves.values():
+        if move.kind in {"jump", "drop"} and move.source in {"b", "src", "under"}:
+            left, right = {"b": (220, 400), "src": (600, 850), "under": (850, 1100)}[
+                move.source]
+            assert left + TAKEOFF_INSET_PX <= move.trace[0][0] <= right - TAKEOFF_INSET_PX
+
+
+def test_reach_matches_the_jump_peak_and_the_proven_jump():
+    assert _reach(JUMP_RISE_PX + 3) == 0  # above the 77 px peak
+    assert 56 <= _reach(60) <= 64  # m_fh308_fh315 rose 60 px and covered 56-64 px
+    assert _reach(-100) > _reach(0) > _reach(60)

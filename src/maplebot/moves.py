@@ -4,6 +4,7 @@ Each move names its launch and landing feet and a short trace the navigator must
 near. Moves are proposals: navigation decides which ones may be used and proves them.
 """
 
+import math
 from dataclasses import dataclass
 
 from .public_map import height, span
@@ -15,9 +16,15 @@ WALK_GAP_PX = 32  # same-height neighbours closer than this are walked across
 LEVEL_PX = 24  # surfaces this close in height count as level (the navigator's tolerance)
 CLIMB_PX = 30  # feet move this far along a rope to confirm a grab or a climb-off
 INSET_PX = 16  # launch and landing stay this far inside a platform's end
-# Jumps off an end start farther in: the approach stops within 12 px of the launch, and a
-# launch 8 px from the end let a live jump walk off the edge before it fired.
-JUMP_INSET_PX = 24
+# Jump and drop launches keep this much platform on both sides. The approach takes off
+# from rest after one-pulse steps that moved 16-48 px live (Tree Dungeon, 2026-11-02), plus
+# a 16 px marker step; a step toward a launch 24 px from the end slid off it.
+TAKEOFF_INSET_PX = 64
+# From-rest jump physics: 555^2 / (2 * 2000) = 77 px, the jump peak above. The proven
+# m_fh308_fh315 jump covered at least 64 px in about 0.41 s; live walks ran about 137 px/s.
+JUMP_SPEED_PX_S = 555
+GRAVITY_PX_S2 = 2000
+AIR_SPEED_PX_S = 140
 SIMPLER = {"walk": 0, "climb": 1, "drop": 2, "jump": 3}
 
 
@@ -56,6 +63,48 @@ def _point(item: dict, x: float) -> tuple[float, float]:
     return round(x, 1), round(height(item, x), 1)
 
 
+def _reach(rise: float) -> float:
+    """Horizontal distance a jump from rest covers before landing `rise` px higher.
+
+    Falls ignore the game's fall-speed cap, which only lengthens them: an underestimate.
+    """
+    root = JUMP_SPEED_PX_S ** 2 - 2 * GRAVITY_PX_S2 * rise
+    if root < 0:
+        return 0.0
+    return AIR_SPEED_PX_S * (JUMP_SPEED_PX_S + math.sqrt(root)) / GRAVITY_PX_S2
+
+
+def _launch_ok(item: dict, x: float) -> bool:
+    """A step from rest toward x, from either side, cannot slide off this platform."""
+    left, right = span(item)
+    return left + TAKEOFF_INSET_PX <= x <= right - TAKEOFF_INSET_PX
+
+
+def _landing(b: dict, takeoff: tuple[float, float], side: int,
+             beyond: float | None = None) -> tuple[float, float] | None:
+    """Where a from-rest jump from `takeoff` toward `side` lands on b; None out of reach.
+
+    Aims at three quarters of the reach. With `beyond`, the landing lies past that end of
+    the launch platform, for jumps that do not rise clear of it.
+    """
+    left, right = span(b)
+    lo, hi = left + INSET_PX, right - INSET_PX
+    if side > 0:
+        lo = max(lo, takeoff[0], beyond + INSET_PX if beyond is not None else lo)
+    else:
+        hi = min(hi, takeoff[0], beyond - INSET_PX if beyond is not None else hi)
+    if lo > hi:
+        return None
+    x = min(max(takeoff[0], lo), hi)
+    for _ in range(3):  # landing height moves with x on slopes
+        aim = takeoff[0] + side * .75 * _reach(takeoff[1] - height(b, x))
+        x = min(max(aim, lo), hi)
+    rise = takeoff[1] - height(b, x)
+    if rise > JUMP_RISE_PX or abs(x - takeoff[0]) > _reach(rise):
+        return None
+    return _point(b, x)
+
+
 def generate(profile: dict) -> list[Move]:
     platforms, ropes = profile["platforms"], profile["ropes"]
     moves: dict[tuple[str, str], Move] = {}
@@ -73,7 +122,8 @@ def generate(profile: dict) -> list[Move]:
             # Off this end: walk across a hairline gap, fall to what lies under the end,
             # or jump to a platform beyond or above it.
             launch = _point(a, edge - side * INSET_PX / 2)
-            takeoff = _point(a, edge - side * min(JUMP_INSET_PX, (a_right - a_left) / 2))
+            takeoff_x = edge - side * TAKEOFF_INSET_PX
+            takeoff = _point(a, takeoff_x) if _launch_ok(a, takeoff_x) else None
             for b in platforms:
                 if b is a:
                     continue
@@ -90,23 +140,31 @@ def generate(profile: dict) -> list[Move]:
                 rise = launch[1] - landing[1]
                 if abs(rise) <= LEVEL_PX and gap <= WALK_GAP_PX:
                     add(a["id"], b["id"], "walk", launch, landing)
+                elif takeoff is None:
+                    continue
                 elif -LEVEL_PX < rise <= JUMP_RISE_PX and gap <= JUMP_GAP_PX:
-                    peak = min(takeoff[1], landing[1]) - 40
-                    add(a["id"], b["id"], "jump", takeoff,
-                        ((takeoff[0] + landing[0]) / 2, peak), landing)
-                elif (rise <= -LEVEL_PX and gap <= FALL_GAP_PX
-                      and _below(platforms, landing[0], launch[1]) is b):
-                    add(a["id"], b["id"], "jump", takeoff, (landing[0], takeoff[1] - 30),
-                        landing)
+                    # A jump rising clear of this platform may land above it.
+                    end = _landing(b, takeoff, side, None if rise > LEVEL_PX else edge)
+                    if end is not None:
+                        peak = min(takeoff[1], end[1]) - 40
+                        add(a["id"], b["id"], "jump", takeoff,
+                            ((takeoff[0] + end[0]) / 2, peak), end)
+                elif rise <= -LEVEL_PX and gap <= FALL_GAP_PX:
+                    end = _landing(b, takeoff, side, edge)
+                    if end is not None and _below(platforms, end[0], launch[1]) is b:
+                        add(a["id"], b["id"], "jump", takeoff, (end[0], takeoff[1] - 30),
+                            end)
         for b in platforms:
             if b is a:
                 continue
             for side, edge in ((-1, span(b)[0]), (1, span(b)[1])):
                 # From beside a higher platform's end, jump in onto it.
                 start = edge + side * 2 * INSET_PX
-                if a_left <= start <= a_right:
+                if _launch_ok(a, start):
                     launch, landing = _point(a, start), _point(b, edge - side * INSET_PX)
-                    if LEVEL_PX < launch[1] - landing[1] <= JUMP_RISE_PX:
+                    rise = launch[1] - landing[1]
+                    if (LEVEL_PX < rise <= JUMP_RISE_PX
+                            and abs(landing[0] - launch[0]) <= _reach(rise)):
                         add(a["id"], b["id"], "jump", launch,
                             ((launch[0] + landing[0]) / 2, landing[1] - 40), landing)
             lo, hi = max(a_left, span(b)[0]), min(a_right, span(b)[1])
@@ -122,6 +180,8 @@ def generate(profile: dict) -> list[Move]:
                 add(a["id"], b["id"], "walk", _point(a, meet), _point(b, meet))
                 continue
             for x in xs:
+                if not _launch_ok(a, x):
+                    continue
                 launch, landing = _point(a, x), _point(b, x)
                 rise = launch[1] - landing[1]
                 if rise < -LEVEL_PX and _below(platforms, x, launch[1]) is b:

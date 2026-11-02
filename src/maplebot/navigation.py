@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 
-from .moves import generate
+from .moves import Move, generate
 
 FLOOR_PX = 8  # platforms this close to the lowest height are the same floor level
 
@@ -208,14 +208,24 @@ class RouteMap:
 
     @classmethod
     def computed(cls, profile: dict, proven: set[str] = frozenset(),
-                 failed: set[str] = frozenset(), moves: list | None = None) -> "RouteMap":
+                 failed: set[str] = frozenset(), moves: list | None = None,
+                 proven_geometry: dict[str, dict] | None = None) -> "RouteMap":
         """Edges computed from an imported map's geometry; `failed` ones are left out.
 
         `moves` reuses an earlier generate(profile) for the same map; generating takes
-        seconds on tall maps.
+        seconds on tall maps. With `proven_geometry`, a proven move keeps the geometry it
+        succeeded with even if the generator now proposes another; a proof without it
+        proves nothing.
         """
         moves = [m for m in (generate(profile) if moves is None else moves)
                  if m.id not in failed]
+        if proven_geometry is not None:
+            proven = {key for key in proven if key in proven_geometry}
+            kept = {key: Move(key, shape["from"], shape["to"], shape["kind"],
+                              tuple((float(x), float(y)) for x, y in shape["trace"]))
+                    for key, shape in proven_geometry.items()
+                    if key in proven and key not in failed}
+            moves = [kept.pop(m.id, m) for m in moves] + list(kept.values())
         evidence = {"area_id": profile["id"], "revision": profile["revision"],
                     "map_hash": map_hash(profile),
                     "edges": {m.id: {"from": m.source, "to": m.target, "kind": m.kind,

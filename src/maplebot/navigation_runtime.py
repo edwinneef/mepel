@@ -48,7 +48,7 @@ class NavigationRuntime:
         # refresh runs on the worker thread right before nav_go checks frame freshness.
         self.moves: tuple[tuple, list] | None = None
         self.counted = 0
-        self.pending_proofs: list[tuple[str, str, str]] = []
+        self.pending_proofs: list[tuple[str, str, str, dict]] = []
         self.last_feedback_failure = None
         self.last_input_refusal = None
         self.identity = None
@@ -101,7 +101,8 @@ class NavigationRuntime:
         if self.moves is None or self.moves[0] != key:
             self.moves = (key, generate(profile))
         self.graph = RouteMap.computed(profile, self.proofs.load(profile["id"], fingerprint),
-                                       self.failed, self.moves[1])
+                                       self.failed, self.moves[1],
+                                       self.proofs.geometry(profile["id"], fingerprint))
         self.route = self.agent = None
         self.reason = "Choose a destination and preview its route; no keys are sent"
         return self.snapshot()
@@ -647,7 +648,9 @@ class NavigationRuntime:
             self.counted = agent.completed
             edge = agent.route.edges[agent.index - 1]
             if edge.id not in graph.proven:
-                self.pending_proofs.append((graph.profile["id"], graph.fingerprint, edge.id))
+                self.pending_proofs.append((graph.profile["id"], graph.fingerprint, edge.id, {
+                    "from": edge.source, "to": edge.target, "kind": edge.kind,
+                    "trace": [list(point) for point in edge.trace]}))
                 graph.proven.add(edge.id)
         elif (agent.stage == "stopped" and agent.reason.startswith(MOVE_FAILURES)
               and agent.index < len(agent.route.edges)):
