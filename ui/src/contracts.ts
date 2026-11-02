@@ -97,6 +97,7 @@ export interface LiveDetections {
   terrain?: LivePosition & { alignment: { valid: boolean; [key: string]: unknown } } | null;
 }
 export interface Snapshot {
+  auto_track?: { attempts: number; last: string; enabled: boolean };
   pose_collection?: { last_rejection?: string; rejection_reasons?: Record<string, number>; candidates?: { id: string; crop: string; added?: boolean }[]; enabled: boolean; identity: string; outfit: string; identities: string[]; labels?: Record<string, string>; saved: number; duplicates: number; rejected: number; pending: number; limit: number; reason: string };
   enemy_tracks?: EnemyTrack[];
   player_tracking?: PlayerTracking | null;

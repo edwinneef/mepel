@@ -21,7 +21,7 @@ export function pathSummary(paths: PathAvailability | undefined, area: string | 
 export interface BatchState { running: boolean; kind?: string; line?: string; output?: string; code?: number }
 type Rect = { x: number; y: number; width: number; height: number };
 
-const WIDTH = 236;
+const WIDTH = 300;
 const HEIGHT = 360;
 
 /** Where the menu goes: beside the game view, never over it.
@@ -65,6 +65,47 @@ export function batchSummary(batch: BatchState): string | null {
     } catch { /* not the result line */ }
   }
   return lines[lines.length - 1];
+}
+
+export interface BatchReport { tone: 'ok' | 'fail' | 'info'; headline: string; detail: string }
+
+/** What happened in the last batch, in plain words: a one-line headline and the reasons. */
+export function batchReport(batch: BatchState): BatchReport | null {
+  const text = (batch.output ?? batch.line ?? '').trim();
+  if (!text) return null;
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  for (const line of [...lines].reverse()) {
+    let value: Record<string, unknown>;
+    try { value = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
+    if (typeof value.blocked === 'string') {
+      return { tone: 'fail', headline: 'Not started · no keys sent', detail: value.blocked };
+    }
+    if (typeof value.outcome !== 'string' && typeof value.error !== 'string') continue;
+    const stop = (value.stop ?? {}) as { code?: string; message?: string };
+    const misses = Array.isArray(value.misses) ? value.misses.length : 0;
+    const extras = [
+      typeof value.proven_after === 'number' ? `${value.proven_after} moves proven` : '',
+      misses ? `${misses} missed ${misses === 1 ? 'move' : 'moves'} landed safely` : '',
+    ].filter(Boolean).join(' · ');
+    if (value.outcome === 'functional_success') {
+      return { tone: 'ok', headline: 'Finished the full session', detail: extras };
+    }
+    if (value.outcome === 'nothing_left') {
+      return { tone: 'ok', headline: 'Nothing left to do · stopped cleanly', detail: extras };
+    }
+    const reasons = [
+      typeof value.error === 'string' && value.error ? `Why: ${value.error}` : '',
+      stop.message && stop.message !== value.error ? `Engine stop${stop.code ? ` (${stop.code})` : ''}: ${stop.message}` : '',
+      typeof value.stop_error === 'string' && value.stop_error ? `Stop problem: ${value.stop_error}` : '',
+      extras,
+      batch.code !== undefined && batch.code !== 0 ? 'Keys released, clip saved. Move to safety; no automatic retry.' : '',
+    ].filter(Boolean);
+    return value.outcome === 'safe_stop'
+      ? { tone: 'info', headline: 'Stopped safely', detail: reasons.join('\n') }
+      : { tone: 'fail', headline: 'Run failed', detail: reasons.join('\n') || 'No reason was reported; see the result file.' };
+  }
+  return { tone: batch.code ? 'fail' : 'info', headline: batch.code ? 'Run ended with an error' : 'Last batch',
+    detail: lines.slice(-3).join('\n') };
 }
 
 /** Small in-game menu: what the bot is doing, display switches and the two batch starts. */
@@ -113,7 +154,10 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   };
   const mapName = s?.position?.area_id ? s.position.area_name || 'Saved map' : null;
   // One fixed line for status text, so the open menu keeps its height as messages change.
-  const note = batch.running ? summary ?? '' : startBlocker ?? (summary ? `Last batch: ${summary}` : '');
+  // A fixed-size report box, so the open menu keeps its height as messages change.
+  const report: BatchReport | null = batch.running
+    ? { tone: 'info', headline: 'Progress', detail: summary ?? '' }
+    : startBlocker ? { tone: 'info', headline: 'Cannot start yet', detail: startBlocker } : batchReport(batch);
   const whereText = `${where ? `Standing on ${where}` : 'Position unknown'}${s?.stop?.message && !busy ? ` · last stop: ${s.stop.message}` : ''}`;
   const style = { ...(offset ?? menuPlacement(game, { width: window.innerWidth, height: window.innerHeight })), width: WIDTH };
   return <section ref={menu} className={`overlay-menu ${open ? "is-open" : "is-folded"}`} aria-label="Bot menu" style={style}>
@@ -139,7 +183,7 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
     </header>
     {open && <>
       <p className="overlay-menu-where overlay-menu-line" title={whereText}>{whereText}</p>
-      <p className={`overlay-menu-path tone-${mapName ? 'ready' : 'muted'}`} title={mapName ?? 'The minimap does not match a saved map yet.'}>
+      <p className={`overlay-menu-path tone-${mapName ? 'ready' : 'muted'}`} title={mapName ?? s?.auto_track?.last ?? 'The minimap does not match a saved map yet.'}>
         <span className="overlay-menu-path-dot" aria-hidden="true" /><span className="overlay-menu-path-key">Map</span><span className="overlay-menu-path-value">{mapName ?? 'not recognised'}</span></p>
       {(() => { const path = pathSummary(paths, s?.position?.area_id); return <p className={`overlay-menu-path tone-${path.tone}`} title={path.title}>
         <span className="overlay-menu-path-dot" aria-hidden="true" /><span className="overlay-menu-path-key">Path</span><span className="overlay-menu-path-value">{path.text}</span></p>; })()}
@@ -165,7 +209,10 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
         <button disabled={!ready} onClick={() => onStart('single')}
           title="15 minutes on the platform you stand on; uses your confirmed potion keys">Start single platform</button>
       </div>
-      <p className="overlay-menu-result overlay-menu-line" role="status" title={note}>{note || ' '}</p>
+      <div className={`overlay-menu-report tone-${report?.tone ?? 'info'}`} role="status">
+        <strong className="overlay-menu-line">{report?.headline ?? ' '}</strong>
+        <p>{report?.detail}</p>
+      </div>
     </>}
   </section>;
 }

@@ -464,8 +464,8 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
   expect((screen.getByText('Start run') as HTMLButtonElement).disabled).toBe(true);
   act(() => listener({ type: 'batch', value: { running: false, kind: 'single', code: 1,
     output: '{"blocked": "Stand still on a recognized platform of this map first", "input_sent": false}' } }));
-  expect(screen.getByText('Last batch: Refused, no keys sent: Stand still on a recognized platform of this map first'))
-    .toBeTruthy();
+  expect(screen.getByText('Not started · no keys sent')).toBeTruthy();
+  expect(screen.getByText('Stand still on a recognized platform of this map first')).toBeTruthy();
   act(() => listener({ type: 'controller', value: false }));
   expect((screen.getByText('Start single platform') as HTMLButtonElement).disabled).toBe(true);
 });

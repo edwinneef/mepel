@@ -1,7 +1,7 @@
 import { render, fireEvent, screen, cleanup } from '@testing-library/react';
 import { OverlayMenu } from './OverlayMenu';
 import { expect, it } from 'vitest';
-import { menuPlacement, pathSummary } from './OverlayMenu';
+import { batchReport, menuPlacement, pathSummary } from './OverlayMenu';
 
 const samples = (game: { x: number; y: number; width: number; height: number }) =>
   [.05, .5, .95].flatMap(fx => [.05, .5, .95].map(fy => ({ x: game.x + game.width * fx, y: game.y + game.height * fy })));
@@ -11,16 +11,16 @@ it('places the menu beside the game view, never over it', () => {
   const game = { x: 13, y: 41, width: 1366, height: 768 };
   expect(menuPlacement(game, { width: 2560, height: 1440 })).toEqual({ left: 1387, top: 41 });
   expect(menuPlacement({ ...game, x: 1300 }, { width: 2560, height: 1440 }).left)
-    .toBeLessThan(2560 - 236);
+    .toBeLessThan(2560 - 300);
   expect(menuPlacement({ x: 1000, y: 0, width: 1366, height: 768 }, { width: 2400, height: 900 }))
-    .toEqual({ left: 756, top: 0 });  // no room on the right: to the left
+    .toEqual({ left: 692, top: 0 });  // no room on the right: to the left
 });
 
 it('inside a full-screen game view, avoids every coverage sample point', () => {
   const game = { x: 0, y: 0, width: 1366, height: 768 };
   const { left, top } = menuPlacement(game, { width: 1366, height: 768 });
   for (const point of samples(game)) {
-    const inside = point.x >= left && point.x < left + 236 && point.y >= top && point.y < top + 250;
+    const inside = point.x >= left && point.x < left + 300 && point.y >= top && point.y < top + 250;
     expect(inside).toBe(false);
   }
 });
@@ -89,10 +89,10 @@ it('keeps one status line in place as messages come and go, so the menu height h
   const before = rows();
   view.rerender(<OverlayMenu {...props} batch={{ running: false }} startBlocker="Open the browser dashboard" />);
   expect(rows()).toBe(before);
-  expect(screen.getByRole('status').textContent).toBe('Open the browser dashboard');
+  expect(screen.getByRole('status').textContent).toBe('Cannot start yetOpen the browser dashboard');
   view.rerender(<OverlayMenu {...props} batch={{ running: true, line: 'Starting one guarded batch' }} />);
   expect(rows()).toBe(before);
-  expect(screen.getByRole('status').className).toContain('overlay-menu-line');
+  expect(screen.getByRole('status').textContent).toBe('ProgressStarting one guarded batch');
   cleanup();
 });
 
@@ -106,4 +106,18 @@ it('shows the recognised map name above the saved paths', () => {
   view.rerender(<OverlayMenu {...props} s={{ position: { area_id: 'a', area_name: 'Tree Dungeon, Forest Up North I', kind: 'platform' } } as never} />);
   expect(screen.getByText('Tree Dungeon, Forest Up North I')).toBeTruthy();
   cleanup();
+});
+
+it('explains a failed run in full: why, how the engine stopped and what to do', () => {
+  const output = ['Starting', JSON.stringify({ outcome: 'failure', error: 'Game lost focus',
+    stop: { code: 'FOCUS_LOST', message: 'MapleStory is not focused; input released' },
+    stop_error: null, proven_after: 3, misses: [['fh1', 'fh2']] }), 'Control returned to operator.'].join('\n');
+  expect(batchReport({ running: false, code: 1, output })).toEqual({ tone: 'fail', headline: 'Run failed',
+    detail: ['Why: Game lost focus', 'Engine stop (FOCUS_LOST): MapleStory is not focused; input released',
+      '3 moves proven · 1 missed move landed safely',
+      'Keys released, clip saved. Move to safety; no automatic retry.'].join('\n') });
+  expect(batchReport({ running: false, code: 1, output: '{"blocked": "Stand still first", "input_sent": false}' }))
+    .toEqual({ tone: 'fail', headline: 'Not started · no keys sent', detail: 'Stand still first' });
+  expect(batchReport({ running: false, code: 0, output: '{"outcome": "functional_success", "proven_after": 2}' }))
+    .toEqual({ tone: 'ok', headline: 'Finished the full session', detail: '2 moves proven' });
 });
