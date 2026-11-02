@@ -236,7 +236,6 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
         const result = await launch({ kind, area, ...(circuit ? { circuit, minutes } : {}) });
         if (!result.started) setBatch({ running: false, output: JSON.stringify({ blocked: result.reason }) });
       })}
-      capture={s && <PlayerCapture snapshot={s} client={client} act={act} disabled={disabled} />}
       onStop={() => void act(() => client.command('stop'))} />}
     {terrain && map && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}

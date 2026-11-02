@@ -99,3 +99,6 @@ html:has(.native-overlay), body:has(.native-overlay), body:has(.native-overlay) 
 .overlay-menu-icon { width: 16px; height: 16px; font-size: 15px; }
 .overlay-menu-actions { margin: 0 10px 10px; gap: 5px; }
 .overlay-menu-actions button { padding: 6px 10px; }
+
+/* Status rows stay one line (full text on hover) so the open menu never changes height. */
+.overlay-menu-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

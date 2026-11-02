@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
 import type { Snapshot } from './contracts';
 import type { FarmingRoute } from './PathBuilder';
 
@@ -70,10 +69,9 @@ export function batchSummary(batch: BatchState): string | null {
 
 /** Small in-game menu: what the bot is doing, display switches and the two batch starts. */
 export function OverlayMenu({ s, status, game, layers, attackRange, names, setLayers, setAttackRange, setNames,
-  batch, canBatch, onStart, onStop, capture, startBlocker, paths }: {
+  batch, canBatch, onStart, onStop, startBlocker, paths }: {
   paths?: PathAvailability;
   startBlocker?: string;
-  capture?: ReactNode;
   s: Snapshot | null; status: string; game: Rect;
   layers: boolean; attackRange: boolean; names: boolean;
   setLayers(value: boolean): void; setAttackRange(value: boolean): void; setNames(value: boolean): void;
@@ -107,6 +105,9 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   const busy = batch.running || status === 'ON' || status === 'STARTING';
   const ready = canBatch && !busy && Boolean(s?.position?.area_id) && status !== 'DISCONNECTED';
   const summary = batchSummary(batch);
+  // One fixed line for status text, so the open menu keeps its height as messages change.
+  const note = batch.running ? summary ?? '' : startBlocker ?? (summary ? `Last batch: ${summary}` : '');
+  const whereText = `${where ? `Standing on ${where}` : 'Position unknown'}${s?.stop?.message && !busy ? ` · last stop: ${s.stop.message}` : ''}`;
   const style = { ...(offset ?? menuPlacement(game, { width: window.innerWidth, height: window.innerHeight })), width: WIDTH };
   return <section ref={menu} className={`overlay-menu ${open ? "is-open" : "is-folded"}`} aria-label="Bot menu" style={style}>
     <header title="Drag to move" onPointerDown={event => {
@@ -130,11 +131,9 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
       <button className="overlay-menu-stop" disabled={!busy} onClick={onStop} aria-label="Stop (F8)" title="Stop (F8)">■</button>
     </header>
     {open && <>
-      <p className="overlay-menu-where">{where ? `Standing on ${where}` : 'Position unknown'}
-        {s?.stop?.message && !busy ? ` · last stop: ${s.stop.message}` : ''}</p>
+      <p className="overlay-menu-where overlay-menu-line" title={whereText}>{whereText}</p>
       {(() => { const path = pathSummary(paths, s?.position?.area_id); return <p className={`overlay-menu-path tone-${path.tone}`} title={path.title}>
         <span className="overlay-menu-path-dot" aria-hidden="true" /><span className="overlay-menu-path-key">Path</span><span className="overlay-menu-path-value">{path.text}</span></p>; })()}
-      {capture}
       <div className="overlay-menu-switches">
         <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">◉</span><span>Enemies</span></label>
         <label><input type="checkbox" checked={attackRange} onChange={e => setAttackRange(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">◎</span><span>Range</span></label>
@@ -156,8 +155,7 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
         <button disabled={!ready} onClick={() => onStart('single')}
           title="15 minutes on the platform you stand on; uses your confirmed potion keys">Start single platform</button>
       </div>
-      {startBlocker && <p className="overlay-menu-result">{startBlocker}</p>}
-      {summary && <p className="overlay-menu-result" role="status">{batch.running ? summary : `Last batch: ${summary}`}</p>}
+      <p className="overlay-menu-result overlay-menu-line" role="status" title={note}>{note || ' '}</p>
     </>}
   </section>;
 }

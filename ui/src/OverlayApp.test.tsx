@@ -442,7 +442,7 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
   expect(new Set(interactive.mock.calls.map(([rects]) => JSON.stringify(rects))).size)
     .toBe(interactive.mock.calls.length);
   fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  expect(screen.getByText('Capture player screenshots')).toBeTruthy();
+  expect(screen.queryByText('Capture player screenshots')).toBeNull();  // dashboard only
   expect(screen.getByText(/Standing on fh320/)).toBeTruthy();
   expect((screen.getByText('Start single platform') as HTMLButtonElement).disabled).toBe(true);
   act(() => listener({ type: 'controller', value: true }));

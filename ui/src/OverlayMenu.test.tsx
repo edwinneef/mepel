@@ -76,3 +76,20 @@ it('starts only the chosen looping revision with the displayed duration', () => 
   ]);
   cleanup();
 });
+
+it('keeps one status line in place as messages come and go, so the menu height holds', () => {
+  const props = { s: null, status: 'OFF', game: { x: 0, y: 0, width: 600, height: 400 }, layers: false,
+    attackRange: false, names: false, setLayers: () => {}, setAttackRange: () => {}, setNames: () => {},
+    canBatch: false, onStart: () => {}, onStop: () => {} };
+  const view = render(<OverlayMenu {...props} batch={{ running: false }} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+  const rows = () => view.container.querySelectorAll('.overlay-menu > p').length;
+  const before = rows();
+  view.rerender(<OverlayMenu {...props} batch={{ running: false }} startBlocker="Open the browser dashboard" />);
+  expect(rows()).toBe(before);
+  expect(screen.getByRole('status').textContent).toBe('Open the browser dashboard');
+  view.rerender(<OverlayMenu {...props} batch={{ running: true, line: 'Starting one guarded batch' }} />);
+  expect(rows()).toBe(before);
+  expect(screen.getByRole('status').className).toContain('overlay-menu-line');
+  cleanup();
+});
