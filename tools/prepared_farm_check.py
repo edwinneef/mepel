@@ -16,6 +16,29 @@ from tools.prepared_floor_check import restore_focus
 from tools.prepared_route_check import route_blocker, settle
 
 
+def standing_platform(api, status: dict, area: str, *, seconds: float = 3,
+                      clock=time.monotonic, sleep=time.sleep) -> str | None:
+    """The usable platform the player stands on, read fresh; None if none appears in time.
+
+    Reads only. The caller still waits for every preflight to hold steady on it.
+    """
+    deadline = clock() + seconds
+    while True:
+        position = status.get("position") or {}
+        nav = (status.get("navigation") or {}).get("map") or {}
+        usable = {node["id"] for node in nav.get("nodes") or []
+                  if node.get("kind") == "platform" and not node.get("excluded")}
+        surface = position.get("surface_id")
+        if (position.get("area_id") == area and nav.get("area_id") == area
+                and surface in usable and not position.get("stale")
+                and not position.get("held") and not position.get("provisional")):
+            return surface
+        if clock() >= deadline:
+            return None
+        sleep(.1)
+        status = api.status()
+
+
 def proven(status: dict) -> int:
     edges = ((status.get("navigation") or {}).get("map") or {}).get("edges") or []
     return sum(1 for edge in edges if edge.get("proven"))
@@ -26,15 +49,16 @@ def main(argv: list[str] | None = None, *, api=None) -> int:
     parser.add_argument("--run", action="store_true", required=True)
     parser.add_argument("--focus", action="store_true")
     parser.add_argument("--area", required=True)
-    parser.add_argument("--origin", required=True)
+    parser.add_argument("--origin", help="Start platform; default: where the player stands")
     parser.add_argument("--minutes", type=int, choices=range(1, 31), default=5)
     args = parser.parse_args(argv)
     started = time.monotonic()
     api = api or Debugger()
-    output = (Path(__file__).resolve().parents[1] / "artifacts" / "farming-checks"
-              / f"prepared-farm-{args.origin}-{time.time_ns()}")
     try:
         status = restore_focus(api) if args.focus else api.status()
+        args.origin = args.origin or standing_platform(api, status, args.area)
+        if args.origin is None:
+            raise RuntimeError("Stand still on a recognized platform of this map first")
         status, steady = settle(api, status, args.area, args.origin)
     except RuntimeError as error:
         print(json.dumps({"blocked": str(error), "input_sent": False}), flush=True)
@@ -44,6 +68,8 @@ def main(argv: list[str] | None = None, *, api=None) -> int:
     if problem:
         print(json.dumps({"blocked": problem, "input_sent": False}), flush=True)
         return 1
+    output = (Path(__file__).resolve().parents[1] / "artifacts" / "farming-checks"
+              / f"prepared-farm-{args.origin}-{time.time_ns()}")
     before = proven(status)
     print(f"Starting one {args.minutes}-minute learn_moves farm from {args.origin}", flush=True)
     try:

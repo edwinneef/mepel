@@ -2,9 +2,9 @@
 
 Default: the prepared fh66 floor batch. `--route AREA ORIGIN TARGET --label TEXT` starts
 one prepared supervised route instead (tools/prepared_route_check.py), and
-`--farm AREA ORIGIN --minutes N --label TEXT` one learn_moves farming session
-(tools/prepared_farm_check.py). Either way the click starts one bounded batch, which
-re-checks every gate itself.
+`--farm AREA [ORIGIN] --minutes N --label TEXT` one learn_moves farming session
+(tools/prepared_farm_check.py); without ORIGIN it starts where the character stands.
+Either way the click starts one bounded batch, which re-checks every gate itself.
 """
 import argparse
 import queue
@@ -22,14 +22,22 @@ def batch(argv: list[str] | None) -> tuple[str, str, str, list[str]]:
     """Window title, instructions, button text and module arguments for the batch."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--route", nargs=3, metavar=("AREA", "ORIGIN", "TARGET"))
-    parser.add_argument("--farm", nargs=2, metavar=("AREA", "ORIGIN"))
+    parser.add_argument("--farm", nargs="+", metavar="AREA [ORIGIN]")
     parser.add_argument("--minutes", type=int, default=5)
     parser.add_argument("--label", help="Where to stand and where the route goes")
     args = parser.parse_args(argv or [])
     if args.route and args.farm:
         parser.error("Choose --route or --farm, not both")
     if args.farm:
-        area, origin = args.farm
+        if len(args.farm) > 2:
+            parser.error("--farm takes AREA and an optional ORIGIN")
+        area, origin = (*args.farm, None)[:2]
+        if origin is None:
+            return ("Supervised learn_moves farming",
+                    args.label or "Stand still on any connected platform; farm and learn moves",
+                    f"Start one {args.minutes}-minute learn_moves farm from where you stand",
+                    ["tools.prepared_farm_check", "--area", area,
+                     "--minutes", str(args.minutes), "--run", "--focus"])
         return ("Supervised learn_moves farming",
                 args.label or f"Stand on {origin}; farm and learn moves",
                 f"Start one {args.minutes}-minute learn_moves farm from {origin}",

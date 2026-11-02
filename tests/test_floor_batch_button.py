@@ -63,3 +63,11 @@ def test_farm_mode_starts_one_bounded_learn_moves_session():
         "Start one 5-minute learn_moves farm from fh308")
     assert module == ["tools.prepared_farm_check", "--area", "a" * 32, "--origin", "fh308",
                       "--minutes", "5", "--run", "--focus"]
+
+
+def test_farm_mode_without_an_origin_starts_where_the_character_stands():
+    title, instructions, label, module = batch(["--farm", "a" * 32, "--minutes", "5"])
+    assert label == "Start one 5-minute learn_moves farm from where you stand"
+    assert "--origin" not in module
+    assert module == ["tools.prepared_farm_check", "--area", "a" * 32, "--minutes", "5",
+                      "--run", "--focus"]
