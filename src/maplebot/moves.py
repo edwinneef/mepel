@@ -75,6 +75,18 @@ def _reach(rise: float) -> float:
     return AIR_SPEED_PX_S * (JUMP_SPEED_PX_S + math.sqrt(root)) / GRAVITY_PX_S2
 
 
+def _apex(takeoff: tuple[float, float], landing: tuple[float, float]) -> tuple[float, float]:
+    """Where a jump from rest peaks: 77 px up, the air speed's run toward the landing.
+
+    Tree Dungeon (2026-11-02): a jump down from fh320 rose 80 px; a trace peaking 30 px up
+    put its apex 66 px outside the 64 px corridor, and the move counted as a departure.
+    """
+    run = AIR_SPEED_PX_S * JUMP_SPEED_PX_S / GRAVITY_PX_S2
+    dx = landing[0] - takeoff[0]
+    return (takeoff[0] + math.copysign(min(run, abs(dx)), dx) if dx else takeoff[0],
+            takeoff[1] - JUMP_SPEED_PX_S ** 2 / (2 * GRAVITY_PX_S2))
+
+
 def _launch_ok(item: dict, x: float) -> bool:
     """A step from rest toward x, from either side, cannot slide off this platform."""
     left, right = span(item)
@@ -147,14 +159,11 @@ def generate(profile: dict) -> list[Move]:
                     # A jump rising clear of this platform may land above it.
                     end = _landing(b, takeoff, side, None if rise > LEVEL_PX else edge)
                     if end is not None:
-                        peak = min(takeoff[1], end[1]) - 40
-                        add(a["id"], b["id"], "jump", takeoff,
-                            ((takeoff[0] + end[0]) / 2, peak), end)
+                        add(a["id"], b["id"], "jump", takeoff, _apex(takeoff, end), end)
                 elif rise <= -LEVEL_PX and gap <= FALL_GAP_PX:
                     end = _landing(b, takeoff, side, edge)
                     if end is not None and _below(platforms, end[0], launch[1]) is b:
-                        add(a["id"], b["id"], "jump", takeoff, (end[0], takeoff[1] - 30),
-                            end)
+                        add(a["id"], b["id"], "jump", takeoff, _apex(takeoff, end), end)
         for b in platforms:
             if b is a:
                 continue
@@ -166,8 +175,7 @@ def generate(profile: dict) -> list[Move]:
                     rise = launch[1] - landing[1]
                     if (LEVEL_PX < rise <= JUMP_RISE_PX
                             and abs(landing[0] - launch[0]) <= _reach(rise)):
-                        add(a["id"], b["id"], "jump", launch,
-                            ((launch[0] + landing[0]) / 2, landing[1] - 40), landing)
+                        add(a["id"], b["id"], "jump", launch, _apex(launch, landing), landing)
             lo, hi = max(a_left, span(b)[0]), min(a_right, span(b)[1])
             if hi - lo < 2 * INSET_PX:
                 continue
@@ -188,7 +196,7 @@ def generate(profile: dict) -> list[Move]:
                 if rise < -LEVEL_PX and _below(platforms, x, launch[1]) is b:
                     add(a["id"], b["id"], "drop", launch, landing)
                 elif LEVEL_PX < rise <= JUMP_RISE_PX and _below(platforms, x, landing[1]) is a:
-                    add(a["id"], b["id"], "jump", launch, (x, landing[1] - 30), landing)
+                    add(a["id"], b["id"], "jump", launch, _apex(launch, landing), landing)
                 else:
                     continue
                 break

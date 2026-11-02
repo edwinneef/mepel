@@ -98,3 +98,16 @@ def test_reach_matches_the_jump_peak_and_the_proven_jump():
     assert _reach(JUMP_RISE_PX + 3) == 0  # above the 77 px peak
     assert 56 <= _reach(60) <= 64  # m_fh308_fh315 rose 60 px and covered 56-64 px
     assert _reach(-100) > _reach(0) > _reach(60)
+
+
+def test_jump_traces_peak_where_a_jump_from_rest_peaks():
+    # Live (Tree Dungeon, batch 4): the jump down fh320 -> fh315 rose to 80 px above its
+    # launch; a trace peaking 30 px up left that apex 66 px outside the 64 px corridor.
+    from maplebot.navigation_executor import distance
+
+    profile = {"platforms": [flat("src", 600, 850, 1027), flat("dst", 794, 965, 973)],
+               "ropes": []}
+    down = {(m.source, m.target): m for m in generate(profile)}[("dst", "src")]
+    apex = down.trace[1]
+    assert down.trace[0][1] - apex[1] == 77
+    assert distance((down.trace[0][0] - 20, down.trace[0][1] - 80), down.trace) < 64
