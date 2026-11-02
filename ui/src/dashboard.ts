@@ -8,6 +8,7 @@ export class DashboardSession {
   private closed = false;
   private denied = false;
   private denialReason = '';
+  private closeReason = '';
   private pending: Promise<void> = Promise.resolve();
   private renewing = false;
   private listeners = new Set<(event: OverlayEvent) => void>();
@@ -18,7 +19,7 @@ export class DashboardSession {
 
   get disconnected() { return this.closed || this.denied; }
   get connectionIssue() {
-    return this.denialReason || 'The dashboard control connection ended. The game picture can still update while controls are disconnected.';
+    return this.denialReason || `The dashboard control connection ended${this.closeReason ? `: ${this.closeReason}` : ''}. The game picture can still update while controls are disconnected.`;
   }
 
   subscribe = (listener: (event: OverlayEvent) => void) => {
@@ -73,9 +74,10 @@ export class DashboardSession {
   };
   quit = async () => { this.disconnect(); this.emit({ type: 'off' }); };
 
-  disconnect = () => {
+  disconnect = (reason: unknown = 'page unloaded or dashboard closed') => {
     if (this.closed) return;
     this.closed = true;
+    this.closeReason = typeof reason === 'string' ? reason : 'page hidden or closed';
     // keepalive helps on page exit; server-side expiry covers crashes and lost networks.
     void this.fetcher('/api/dashboard_disconnect', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Token': this.token },
@@ -89,15 +91,19 @@ export class DashboardSession {
     const unsubscribe = client.subscribe(() => {
       const state = client.getState();
       if (state.connected) connected = true;
-      if (connected && (!state.connected || state.needsReload)) this.disconnect();
+      if (connected && (!state.connected || state.needsReload)) {
+        this.disconnect(state.needsReload ? 'the engine started a new session' : `engine status stopped answering (${state.error || 'no reason given'})`);
+      }
     });
-    window.addEventListener('pagehide', this.disconnect);
-    window.addEventListener('offline', this.disconnect);
+    const onPageHide = () => this.disconnect('the page was hidden or closed');
+    const onOffline = () => this.disconnect('the browser went offline');
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('offline', onOffline);
     return () => {
       unsubscribe();
-      window.removeEventListener('pagehide', this.disconnect);
-      window.removeEventListener('offline', this.disconnect);
-      this.disconnect();
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('offline', onOffline);
+      this.disconnect('the dashboard was closed or reloaded');
     };
   }
 }
