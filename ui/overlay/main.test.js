@@ -80,34 +80,12 @@ it('starts Off with settings closed and click-through without activating the ove
   expect(win.webContents.send).toHaveBeenCalledWith('overlay-event', { type: 'panel', value: false });
 });
 
-it('registers Stop, Start/Stop and drawings, relaying F6 and F9 to a connected dashboard', async () => {
-  try {
-    const { shortcuts, win, intervals, requests, electron } = await startOverlay();
-    expect([...shortcuts.keys()]).toEqual(['F8', 'F6', 'F9']);
-    electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: win.webContents });
-    await intervals[0]();  // the dashboard holds controls
-    engineStatus = { display: { enemies: false, range: true, lines: false } };
-    await intervals[0]();
-    expect(win.webContents.send).toHaveBeenCalledWith('overlay-event',
-      { type: 'display', value: { enemies: false, range: true, lines: false } });
-    shortcuts.get('F6')();
-    shortcuts.get('F9')();
-    expect(win.webContents.send).not.toHaveBeenCalledWith('overlay-event', { type: 'layers', value: undefined });
-    await intervals[0]();
-    expect(requests.at(-1).body.keys).toEqual({ start_stop: 1, drawings: 1 });
-    expect(win.webContents.send).toHaveBeenCalledWith('overlay-event', { type: 'hotkey', value: 'F9 · drawings' });
-  } finally { engineStatus = {}; }
-});
-
-it('without a dashboard, F9 toggles drawings here and F6 is not counted for later', async () => {
-  const { shortcuts, win, intervals, requests, electron } = await startOverlay(false);
-  electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: win.webContents });
-  await intervals[0]();
-  shortcuts.get('F6')();
-  shortcuts.get('F9')();
-  expect(win.webContents.send).toHaveBeenCalledWith('overlay-event', { type: 'layers', value: undefined });
-  await intervals[0]();
-  expect(requests.at(-1).body.keys).toEqual({ start_stop: 0, drawings: 0 });
+it('registers only the emergency Stop shortcut; the engine reads F6 and F9 itself', async () => {
+  const { shortcuts, win, requests } = await startOverlay();
+  expect([...shortcuts.keys()]).toEqual(['F8']);
+  shortcuts.get('F8')();
+  expect(requests.at(-1).url).toBe('http://127.0.0.1:8765/api/stop');
+  expect(win.webContents.send).toHaveBeenLastCalledWith('overlay-event', { type: 'off', value: undefined });
 });
 
 it('raises the visible overlay above the game again each time the game regains focus', async () => {
@@ -234,13 +212,13 @@ it('runs a dashboard batch request from the companion heartbeat once, through th
   } finally { engineStatus = {}; }
 });
 
-it('registers the engine’s configured stop and drawings keys', async () => {
+it('registers the engine’s configured stop key', async () => {
   try {
     engineStatus = { key_settings: { active: { emergency_key: 'f10', drawings: 'f11' } } };
     const { shortcuts } = await startOverlay();
-    expect([...shortcuts.keys()].sort()).toEqual(['F10', 'F11', 'F6']);
+    expect([...shortcuts.keys()]).toEqual(['F10']);
     engineStatus = { key_settings: { active: { emergency_key: 'ctrl' } } };  // never a non F-key
     const second = await startOverlay();
-    expect([...second.shortcuts.keys()].sort()).toEqual(['F6', 'F8', 'F9']);
+    expect([...second.shortcuts.keys()]).toEqual(['F8']);
   } finally { engineStatus = {}; }
 });

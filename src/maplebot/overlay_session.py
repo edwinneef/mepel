@@ -47,7 +47,6 @@ def batch_report(value):
 
 
 DISPLAY_LAYERS = ("enemies", "range", "lines")
-OVERLAY_KEYS = ("start_stop", "drawings")
 
 
 def display_settings(value):
@@ -55,14 +54,6 @@ def display_settings(value):
     if not isinstance(value, dict) or any(type(value.get(name)) is not bool for name in DISPLAY_LAYERS):
         return None
     return {name: value[name] for name in DISPLAY_LAYERS}
-
-
-def key_counts(value):
-    """Hotkey press counters from the in-game overlay, or None when invalid."""
-    if not isinstance(value, dict) or any(type(value.get(name)) is not int or not 0 <= value[name] < 2 ** 31
-                                          for name in OVERLAY_KEYS):
-        return None
-    return {name: value[name] for name in OVERLAY_KEYS}
 
 
 class OverlaySession:
@@ -78,10 +69,8 @@ class OverlaySession:
         self.worker = None
         self.close_requested = False
         self.companions = {}
-        # The dashboard's drawing toggles, shown in game too, and the in-game overlay's hotkey
-        # press counters, which the dashboard acts on as if its own key had been pressed.
+        # The dashboard's drawing toggles, shown in game too.
         self.display = None
-        self.overlay_keys = {name: 0 for name in OVERLAY_KEYS}
         # One dashboard batch request waits here until the in-game overlay takes it. The host runs
         # it through its own guarded batch launcher; this lease never starts input itself.
         self.batch_pending = None
@@ -100,8 +89,6 @@ class OverlaySession:
             self._start_watch()
             if (report := batch_report(payload.get("batch"))) is not None:
                 self.batch_state = report
-            if (counts := key_counts(payload.get("keys"))) is not None:
-                self.overlay_keys = counts
             ack = payload.get("batch_ack")
             pending = self.batch_pending
             if isinstance(ack, dict) and pending and ack.get("id") == pending["id"]:
@@ -158,7 +145,7 @@ class OverlaySession:
         with self.lock:
             if (display := display_settings(payload.get("display"))) is not None:
                 self.display = display
-            return {**result, "overlay_keys": dict(self.overlay_keys)}
+            return result
 
     def _heartbeat(self, payload, surface):
         owner = payload.get("owner")

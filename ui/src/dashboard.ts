@@ -46,7 +46,6 @@ export class DashboardSession {
       this.panel = panel;
       this.emit({ type: 'panel', value: panel });
       if (result.batch) this.emit({ type: 'batch', value: result.batch });
-      if (result.overlay_keys) this.emit({ type: 'overlay-keys', value: result.overlay_keys });
     });
     this.pending = request;
     return request;

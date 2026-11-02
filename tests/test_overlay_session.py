@@ -258,19 +258,13 @@ def test_widget_refusal_of_a_dashboard_batch_is_reported_and_clears_the_request(
     assert "Widget renderer is not fresh" in lease.batch_status()["output"]
 
 
-def test_dashboard_toggles_reach_the_overlay_and_overlay_hotkeys_reach_the_dashboard():
+def test_dashboard_drawing_toggles_reach_the_overlay():
     lease, _, _, _ = fixture()
     dashboard = {"owner": "d" * 32, "panel": False}
     # No dashboard: the overlay gets no toggles and keeps its own.
     assert lease.companion_heartbeat({"owner": "w" * 32})["display"] is None
     display = {"enemies": False, "range": True, "lines": False}
-    assert lease.dashboard_heartbeat({**dashboard, "display": display})["overlay_keys"] == {
-        "start_stop": 0, "drawings": 0}
-    reply = lease.companion_heartbeat({"owner": "w" * 32, "keys": {"start_stop": 2, "drawings": 1}})
-    assert reply["display"] == display
-    assert lease.dashboard_heartbeat(dashboard)["overlay_keys"] == {"start_stop": 2, "drawings": 1}
-    # Invalid payloads change nothing.
-    lease.dashboard_heartbeat({**dashboard, "display": {"enemies": "no"}})
-    lease.companion_heartbeat({"owner": "w" * 32, "keys": {"start_stop": -1, "drawings": 1}})
+    lease.dashboard_heartbeat({**dashboard, "display": display})
     assert lease.companion_heartbeat({"owner": "w" * 32})["display"] == display
-    assert lease.dashboard_heartbeat(dashboard)["overlay_keys"] == {"start_stop": 2, "drawings": 1}
+    lease.dashboard_heartbeat({**dashboard, "display": {"enemies": "no"}})  # invalid: unchanged
+    assert lease.companion_heartbeat({"owner": "w" * 32})["display"] == display

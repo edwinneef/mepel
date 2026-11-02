@@ -64,9 +64,11 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const dataKey = useRef('');
   const dataRetryAfter = useRef(0);
   const currentToggle = useRef<() => void>(() => {});
-  // In-game hotkey presses the dashboard has already seen, and the overlay's brief key confirmation.
-  const seenKeys = useRef<Record<'start_stop' | 'drawings', number> | null>(null);
+  // Hotkey press counts already acted on (the engine counts them), the overlay's brief key
+  // confirmation, and whether a dashboard holds controls (it then owns the drawing toggles).
+  const seenKeys = useRef<{ counts: Record<string, number>; session: string } | null>(null);
   const [flash, setFlash] = useState<{ text: string; at: number } | null>(null);
+  const [controllerReady, setControllerReady] = useState(false);
   const view = useViewport(client, s, state.connected && (panel || Boolean(dashboard)), Boolean(dashboard && layers));
   const running = isRunning(s);
   // Status can arrive between timer ticks; don't compare a new frame against
@@ -136,16 +138,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
         const display = event.value as { enemies: boolean; range: boolean; lines: boolean };
         setLayers(display.enemies); setAttackRange(display.range); setTerrain(display.lines);
       }
-      if (event.type === 'hotkey') setFlash({ text: String(event.value), at: Date.now() });
-      // Dashboard: F6 and F9 pressed in game act as if pressed here. Counters restart with
-      // the overlay, so only an increase over the last reading counts.
-      if (event.type === 'overlay-keys') {
-        const keys = event.value as Record<'start_stop' | 'drawings', number>;
-        const seen = seenKeys.current;
-        seenKeys.current = keys;
-        if (seen && keys.start_stop > seen.start_stop) currentToggle.current();
-        if (seen && keys.drawings > seen.drawings) setLayers(value => !value);
-      }
+      if (event.type === 'controller') setControllerReady(event.value === true);
     });
     return () => { clearInterval(timer); unsub?.(); };
   }, [client, host]);
@@ -247,6 +240,33 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     && drawing && drawing.frame.source_id === analyzed.frame.source_id
     && analyzed.frame.source_id === s.frame.source_id && analyzed.frame.source_id === view.image.sourceId
     && analyzed.frame.id === view.image.key ? analyzed : null;
+  // Hotkeys pressed with the game in front, as counted by the engine. The dashboard acts on
+  // Start/Stop and drawings; the in-game overlay confirms each key, and toggles drawings
+  // itself only when no dashboard holds controls. Counts restart with the engine session,
+  // so only an increase over the last reading of the same session counts.
+  const hotkeys = s?.hotkeys;
+  const hotkeyKey = hotkeys ? `${s?.session_id}:${hotkeys.start_stop}:${hotkeys.drawings}:${hotkeys.stop}` : '';
+  useEffect(() => {
+    if (!hotkeys) return;
+    const seen = seenKeys.current;
+    seenKeys.current = { counts: hotkeys, session: s?.session_id ?? '' };
+    // The first reading, or one from a new engine session, is only the baseline.
+    if (!seen || seen.session !== (s?.session_id ?? '')) return;
+    const pressed = (name: string) => (hotkeys[name] ?? 0) > (seen.counts[name] ?? 0);
+    const keyName = (name: string) => String(s?.key_settings?.active[name] ?? '').toUpperCase();
+    if (dashboard) {
+      if (pressed('start_stop')) currentToggle.current();
+      if (pressed('drawings')) setLayers(value => !value);
+      return;
+    }
+    if (pressed('drawings') && !controllerReady) setLayers(value => !value);
+    const text = pressed('stop') ? `${keyName('emergency_key')} · Stop sent`
+      : pressed('start_stop') ? controllerReady ? `${keyName('start_stop')} · Start/Stop sent to the dashboard`
+        : `${keyName('start_stop')} · open the browser dashboard to start; ${keyName('emergency_key')} still stops`
+      : pressed('drawings') ? `${keyName('drawings')} · drawings` : null;
+    if (text) setFlash({ text, at: Date.now() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotkeyKey]);
   useEffect(() => dashboard?.setDisplay({ enemies: layers, range: attackRange, lines: terrain }),
     [dashboard, layers, attackRange, terrain]);
   // The dashboard preview draws like the game: outlines only (compact), each layer on its own toggle.

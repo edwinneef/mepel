@@ -13,8 +13,6 @@ let session = null, lastBounds = '', transition = false, batch = null;
 let controllerReady = false, gameFocused = false;
 // Dashboard starts arrive through the companion heartbeat; each runs once through startBatch.
 let batchReport = { running: false }, batchAck = null, handledRequest = null;
-// F6 and F9 presses in game, counted for the dashboard, which acts on them like its own keys.
-const keyCounts = { start_stop: 0, drawings: 0 };
 // The overlay is click-through except while the cursor is over its settings panel.
 // The window is never focusable, so a click leaves the game focused.
 let hovering = false, takingMouse = false;
@@ -45,9 +43,10 @@ async function post(route, body) {
   return value;
 }
 const stop = () => post('stop', {}).catch(() => {});
-/** Electron accelerators for the engine's active stop, start/stop and drawings keys (F1-F12). */
+/** Electron accelerator for the engine's active stop key (F1-F12). F6 and F9 never reached
+ * these system-wide hotkeys with MapleStory in front; the engine reads those keys itself. */
 async function activeKeys() {
-  const fallback = { emergency_key: 'F8', start_stop: 'F6', drawings: 'F9' };
+  const fallback = { emergency_key: 'F8' };
   try {
     const response = await fetch(`${base}/api/v1/status`, { signal: AbortSignal.timeout(1500) });
     const active = (await response.json())?.key_settings?.active ?? {};
@@ -62,7 +61,7 @@ const reportBatch = value => { batchReport = value; send('batch', value); };
 const heartbeat = async open => {
   const ack = batchAck;
   const state = await post('overlay_companion', { owner, panel: open,
-    hwnd: Number(win.getNativeWindowHandle().readBigUInt64LE()), batch: batchReport, keys: keyCounts,
+    hwnd: Number(win.getNativeWindowHandle().readBigUInt64LE()), batch: batchReport,
     ...(ack ? { batch_ack: ack } : {}) });
   if (ack && batchAck === ack) batchAck = null;
   controllerReady = state.controller_ready === true;
@@ -282,18 +281,7 @@ else app.whenReady().then(async () => {
     for (const [key, action] of [
       // Always deliver the key. The renderer reports blockers and the engine
       // retains its authoritative focus/input gates. Off must never be ignored.
-      [keys.emergency_key, () => { void stop(); send('off'); send('hotkey', `${keys.emergency_key} · Stop sent`); }],
-      [keys.start_stop, () => {
-        // Counted only while a dashboard holds controls, so a press never fires later.
-        if (controllerReady) keyCounts.start_stop += 1;
-        send('hotkey', controllerReady ? `${keys.start_stop} · Start/Stop sent to the dashboard`
-          : `${keys.start_stop} · open the browser dashboard to start; ${keys.emergency_key} still stops`);
-      }],
-      [keys.drawings, () => {
-        // With a dashboard, it owns the toggles and sends them back; without one, toggle here.
-        if (controllerReady) keyCounts.drawings += 1; else send('layers');
-        send('hotkey', `${keys.drawings} · drawings`);
-      }],
+      [keys.emergency_key, () => { void stop(); send('off'); }],
     ]) if (!globalShortcut.register(key, action)) throw new Error(`${key} is already registered by another app`);
     setInterval(poll, 300);
   } catch (error) {

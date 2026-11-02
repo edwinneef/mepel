@@ -230,13 +230,10 @@ it('starts One platform through the in-game overlay and explains a refusal', asy
   expect(requests.some(r => ['arm', 'dry_run'].includes(String(r.body.name)))).toBe(false);
 });
 
-it('sends its drawing toggles with each heartbeat and relays in-game hotkey presses', async () => {
-  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json({ connected: true, overlay_keys: { start_stop: 1, drawings: 0 } }));
+it('sends its drawing toggles with each heartbeat', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json({ connected: true }));
   const dashboard = new DashboardSession('token', fetcher);
-  const events: { type: string; value?: unknown }[] = [];
-  dashboard.subscribe(event => events.push(event));
   dashboard.setDisplay({ enemies: false, range: true, lines: true });
   await dashboard.settings(false);
   expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).display).toEqual({ enemies: false, range: true, lines: true });
-  expect(events).toContainEqual({ type: 'overlay-keys', value: { start_stop: 1, drawings: 0 } });
 });

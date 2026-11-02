@@ -127,6 +127,8 @@ export interface Snapshot {
   area_editing?: boolean; position?: LivePosition | null; sustain?: string[];
   navigation?: NavigationStatus;
   /** Keys saved in config.toml (saved) and in use by this engine (active); they differ until a restart. */
+  /** Hotkey presses the engine counted with the game in front (start_stop, drawings, stop). */
+  hotkeys?: Record<string, number>;
   key_settings?: { active: Record<string, string | number>; saved: Record<string, string | number>;
     restart_required: boolean; editable: boolean; supported: string[] };
 }

@@ -197,6 +197,9 @@ class Windows:
                     return False
         return True
 
+    def foreground(self, hwnd: int) -> bool:
+        return self.api.GetForegroundWindow() == hwnd
+
     def pressed(self, virtual_key: int) -> bool:
         return bool(self.api.GetAsyncKeyState(virtual_key) & 0x8000)
 

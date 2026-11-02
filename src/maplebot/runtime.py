@@ -18,6 +18,7 @@ import cv2
 import numpy as np
 
 from . import key_settings
+from .hotkeys import HotkeyCounter
 from .alarm import AlarmManager
 from .attack_ranges import RangeStore, range_options, range_profile
 from .autopotter import BarReading, PotionMonitor
@@ -280,6 +281,11 @@ class Application:
         self.closed = threading.Event()
         self.frame_ready = threading.Event()
         self.stop_requested = threading.Event()
+        # Bot hotkeys read from the keyboard state; see hotkeys.py.
+        self.hotkeys = HotkeyCounter({"start_stop": KEYS[config.hotkeys.start_stop],
+                                      "drawings": KEYS[config.hotkeys.drawings],
+                                      "stop": KEYS[config.input.emergency_key]})
+        self.hotkey_worker: threading.Thread | None = None
         self.mp_percent: float | None = None
         self.worker: threading.Thread | None = None
         self.latest: bytes | None = None
@@ -608,6 +614,7 @@ class Application:
                 "input_setup_blocker": self._input_setup_block_reason(),
                 "bindings": asdict(self.config.input),
                 "key_settings": self._key_settings_snapshot(),
+                "hotkeys": self.hotkeys.snapshot(),
                 "combat_evidence": self.combat_evidence.snapshot(),
                 "attack_setup": {
                     "minimum_px": self.config.agent.attack_min_range,
@@ -1231,7 +1238,30 @@ class Application:
                 return False
             self.worker = threading.Thread(target=self._run, name="capture", daemon=True)
             self.worker.start()
+            if self.hotkey_worker is None:
+                self.hotkey_worker = threading.Thread(target=self._poll_hotkeys, name="hotkeys",
+                                                      daemon=True)
+                self.hotkey_worker.start()
             return True
+
+    def _poll_hotkeys(self) -> None:
+        """Count hotkey presses about 30 times a second; reads only, sends no input.
+
+        Start/stop and drawings count only with the attached game in front, so a key typed
+        in another app never starts the bot. The stop key always counts, and stops any
+        running work at once, as the key sender's own stop-key check does during input.
+        """
+        while not self.closed.wait(0.03):
+            try:
+                window = self.window
+                focused = bool(window) and self.windows.foreground(window.hwnd)
+                fired = self.hotkeys.update(self.windows.pressed,
+                                            lambda name: name == "stop" or focused)
+            except Exception:  # A missing or closing window: try again next tick.
+                continue
+            if "stop" in fired and self.mode != "capture":
+                self.stop_requested.set()
+                self.safe_stop("OPERATOR_STOP", "Stop key pressed")
 
     def restart_capture(self) -> dict[str, object]:
         with self.stop_lock:

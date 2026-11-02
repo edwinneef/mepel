@@ -377,3 +377,32 @@ it('recovers platform names after a failed map load without cycling Map', async 
 });
 
 
+
+it('acts on hotkeys the engine counted in game: confirms each and toggles drawings without a dashboard', async () => {
+  const current = snapshot({ monsters: [{ kind: 'monster', box: { x: 150, y: 200, width: 30, height: 30 },
+    confidence: 1, template: 'enemy', tracked: false }],
+    hotkeys: { start_stop: 0, drawings: 0, stop: 0 },
+    key_settings: { active: { emergency_key: 'f8', start_stop: 'f6', drawings: 'f9' }, saved: {}, restart_required: false } } as never);
+  let frames = 0;
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
+    if (url === '/api/v1/status') return json(current);
+    if (url === '/api/v1/drawings') return json({ display: true,
+      frame: { ...current.frame, id: `display:${++frames}`, captured_at: Date.now() / 1000,
+        source_id: `${current.session_id}:source:1` }, player: current.player,
+      monsters: current.monsters, target: current.target });
+    return json({ areas: [] });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(),
+    subscribe: callback => {
+      callback({ type: 'game-bounds', value: { x: 0, y: 0, width: 1024, height: 768, visible: true } });
+      return () => {};
+    } };
+  render(<OverlayApp client={new OverlayClient('token', fetcher)} outlinesOnly />);
+  await waitFor(() => expect(screen.getByLabelText('Detection boxes')).toBeTruthy());
+  Object.assign(current, { hotkeys: { start_stop: 0, drawings: 1, stop: 0 } });
+  expect(await screen.findByText('F9 · drawings')).toBeTruthy();
+  await waitFor(() => expect(screen.queryByLabelText('Detection boxes')).toBeNull());
+  Object.assign(current, { hotkeys: { start_stop: 1, drawings: 1, stop: 0 } });
+  expect(await screen.findByText('F6 · open the browser dashboard to start; F8 still stops')).toBeTruthy();
+});
