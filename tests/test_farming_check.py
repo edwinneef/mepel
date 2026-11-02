@@ -253,20 +253,21 @@ def test_rotation_preflight_refuses_stale_or_disconnected_origin_without_command
             return status
 
     api = Blocked()
-    with pytest.raises(RuntimeError, match="fresh mapped|No proven rotation route"):
+    with pytest.raises(RuntimeError, match="fresh mapped|No rotation route"):
         run(api, tmp_path / "run", area="island")
     assert api.calls == []
 
 
-def test_rotation_connectivity_does_not_use_unproven_edges_or_loop_as_destination():
+def test_rotation_connectivity_uses_computed_edges_but_not_unrotatable_platforms():
+    # Operator rule (2026-11-02): computed moves count; a platform the engine marks as
+    # outside the rotation round trip is still no destination.
     status = Api().status()
     graph = status["navigation"]["map"]
     graph["nodes"].append({"id": "upper", "kind": "platform", "unproven": True})
-    graph["edges"] = [{"from": "a", "to": "upper", "proven": True},
-                      {"from": "upper", "to": "a", "proven": True},
-                      {"from": "upper", "to": "b", "proven": False}]
-    assert "No proven rotation route" in rotation_blocker(status)
-    graph["edges"][-1]["proven"] = True
+    graph["edges"] = [{"from": "a", "to": "upper", "proven": False},
+                      {"from": "upper", "to": "a", "proven": False}]
+    assert "No rotation route" in rotation_blocker(status)
+    graph["edges"].append({"from": "upper", "to": "b", "proven": False})
     assert rotation_blocker(status) is None
 
 
@@ -302,15 +303,15 @@ def test_enemy_ready_snapshot_is_followed_by_arm(tmp_path):
     assert api.calls[-1][0] == "stop"
 
 
-def test_learn_moves_accepts_one_unproven_move_and_requests_it_from_the_engine(tmp_path):
+def test_learn_moves_is_accepted_and_changes_nothing(tmp_path):
     status = Api().status()
     graph = status["navigation"]["map"]
     graph["edges"] = [{"from": "a", "to": "b", "proven": False}]
-    assert "No proven rotation route" in rotation_blocker(status)
+    assert rotation_blocker(status) is None  # a computed move suffices
     assert rotation_blocker(status, learn_moves=True) is None
     graph["edges"] = [{"from": "a", "to": "a", "proven": False},
                       {"from": "b", "to": "a", "proven": False}]
-    assert "No proven rotation route" in rotation_blocker(status, learn_moves=True)
+    assert "No rotation route" in rotation_blocker(status, learn_moves=True)
 
     class Unproven(Api):
         def status(self):

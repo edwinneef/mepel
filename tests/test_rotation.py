@@ -1,5 +1,4 @@
 import time
-from dataclasses import replace
 
 import pytest
 from test_keyboard import controller as _controller
@@ -11,7 +10,7 @@ from maplebot.geometry import Rect
 from maplebot.navigation import RouteMap
 from maplebot.navigation_executor import Feedback
 from maplebot.perception import Detection, Observation
-from maplebot.rotation import Rotation, routable, unproven_neighbours, visible_by_surface
+from maplebot.rotation import Rotation, routable, visible_by_surface
 
 app, controller = _app, _controller
 PLAYER = Detection("player", Rect(500, 300, 40, 60), .95)
@@ -160,71 +159,24 @@ def test_destinations_beyond_the_route_budget_are_never_chosen(app, monkeypatch)
     assert app.mode == "live" and "No other routable platform" in app.rotation.reason
 
 
-def test_unproven_neighbours_are_one_move_platforms_outside_the_round_trip_map():
-    profile, evidence = fixture()
-    assert unproven_neighbours(RouteMap(profile, evidence, proven=set()), "floor") == {
-        "ledge": ("up",)}
-    assert unproven_neighbours(RouteMap(profile, evidence), "floor") == {}
-
-
-def test_unproven_neighbours_skip_falls_that_leave_the_visible_play_area():
-    profile, evidence = fixture()
-    graph = RouteMap(profile, evidence, proven=set())
-    up = graph.edges["up"]
-    # Launch at y=400; a trace dipping 100 px is still tried, 101 px is not.
-    graph.edges["up"] = replace(up, trace=((150, 400), (180, 500), (280, 300)))
-    assert unproven_neighbours(graph, "floor") == {"ledge": ("up",)}
-    graph.edges["up"] = replace(up, trace=((150, 400), (180, 501), (280, 300)))
-    assert unproven_neighbours(graph, "floor") == {}
-
-
-def test_a_clear_platform_tries_an_unproven_neighbour_without_routable_platforms():
-    rotation = Rotation(1)
-    explore = {"b": ("a-to-b",)}
-    assert rotation.step(0, searching=True, surface="a", platforms=["a"], visible={},
-                         explore=explore) is None
-    assert rotation.step(1, searching=True, surface="a", platforms=["a"], visible={},
-                         explore=explore) == "b"
-    assert "trying a new move to b" in rotation.reason
-
-
-def learning(app, enabled):
+def unproven(app):
     nav = preview(app)
     profile, evidence = fixture()
     nav.graph = RouteMap(profile, evidence, proven=set())
     nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (150, 400),
                             "floor", True)
-    app.learning_moves = enabled
     app.controller.enable()
     return nav
 
 
-def test_learning_farm_tries_one_unproven_move_with_proven_only_replans(app):
-    nav = learning(app, True)
+def test_rotation_uses_an_unproven_computed_move_without_learning_mode(app):
+    # Operator rule (2026-11-02): proofs record successes; they no longer gate rotation.
+    nav = unproven(app)
     now = time.perf_counter()
     assert app._rotate(SEARCH, Observation(PLAYER, []), now) is None
-    assert "trying a new move to ledge" in app._rotate(SEARCH, Observation(PLAYER, []), now + 1)
+    assert "moving to ledge" in app._rotate(SEARCH, Observation(PLAYER, []), now + 1)
     assert app.mode == "navigation" and nav.resume_combat
     assert [edge.id for edge in nav.route.edges] == ["up"] and nav.agent.trusted_only
-
-
-def test_without_learning_an_unproven_move_is_never_tried(app):
-    nav = learning(app, False)
-    now = time.perf_counter()
-    app._rotate(SEARCH, Observation(PLAYER, []), now)
-    assert app._rotate(SEARCH, Observation(PLAYER, []), now + 1) is None
-    assert app.mode == "live" and nav.agent is None
-
-
-def test_a_stranded_platform_explores_unproven_moves_back_into_the_round_trip_map():
-    # Live (Tree Dungeon): after proving fh315 -> fh320, fh320 had no proven way back and
-    # its only short move led to fh315, already in the map; rotation stood idle.
-    profile, evidence = fixture()
-    graph = RouteMap(profile, evidence, proven={"up"})
-    assert "ledge" not in routable(graph)  # one-way: the ledge has no proven way back
-    assert unproven_neighbours(graph, "ledge") == {"floor": ("back",)}
-    both = RouteMap(profile, evidence, proven={"up", "back"})
-    assert unproven_neighbours(both, "ledge") == {}  # inside the map: only new platforms
 
 
 def rope_map():
@@ -239,32 +191,34 @@ def rope_map():
             "public_map": {"id": 1, "sha256": "c" * 64, "world": {"x": [1, 0], "y": [1, 0]}}}
 
 
-def test_learning_climbs_a_rope_to_reach_a_platform_it_cannot_jump_to():
+def test_rotation_climbs_a_rope_to_reach_a_platform_it_cannot_jump_to():
     graph = RouteMap.computed(rope_map())
-    assert unproven_neighbours(graph, "floor")["top"] == ("m_floor_rope", "m_rope_top")
-    proven = RouteMap.computed(rope_map(), {"m_floor_rope", "m_rope_top"})
-    assert "top" not in unproven_neighbours(proven, "floor")  # nothing left to prove
+    assert routable(graph) == ["floor", "top"]  # computed climbs, no proof needed
+    route = graph.plan("floor", "top", trusted_only=True)
+    assert [e.kind for e in route.edges] == ["climb", "climb"]
+    # The 300 px drop back is unproven and falls out of camera: rotation climbs down.
+    assert [e.kind for e in graph.plan("top", "floor", trusted_only=True).edges] == [
+        "climb", "climb"]
 
 
-def test_an_explored_rope_path_runs_exactly_those_moves(app):
+def test_a_rotation_handoff_plans_the_rope_path_itself(app):
     nav = app.navigation
     nav.graph = RouteMap.computed(rope_map())
     nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (500, 600),
                             "floor", True)
     app.probed.update({"left", "right", "jump", "up", "down"})
     app.mode = "live"
-    path = ("m_floor_rope", "m_rope_top")
-    assert nav.handoff("top", time.perf_counter(), explore=path) is None
-    assert [e.id for e in nav.route.edges] == list(path) and nav.exploring == path
-    assert "do not lead" in nav.handoff("floor", time.perf_counter(), explore=path)
+    assert nav.handoff("top", time.perf_counter()) is None
+    assert [e.id for e in nav.route.edges] == ["m_floor_rope", "m_rope_top"]
 
 
 def test_a_farming_batch_with_nothing_left_to_do_stops_cleanly(app):
     from maplebot.farming import Farming
 
     profile, evidence = fixture()
+    evidence["edges"]["back"]["trace"] = [[280, 300], [150, 401]]  # an unproven 101 px fall
     nav = app.navigation
-    nav.graph = RouteMap(profile, evidence, proven={"up"})  # ledge: no proven way back
+    nav.graph = RouteMap(profile, evidence, proven=set())  # ledge: no way back for rotation
     nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (300, 300),
                             "ledge", True)
     app.mode, app.rotating, app.rotation = "live", True, Rotation(1)

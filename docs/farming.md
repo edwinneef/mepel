@@ -73,7 +73,9 @@ open and hand control back immediately; inspect the clip before any changed reru
 In the browser workbench, select **Farming (pet potions)** in Run mode.
 The pet supplies HP and MP potions; farming never sends either potion key.
 Calibrate both bars, track the current map and retain all existing input probes.
-Rotation requires at least two platforms connected by proven round-trip routes.
+Rotation requires at least two platforms connected by computed round-trip moves.
+Proofs are recorded as moves succeed and are not required first (operator rule,
+2026-11-02); an unproven move falling more than 100 px stays out of rotation.
 
 Defaults: 15 minutes per session; 50% HP and MP triggers. These are configurable.
 Five seconds continuously at or below either trigger stops with “recovery failed”.

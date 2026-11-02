@@ -13,6 +13,15 @@ import numpy as np
 from .moves import Move, generate
 
 FLOOR_PX = 8  # platforms this close to the lowest height are the same floor level
+# Standing feet sit about 115 px above the chat box. On Tree Dungeon (2026-11-02) a 323 px
+# drop fell behind it before the camera followed, so recognition lost the player mid-fall.
+# Rotation leaves unproven moves that fall farther than this to supervised routes.
+MAX_AUTONOMOUS_FALL_PX = 100
+
+
+def fall(trace) -> float:
+    """How far below its launch a move's trace dips."""
+    return max(y for _, y in trace) - trace[0][1]
 
 
 def surface_y(platform: dict, x: float) -> float:
@@ -145,8 +154,9 @@ class RouteMap:
                  proven: set[str] | None = None) -> None:
         """Edges from recorded or computed evidence for `links` (default: the saved links).
 
-        `proven` names the edges trusted without supervision; None trusts every usable
-        edge, as recorded teaching evidence always was.
+        `proven` names the edges that have succeeded live; None counts every usable edge,
+        as recorded teaching evidence always was. Operator rule (2026-11-02): proofs no
+        longer gate rotation; they record successes and bound repeated misses.
         """
         profile = copy.deepcopy(profile)
         self.profile = profile
@@ -200,10 +210,14 @@ class RouteMap:
                 self.disabled[key] = "No evidenced round-trip route through this surface"
                 del self.edges[key]
         self.proven = set(self.edges) if proven is None else set(self.edges) & set(proven)
+        # Rotation may use any usable computed edge. The one exception is perception, not
+        # proof: an unproven move that falls farther than the camera follows is left to
+        # supervised routes.
+        self.autonomous = {k for k, e in self.edges.items()
+                           if k in self.proven or fall(e.trace) <= MAX_AUTONOMOUS_FALL_PX}
         trusted = [{"from": e.source, "to": e.target} for k, e in self.edges.items()
-                   if k in self.proven]
+                   if k in self.autonomous]
         safe = problems(profile["platforms"], profile["ropes"], trusted)
-        # Unsupervised movement (rotation) may only use proven edges and their surfaces.
         self.trusted_excluded = self.excluded | set(safe["unreachable"] + safe["stranded"])
 
     @classmethod
@@ -258,12 +272,14 @@ class RouteMap:
 
     def plan(self, origin: str, target: str, *, max_edges: int = 8,
              trusted_only: bool = False, origin_feet: tuple | None = None) -> Route:
+        """With `trusted_only`, a rotation route: over `autonomous` edges, so an unproven
+        move that falls farther than the camera follows is left out."""
         excluded = self.trusted_excluded if trusted_only else self.excluded
-        # A trusted route may leave a one-way origin, but only over proven moves.
+        # A rotation route may leave a one-way origin over any autonomous move.
         for key, barred in ((origin, self.excluded), (target, excluded)):
             if key not in self.nodes or key in barred:
                 raise ValueError("Origin or target is outside the reachable round-trip map"
-                                 + (" over proven moves" if trusted_only else ""))
+                                 + (" for rotation" if trusted_only else ""))
         if not 1 <= max_edges <= 8:
             raise ValueError("Route edge budget must be between one and eight")
         # Fewer transitions can hide a long cross-map approach that exhausts an
@@ -280,7 +296,7 @@ class RouteMap:
             if len(path) >= max_edges:
                 continue
             for edge in self.edges.values():
-                if trusted_only and edge.id not in self.proven:
+                if trusted_only and edge.id not in self.autonomous:
                     continue
                 if edge.source != node:
                     continue

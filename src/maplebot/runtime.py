@@ -51,7 +51,7 @@ from .probe_store import ProbeStore
 from .profiles import AreaStore
 from .reacquisition import Reacquisition
 from .recorder import SessionRecorder
-from .rotation import Rotation, routable, unproven_neighbours, visible_by_surface
+from .rotation import Rotation, routable, visible_by_surface
 from .scheduler import SUSTAIN, Arbiter
 from .windows import Window, Windows
 
@@ -1563,7 +1563,9 @@ class Application:
     def _prepare_rotation(self, enabled: bool, *, learn: bool = False) -> None:
         """Opt-in platform rotation needs a tracked map with two round-trip platforms.
 
-        With `learn`, a supervised farming batch may instead start with unproven moves.
+        Operator rule (2026-11-02): rotation routes over computed moves without a prior
+        proof, so `learn` (the learn_moves setting) changes nothing; it is accepted so
+        existing tools and the workbench keep working.
         """
         self.rotating = self.learning_moves = False
         self.navigation.misses, self.navigation.miss = [], None
@@ -1572,11 +1574,8 @@ class Application:
             return
         self.navigation.refresh()
         graph = self.navigation.graph
-        if learn:
-            if not graph.edges:
-                raise ValueError("Learning moves needs computed moves between platforms")
-        elif len(routable(graph)) < 2:
-            raise ValueError("Rotation needs two platforms with recorded round-trip routes")
+        if len(routable(graph)) < 2:
+            raise ValueError("Rotation needs two platforms connected by computed round-trip moves")
         self.rotating, self.learning_moves = True, learn
 
     def _rotate(self, decision: Decision, observation, now: float) -> str | None:
@@ -1593,7 +1592,7 @@ class Application:
         if (known and decision.state == "SEARCH" and f.surface not in platforms
                 and f.surface not in nav.graph.excluded
                 and any(p["id"] == f.surface for p in nav.graph.profile["platforms"])):
-            # A clear platform without a proven way back is still left over proven moves.
+            # A clear platform without a way back is still left over any route that exists.
             platforms = [*platforms, f.surface]
         edges = {}
         if decision.state == "SEARCH" and f.surface in platforms:
@@ -1603,38 +1602,30 @@ class Application:
                 except ValueError:
                     pass  # Beyond the route budget from here; never chosen.
             platforms = [key for key in platforms if key in edges or key == f.surface]
-        explore = (unproven_neighbours(nav.graph, f.surface)
-                   if self.learning_moves and known and decision.state == "SEARCH" else {})
         target = self.rotation.step(
             now, searching=decision.state == "SEARCH", surface=f.surface if known else None,
-            platforms=platforms, visible=visible, edges=edges, explore=explore,
+            platforms=platforms, visible=visible, edges=edges,
         )
         if target is None:
             if (self.rotation.stranded and self.farming is not None and self.mode == "live"
                     and any(p["id"] == f.surface for p in nav.graph.profile["platforms"])):
                 here = nav.graph.nodes[f.surface].get("name", f.surface)
-                message = (f"Nothing left to do on {here}: no enemy, no proven route "
-                           "and no new move to try")
+                message = f"Nothing left to do on {here}: no enemy and no route to another platform"
                 self._stop("FARMING_DONE", message)
                 return message
             return None
         name = nav.graph.nodes[target].get("name", target)
-        trying = target in explore
         if self.mode == "dry_run":
-            return (f"dry run: platform clear; would try a new move to {name}" if trying
-                    else f"dry run: platform clear; would move to {name}")
+            return f"dry run: platform clear; would move to {name}"
         for ticket, lane in tuple(self.arbiter.in_flight.items()):
             if lane == "combat":
                 self.controller.cancel_ticket(ticket)
-        blocker = nav.handoff(target, now, explore=explore.get(target))
+        blocker = nav.handoff(target, now)
         if blocker:
             self._stop("POLICY_STOP", blocker)
             return blocker
-        self.combat_evidence.record(
-            "decision", f"{'try new move' if trying else 'rotate'} to {target}",
-            action="navigation")
-        return (f"Platform clear; trying a new move to {name}" if trying
-                else f"Platform clear; moving to {name}")
+        self.combat_evidence.record("decision", f"rotate to {target}", action="navigation")
+        return f"Platform clear; moving to {name}"
 
     def resume_combat(self, surface: str, now: float) -> None:
         """Navigation settled on the rotation destination; fight there."""

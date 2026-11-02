@@ -13,23 +13,22 @@ from maplebot.navigation_runtime import MISS_LIMIT, MISS_SETTLE_SECONDS
 app = _app
 
 
-def exploring(app, now, *, reason="Movement departed the recorded corridor"):
-    """A learn_moves rotation tried the unproven floor -> ledge jump and it failed."""
+def missed(app, now, *, reason="Movement departed the recorded corridor"):
+    """A farming rotation tried the unproven floor -> ledge jump and it failed."""
     nav = app.navigation
     nav.graph = RouteMap.computed(imported())
-    app.mode, app.rotating, app.learning_moves = "navigation", True, True
-    app.farming = Farming({"learn_moves": True, "no_consumables": True,
-                           "pet_recovery": False})
+    app.mode, app.rotating = "navigation", True
+    app.farming = Farming({"no_consumables": True, "pet_recovery": False})
     nav.route = nav.graph.plan("floor", "ledge", max_edges=1)
     nav.agent = Navigator(nav.graph, nav.route, now)
-    nav.exploring, nav.resume_combat = "m_floor_ledge", True
+    nav.resume_combat = True
     nav.agent.stop(reason)
     return nav
 
 
 def test_a_miss_that_lands_safely_resumes_combat_and_keeps_the_move_off(app):
     now = time.perf_counter()
-    nav = exploring(app, now)
+    nav = missed(app, now)
     assert nav._begin_miss(now)
     assert nav.snapshot()["learning"]["miss_pending"]
     f = Feedback(now, nav.graph.fingerprint, (100, 400), "floor", True)
@@ -60,7 +59,7 @@ def test_a_miss_that_lands_safely_resumes_combat_and_keeps_the_move_off(app):
 
 def test_a_miss_without_a_steady_known_landing_stops_with_the_failure(app):
     now = time.perf_counter()
-    nav = exploring(app, now)
+    nav = missed(app, now)
     assert nav._begin_miss(now)
     falling = Feedback(now, nav.graph.fingerprint, (100, 380), None, True)
     nav._settle_miss(falling, now)
@@ -73,23 +72,23 @@ def test_a_miss_without_a_steady_known_landing_stops_with_the_failure(app):
 
 def test_a_stale_position_while_landing_still_stops_through_the_freshness_gate(app):
     now = time.perf_counter()
-    nav = exploring(app, now)
+    nav = missed(app, now)
     assert nav._begin_miss(now)
     nav.feedback = Feedback(now - .6, nav.graph.fingerprint, (100, 400), "floor", True)
     nav.tick(None, now)
     assert app.stop_record.code == "PLAYER_UNCERTAIN" and not nav.misses
 
 
-def test_only_a_learn_moves_explore_move_within_the_limit_may_miss(app):
+def test_only_a_rotation_move_in_a_farming_batch_within_the_limit_may_miss(app):
     now = time.perf_counter()
-    nav = exploring(app, now)
+    nav = missed(app, now)
     nav.misses = [{}] * MISS_LIMIT
     assert not nav._begin_miss(now)  # one more than the limit is a failure
-    nav = exploring(app, now)
-    nav.exploring = None  # a proven rotation move, not an explored one
+    nav = missed(app, now)
+    nav.resume_combat = False  # a supervised route, not a rotation move
     assert not nav._begin_miss(now)
-    nav = exploring(app, now)
-    app.learning_moves = False
+    nav = missed(app, now)
+    app.farming = None  # not a farming batch
     assert not nav._begin_miss(now)
 
 
@@ -108,17 +107,17 @@ def test_a_success_clears_an_earlier_miss_and_a_miss_never_revokes_a_proof(tmp_p
     assert proofs.load("a" * 32, "m") == {"m_a_b", "m_b_a"}
 
 
-def test_a_proven_move_in_the_learning_path_misses_safely_and_loses_its_proof_at_two(app):
+def test_a_proven_rotation_move_misses_safely_and_loses_its_proof_at_two(app):
     # Batches 8 and 10: the proven rope grab m_fh320_rope3 dropped the player safely onto
     # fh315 and stopped the batch. Operator rule: it may miss safely; twice drops the proof.
     from maplebot.move_proofs import MoveProofs
 
     def proven_miss(now):
-        nav = exploring(app, now)
+        nav = missed(app, now)
         nav.graph = RouteMap.computed(imported(), {"m_floor_ledge"})
         nav.route = nav.graph.plan("floor", "ledge", max_edges=1)
         nav.agent = Navigator(nav.graph, nav.route, now)
-        nav.exploring, nav.resume_combat = ("m_floor_ledge",), True
+        nav.resume_combat = True
         nav.agent.stop("Movement departed the recorded corridor")
         assert nav._begin_miss(now)
         f = Feedback(now, nav.graph.fingerprint, (100, 400), "floor", True)

@@ -26,57 +26,13 @@ def visible_by_surface(graph: RouteMap, player_area: tuple[float, float],
 
 
 def routable(graph: RouteMap) -> list[str]:
-    """Platforms with a proven round trip, in saved map order. Ropes are never stops.
+    """Platforms with a round trip over moves rotation may use, in saved map order. Ropes
+    are never stops.
 
-    Rotation moves without supervision, so it never relies on an unproven computed move.
+    Operator rule (2026-11-02): rotation uses computed moves without a prior proof; only
+    unproven falls beyond MAX_AUTONOMOUS_FALL_PX are left to supervised routes.
     """
     return [p["id"] for p in graph.profile["platforms"] if p["id"] not in graph.trusted_excluded]
-
-
-# Standing feet sit about 115 px above the chat box. On Tree Dungeon (2026-11-02) a 323 px
-# drop fell behind it before the camera followed, so recognition lost the player mid-fall.
-LEARN_MAX_FALL_PX = 100
-
-
-def unproven_neighbours(graph: RouteMap, surface: str, *,
-                        max_fall: float = LEARN_MAX_FALL_PX) -> dict[str, tuple[str, ...]]:
-    """Platforms reachable by unproven computed moves: target -> the moves to try.
-
-    A path is one move, or a move onto a rope and one off it; at least one is unproven.
-
-    From inside the round-trip map only platforms outside it count. From a platform with
-    no proven way back, moves into the map count too: proving one connects this platform
-    (Tree Dungeon, 2026-11-02: stranded on fh320 beside an unproven drop to fh315).
-    Only a supervised farming batch that opted in may try these.
-    Moves falling more than `max_fall` below their launch are skipped: the player would
-    leave the visible play area before the camera catches up.
-    """
-    known, platforms = set(routable(graph)), {p["id"] for p in graph.profile["platforms"]}
-    ropes = {r["id"] for r in graph.profile["ropes"]}
-    if surface not in known:
-        known = set()
-
-    def usable(edge) -> bool:
-        return (edge.target not in graph.excluded and bool(edge.trace)
-                and max(y for _, y in edge.trace) - edge.trace[0][1] <= max_fall)
-
-    def wanted(target: str) -> bool:
-        return target != surface and target in platforms and target not in known
-
-    edges = sorted(graph.edges.values(), key=lambda e: e.id)
-    found: dict[str, tuple[str, ...]] = {}
-    for edge in edges:
-        if edge.source == surface and edge.id not in graph.proven and wanted(edge.target) \
-                and usable(edge):
-            found.setdefault(edge.target, (edge.id,))
-    for grab in edges:  # onto a rope, then off it: the only way up much of a tall map
-        if grab.source != surface or grab.target not in ropes or not usable(grab):
-            continue
-        for leave in edges:
-            if (leave.source == grab.target and wanted(leave.target) and usable(leave)
-                    and {grab.id, leave.id} - graph.proven):
-                found.setdefault(leave.target, (grab.id, leave.id))
-    return found
 
 
 class Rotation:
@@ -85,7 +41,7 @@ class Rotation:
         self.visited: dict[str, float] = {}
         self.clear_since: float | None = None
         self.destination: str | None = None
-        # Clear for the full wait with nowhere to go: no proven route and nothing to try.
+        # Clear for the full wait with nowhere to go: no route to another platform.
         self.stranded = False
         self.reason = "Rotation off"
 
@@ -100,13 +56,8 @@ class Rotation:
 
     def step(self, now: float, *, searching: bool, surface: str | None,
              platforms: list[str], visible: dict[str, int],
-             edges: dict[str, int] | None = None,
-             explore: dict[str, tuple[str, ...]] | None = None) -> str | None:
-        """Return a destination after `clear_seconds` of searching on a known platform.
-
-        `explore` lists neighbours reachable by one unproven move; one is tried before
-        proven destinations, so a supervised batch grows the round-trip map.
-        """
+             edges: dict[str, int] | None = None) -> str | None:
+        """Return a destination after `clear_seconds` of searching on a known platform."""
         self.stranded = False
         if searching and surface is not None and surface not in platforms:
             # Outside the round-trip map with no way back, as after a missed move left a
@@ -124,21 +75,14 @@ class Rotation:
         self.visited.setdefault(surface, now)
         if self.clear_since is None:
             self.clear_since = now
-        explore = explore or {}
         others = [key for key in platforms if key != surface]
-        if not others and not explore:
+        if not others:
             self.stranded = now - self.clear_since >= self.clear_seconds
             self.reason = "No other routable platform; staying"
             return None
         if now - self.clear_since < self.clear_seconds:
             self.reason = f"Platform clear for {now - self.clear_since:.1f}s"
             return None
-        if explore:
-            self.destination = max(sorted(explore), key=lambda key: (
-                visible.get(key, 0), -self.visited.get(key, float("-inf"))))
-            self.visited[surface], self.clear_since = now, None
-            self.reason = f"Platform clear; trying a new move to {self.destination}"
-            return self.destination
         # Most visible monsters, then the platform left longest ago (never first), then the
         # shortest route.
         edges = edges or {}

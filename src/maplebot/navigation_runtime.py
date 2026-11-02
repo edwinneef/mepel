@@ -9,7 +9,7 @@ from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
 from .move_proofs import PROOF_FAILURE_LIMIT, MoveProofs
 from .moves import Move, generate
-from .navigation import Route, RouteMap, map_hash, pose_gaps, required_poses
+from .navigation import RouteMap, map_hash, pose_gaps, required_poses
 from .navigation_executor import EdgeStep, Feedback, Navigator, distance
 from .navigation_replay import recorded_step
 from .reacquisition import RECOVERY_SECONDS
@@ -25,7 +25,8 @@ RECOGNITION_RECOVERY_SECONDS = RECOVERY_SECONDS
 # Written beside data/areas by tools/recognition_eval.py --coverage.
 POSE_COVERAGE = "recognition-coverage.json"
 # Stops that blame the move itself; focus, feedback or budget stops do not.
-# A supervised learn_moves batch keeps farming after this many safe misses; one more stops.
+# A farming batch keeps farming after this many safe misses of rotation moves; one more
+# stops (operator rule, 2026-11-02).
 MISS_LIMIT = 3
 # After a missed move, keys stay released while the player lands; no safe landing in time
 # is an ordinary navigation failure.
@@ -55,7 +56,6 @@ class NavigationRuntime:
         self.counted = 0
         self.pending_proofs: list[tuple[str, str, str, dict]] = []
         self.pending_failures: list[tuple[str, str, str, dict]] = []
-        self.exploring: str | None = None  # the unproven move a learn_moves rotation tries
         self.miss: dict | None = None  # a missed move waiting for a safe landing
         self.misses: list[dict] = []  # safe misses in the current farming batch
         self.miss_counts: dict[str, int] = {}  # saved misses per move, for proven moves
@@ -70,7 +70,7 @@ class NavigationRuntime:
         if self.recovery:
             self.recovery_log.append({"result": "stopped", "reason": reason})
         self.recovery = None
-        self.miss = self.exploring = None
+        self.miss = None
         if self.agent and self.agent.active:
             self.agent.stop(reason)
         if self.lease is not None:
@@ -269,36 +269,26 @@ class NavigationRuntime:
         self.reason = "Focus the game; navigation countdown is bounded and cancelable"
         return self.snapshot()
 
-    def handoff(self, target: str, now: float, *,
-                explore: tuple[str, ...] | None = None) -> str | None:
+    def handoff(self, target: str, now: float) -> str | None:
         """Armed combat found its platform clear: route on without a new countdown.
 
-        With `explore`, the route is exactly those moves: one unproven move, or a move onto
-        a rope and one off it. Replans still use proven moves only. Returns why the move
-        was refused; the caller stops safely instead of retrying.
+        Rotation plans over computed moves, proven or not (operator rule, 2026-11-02);
+        replans do the same. Returns why the move was refused; the caller stops safely
+        instead of retrying.
         """
         f = self.feedback
         if not self.graph or not f or not f.surface:
             return "Rotation: current platform unknown"
         try:
-            if explore:
-                edges = tuple(self.graph.edges[key] for key in explore)
-                if (edges[0].source != f.surface or edges[-1].target != target
-                        or any(a.target != b.source
-                               for a, b in zip(edges, edges[1:], strict=False))):
-                    raise ValueError("Explore moves do not lead from here to the target")
-                self.route = Route(self.graph.profile["id"], self.graph.profile["revision"],
-                                   self.graph.fingerprint, f.surface, target, edges)
-            else:
-                self.route = self.graph.plan(f.surface, target, trusted_only=True,
-                                             origin_feet=f.feet)
+            self.route = self.graph.plan(f.surface, target, trusted_only=True,
+                                         origin_feet=f.feet)
         except (KeyError, ValueError) as error:
             return f"Rotation: {error}"
         blocker = self.blocker()
         if blocker:
             return f"Rotation: {blocker}"
         self._release()
-        self.exploring, self.miss = (tuple(explore) if explore else None), None
+        self.miss = None
         self.agent = Navigator(self.graph, self.route, now,
                                pulse=min(.12, self.app.config.input.max_action_seconds),
                                trusted_only=True)
@@ -690,19 +680,18 @@ class NavigationRuntime:
             self.failed.add(agent.route.edges[agent.index].id)
 
     def _begin_miss(self, now: float) -> bool:
-        """A learn_moves batch's unproven move failed: release keys and await the landing.
+        """A rotation move failed in a farming batch: release keys and await the landing.
 
-        Only the batch's own explore move qualifies, at most MISS_LIMIT times; every
-        feedback, focus and input gate still runs each frame while it lands.
+        Operator rule (2026-11-02): rotation uses computed moves without a prior proof, so
+        a move that misses but lands the player safely is a miss, not a failure, at most
+        MISS_LIMIT times per batch. Every feedback, focus and input gate still runs each
+        frame while it lands; no safe landing in time stops as before.
         """
         app, agent = self.app, self.agent
-        if (self.exploring is None or not self.resume_combat or not app.learning_moves
-                or app.farming is None or len(self.misses) >= MISS_LIMIT
+        if (not self.resume_combat or app.farming is None or len(self.misses) >= MISS_LIMIT
                 or not isinstance(agent, Navigator) or agent.index >= len(agent.route.edges)):
             return False
         failed = agent.route.edges[agent.index].id
-        if failed not in self.exploring:
-            return False  # a proven rotation route failing is an ordinary navigation failure
         self._release()
         self.miss = {"edge": failed, "reason": agent.reason, "since": now,
                      "surface": None, "feet": None, "settled_at": None}
@@ -724,8 +713,8 @@ class NavigationRuntime:
         miss["surface"], miss["feet"] = surface, f.feet
         if surface is not None and f.now - miss["settled_at"] >= .3:
             edge = self.graph.edges.get(miss["edge"])
-            # Operator rule (2026-11-02): a proven move in the learning path may miss safely;
-            # it keeps its proof until its PROOF_FAILURE_LIMIT-th miss.
+            # Operator rule (2026-11-02): a proven move may miss safely too; it keeps its
+            # proof until its PROOF_FAILURE_LIMIT-th miss.
             count = self.miss_counts.get(miss["edge"], 0) + 1
             self.miss_counts[miss["edge"]] = count
             keep = miss["edge"] in self.graph.proven and count < PROOF_FAILURE_LIMIT
@@ -745,7 +734,7 @@ class NavigationRuntime:
                 action="navigation")
             app.note(f"Missed {miss['edge']}; landed safely on {surface}, "
                      f"{len(self.misses)}/{MISS_LIMIT} misses")
-            self.miss = self.exploring = None
+            self.miss = None
             self.resume_combat = False
             if not keep:  # the missed move leaves the graph, without disk reads
                 graph = self.graph
@@ -778,7 +767,7 @@ class NavigationRuntime:
                 "recovery": recovery,
                 **({"stage": "reacquire_player", "reason": self.reason} if self.recovery else {}),
                 "feedback": self.feedback_status(),
-                "learning": {"exploring": self.exploring, "miss_pending": self.miss is not None,
+                "learning": {"miss_pending": self.miss is not None,
                              "misses": self.misses, "limit": MISS_LIMIT},
                 "last_feedback_failure": self.last_feedback_failure,
                 "last_input_refusal": self.last_input_refusal,

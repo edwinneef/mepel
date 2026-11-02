@@ -26,14 +26,14 @@ def imported():
                                         "world": {"x": [1, 0], "y": [1, 0]}}}
 
 
-def test_computed_moves_route_under_supervision_and_rotation_needs_proofs():
+def test_computed_moves_route_under_supervision_and_in_rotation():
     graph = RouteMap.computed(imported())
     route = graph.plan("floor", "ledge")
     assert [(e.source, e.target, e.kind) for e in route.edges] == [("floor", "ledge", "jump")]
     assert graph.fingerprint == map_hash(imported())  # computed links never change the map
-    assert routable(graph) == ["floor"]  # nothing proven: rotation stays home
-    with pytest.raises(ValueError, match="proven moves"):
-        graph.plan("floor", "ledge", trusted_only=True)
+    # Operator rule (2026-11-02): rotation uses computed moves without a prior proof.
+    assert routable(graph) == ["floor", "ledge"]
+    assert graph.plan("floor", "ledge", trusted_only=True).edges[0].evidence == "computed"
     both = {e.id for e in graph.edges.values()}
     proven = RouteMap.computed(imported(), both)
     assert routable(proven) == ["floor", "ledge"]
@@ -41,13 +41,21 @@ def test_computed_moves_route_under_supervision_and_rotation_needs_proofs():
     assert "m_floor_ledge" not in RouteMap.computed(imported(), failed={"m_floor_ledge"}).edges
 
 
-def test_trusted_route_leaves_a_one_way_platform_over_proven_moves_only():
-    graph = RouteMap.computed(imported(), {"m_ledge_floor"})
-    assert routable(graph) == ["floor"]
-    route = graph.plan("ledge", "floor", trusted_only=True)
-    assert [e.id for e in route.edges] == ["m_ledge_floor"]
-    with pytest.raises(ValueError, match="proven moves"):
+def test_rotation_leaves_unproven_long_falls_to_supervised_routes():
+    # Operator rule (2026-11-02): an unproven move may rotate unless it falls farther than
+    # the camera follows (Tree Dungeon: a 323 px drop lost the player mid-fall).
+    from test_navigation import fixture
+
+    profile, evidence = fixture()
+    evidence["edges"]["back"]["trace"] = [[280, 300], [150, 401]]  # falls 101 px
+    graph = RouteMap(profile, evidence, proven=set())
+    assert routable(graph) == ["floor"]  # the ledge has no way back for rotation
+    with pytest.raises(ValueError, match="for rotation"):
         graph.plan("floor", "ledge", trusted_only=True)
+    assert [e.id for e in graph.plan("floor", "ledge").edges] == ["up"]  # supervised
+    proven = RouteMap(profile, evidence, proven={"back"})
+    assert routable(proven) == ["floor", "ledge"]  # it succeeded once: rotation may use it
+    assert [e.id for e in proven.plan("ledge", "floor", trusted_only=True).edges] == ["back"]
 
 
 def test_clear_one_way_platform_rotates_to_a_routable_platform(app):

@@ -37,7 +37,9 @@ def combat_progress(samples: list[dict]) -> dict:
 def rotation_blocker(status: dict, *, learn_moves: bool = False) -> str | None:
     """Reject impossible rotation connectivity; engine planning still owns route safety.
 
-    With `learn_moves`, one unproven computed move to another platform also suffices.
+    Operator rule (2026-11-02): rotation routes over computed moves without a prior proof,
+    so every usable edge counts. `learn_moves` is accepted for existing callers and
+    changes nothing.
     """
     position = status.get("position") or {}
     if position.get("stale") or position.get("held") or not position.get("feet"):
@@ -50,19 +52,14 @@ def rotation_blocker(status: dict, *, learn_moves: bool = False) -> str | None:
     targets = {key for key, node in nodes.items() if key != origin
                and node.get("kind") == "platform"
                and not node.get("excluded") and not node.get("unproven")}
-    if learn_moves and any(
-            edge.get("from") == origin and not edge.get("proven") and edge.get("to") in nodes
-            and edge["to"] != origin and nodes[edge["to"]].get("kind") == "platform"
-            and not nodes[edge["to"]].get("excluded") for edge in graph.get("edges", [])):
-        return None
     reached, frontier = {origin}, {origin}
     for _ in range(8):
         frontier = {edge["to"] for edge in graph.get("edges", [])
-                    if edge.get("proven") and edge["from"] in frontier} - reached
+                    if edge["from"] in frontier} - reached
         if frontier & targets:
             return None
         reached |= frontier
-    return "No proven rotation route from this platform; move to a connected combat platform"
+    return "No rotation route from this platform; move to a connected combat platform"
 
 def run(api, output: Path, *, area: str, single_platform=False, session_minutes=15,
         checkpoint_seconds=None, consumables=False, require_enemy=False, learn_moves=False,
