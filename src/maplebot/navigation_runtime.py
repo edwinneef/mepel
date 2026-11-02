@@ -8,7 +8,7 @@ from dataclasses import replace
 from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
 from .move_proofs import MoveProofs
-from .moves import generate
+from .moves import Move, generate
 from .navigation import RouteMap, map_hash, pose_gaps, required_poses
 from .navigation_executor import EdgeStep, Feedback, Navigator, distance
 from .navigation_replay import recorded_step
@@ -25,6 +25,11 @@ RECOGNITION_RECOVERY_SECONDS = RECOVERY_SECONDS
 # Written beside data/areas by tools/recognition_eval.py --coverage.
 POSE_COVERAGE = "recognition-coverage.json"
 # Stops that blame the move itself; focus, feedback or budget stops do not.
+# A supervised learn_moves batch keeps farming after this many safe misses; one more stops.
+MISS_LIMIT = 3
+# After a missed move, keys stay released while the player lands; no safe landing in time
+# is an ordinary navigation failure.
+MISS_SETTLE_SECONDS = 2.0
 MOVE_FAILURES = ("Movement departed the recorded corridor", "Landing overshoot",
                  "Departure not observed", "Edge deadline exhausted",
                  "Lost launch platform", "Lost rope alignment", "Unexpected or excluded surface")
@@ -49,6 +54,10 @@ class NavigationRuntime:
         self.moves: tuple[tuple, list] | None = None
         self.counted = 0
         self.pending_proofs: list[tuple[str, str, str, dict]] = []
+        self.pending_failures: list[tuple[str, str, str, dict]] = []
+        self.exploring: str | None = None  # the unproven move a learn_moves rotation tries
+        self.miss: dict | None = None  # a missed move waiting for a safe landing
+        self.misses: list[dict] = []  # safe misses in the current farming batch
         self.last_feedback_failure = None
         self.last_input_refusal = None
         self.identity = None
@@ -60,6 +69,7 @@ class NavigationRuntime:
         if self.recovery:
             self.recovery_log.append({"result": "stopped", "reason": reason})
         self.recovery = None
+        self.miss = self.exploring = None
         if self.agent and self.agent.active:
             self.agent.stop(reason)
         if self.lease is not None:
@@ -69,13 +79,15 @@ class NavigationRuntime:
         self.reason = reason
         # safe_stop has already released controller input. Disk flushes must not
         # consume the next observation's freshness budget during a route.
-        while self.pending_proofs:
-            try:
-                self.proofs.record(*self.pending_proofs[0])
-            except OSError as error:
-                self.app.note(f"Navigation proof save deferred: {error}")
-                break
-            self.pending_proofs.pop(0)
+        for pending, save in ((self.pending_proofs, self.proofs.record),
+                              (self.pending_failures, self.proofs.record_failure)):
+            while pending:
+                try:
+                    save(*pending[0])
+                except OSError as error:
+                    self.app.note(f"Navigation proof save deferred: {error}")
+                    break
+                pending.pop(0)
 
     def _release(self) -> None:
         if self.ticket is not None:
@@ -100,8 +112,13 @@ class NavigationRuntime:
         key = (profile["id"], profile["revision"], fingerprint)
         if self.moves is None or self.moves[0] != key:
             self.moves = (key, generate(profile))
+        # A move that missed stays off until the generator proposes different geometry.
+        current = {m.id: m for m in self.moves[1]}
+        missed = {key for key, shape in self.proofs.failures(profile["id"], fingerprint).items()
+                  if key in current and shape["kind"] == current[key].kind
+                  and shape["trace"] == [list(point) for point in current[key].trace]}
         self.graph = RouteMap.computed(profile, self.proofs.load(profile["id"], fingerprint),
-                                       self.failed, self.moves[1],
+                                       self.failed | missed, self.moves[1],
                                        self.proofs.geometry(profile["id"], fingerprint))
         self.route = self.agent = None
         self.reason = "Choose a destination and preview its route; no keys are sent"
@@ -271,6 +288,7 @@ class NavigationRuntime:
         if blocker:
             return f"Rotation: {blocker}"
         self._release()
+        self.exploring, self.miss = (self.route.edges[0].id if explore else None), None
         self.agent = Navigator(self.graph, self.route, now,
                                pulse=min(.12, self.app.config.input.max_action_seconds),
                                trusted_only=True)
@@ -526,6 +544,9 @@ class NavigationRuntime:
         if app.stop_requested.is_set() or app._input_block_reason():
             app._stop("FOCUS_LOSS", "Navigation focus/capture/input gate lost")
             return
+        if self.miss is not None:
+            self._settle_miss(f, now)
+            return
         if app.mode == "navigation_wait":
             app.controller.enable()
             # A new run gets its own stop record, time and clip, as probes and arming do.
@@ -565,6 +586,8 @@ class NavigationRuntime:
                 self._release()
                 self.resume_combat = False
                 app.resume_combat(self.route.target, now)
+                return
+            if self.agent.stage == "stopped" and self._begin_miss(now):
                 return
             # A failed route alarms like any other failure; arriving stops quietly.
             app._stop("NAVIGATION_FAILURE" if self.agent.stage == "stopped" else "POLICY_STOP",
@@ -656,6 +679,62 @@ class NavigationRuntime:
               and agent.index < len(agent.route.edges)):
             self.failed.add(agent.route.edges[agent.index].id)
 
+    def _begin_miss(self, now: float) -> bool:
+        """A learn_moves batch's unproven move failed: release keys and await the landing.
+
+        Only the batch's own explore move qualifies, at most MISS_LIMIT times; every
+        feedback, focus and input gate still runs each frame while it lands.
+        """
+        app, agent = self.app, self.agent
+        if (self.exploring is None or not self.resume_combat or not app.learning_moves
+                or app.farming is None or len(self.misses) >= MISS_LIMIT
+                or not isinstance(agent, Navigator) or agent.completed):
+            return False
+        self._release()
+        self.miss = {"edge": self.exploring, "reason": agent.reason, "since": now,
+                     "surface": None, "feet": None, "settled_at": None}
+        self.reason = f"Move missed ({agent.reason}); waiting for a safe landing"
+        app.note(self.reason)
+        return True
+
+    def _settle_miss(self, f: Feedback, now: float) -> None:
+        """Resume combat once the player stands still on a known platform; else stop."""
+        app, miss = self.app, self.miss
+        platforms = {p["id"] for p in self.graph.profile["platforms"]}
+        surface = (f.surface if f.motion_ok and f.feet is not None and f.surface in platforms
+                   and f.surface not in self.graph.excluded else None)
+        steady = (surface is not None and miss["surface"] == surface
+                  and miss["feet"] is not None and abs(f.feet[0] - miss["feet"][0]) <= 8
+                  and abs(f.feet[1] - miss["feet"][1]) <= 3)
+        if not steady:
+            miss["settled_at"] = f.now if surface else None
+        miss["surface"], miss["feet"] = surface, f.feet
+        if surface is not None and f.now - miss["settled_at"] >= .3:
+            edge = self.graph.edges.get(miss["edge"])
+            self.failed.add(miss["edge"])
+            if edge is not None:
+                self.pending_failures.append((
+                    self.graph.profile["id"], self.graph.fingerprint, edge.id,
+                    {"from": edge.source, "to": edge.target, "kind": edge.kind,
+                     "trace": [list(point) for point in edge.trace]}))
+            self.misses.append({"edge": miss["edge"], "reason": miss["reason"],
+                                "landed": surface, "at": time.time()})
+            app.combat_evidence.record(
+                "decision", f"move miss {miss['edge']}; landed on {surface}",
+                action="navigation")
+            app.note(f"Missed {miss['edge']}; landed safely on {surface}, "
+                     f"{len(self.misses)}/{MISS_LIMIT} misses")
+            self.miss = self.exploring = None
+            self.resume_combat = False
+            graph = self.graph  # the missed move leaves the graph, without disk reads
+            self.graph = RouteMap.computed(graph.profile, graph.proven, moves=[
+                Move(e.id, e.source, e.target, e.kind, e.trace)
+                for e in graph.edges.values() if e.id != miss["edge"]])
+            app.resume_combat(surface, now)
+        elif now - miss["since"] >= MISS_SETTLE_SECONDS:
+            app._stop("NAVIGATION_FAILURE", f"{miss['reason']}; no safe landing within "
+                                            f"{MISS_SETTLE_SECONDS:g} s")
+
     def snapshot(self) -> dict:
         value = self.agent.snapshot() if self.agent else {
             "stage": "preview" if self.route else "idle", "reason": self.reason,
@@ -676,6 +755,8 @@ class NavigationRuntime:
                 "recovery": recovery,
                 **({"stage": "reacquire_player", "reason": self.reason} if self.recovery else {}),
                 "feedback": self.feedback_status(),
+                "learning": {"exploring": self.exploring, "miss_pending": self.miss is not None,
+                             "misses": self.misses, "limit": MISS_LIMIT},
                 "last_feedback_failure": self.last_feedback_failure,
                 "last_input_refusal": self.last_input_refusal,
                 **({"stage": "countdown", "reason": self.reason, "active": True}

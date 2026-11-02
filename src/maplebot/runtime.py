@@ -1548,6 +1548,7 @@ class Application:
         With `learn`, a supervised farming batch may instead start with unproven moves.
         """
         self.rotating = self.learning_moves = False
+        self.navigation.misses, self.navigation.miss = [], None
         self.rotation.reset("Rotation off" if not enabled else "Waiting for a clear platform")
         if not enabled:
             return

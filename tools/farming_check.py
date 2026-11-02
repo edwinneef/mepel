@@ -210,6 +210,8 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
             result["outcome"] = "failure"
             result["full_session_passed"] = False
         result["combat_progress"] = combat_progress(result["samples"])
+        # Moves a learn_moves batch missed but landed safely from; it kept farming.
+        result["learning"] = ((result.get("after") or {}).get("navigation") or {}).get("learning")
         result["seconds"] = clock() - started
         (output / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         if result["outcome"] == "failure":

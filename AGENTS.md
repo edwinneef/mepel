@@ -74,6 +74,10 @@ Limits that still apply:
   Never weaken, bypass or disable a safety gate, the watchdog, F8 or the overlay lease to
   make a test pass; a test that needs a gate changed goes to the operator.
 - Stop a batch at its first failure; never repeat an unchanged failing run.
+  Operator exception, 2026-11-02: in a learn_moves farming batch, an unproven move that
+  misses but lands the player still on a known platform, with fresh agreeing position
+  and all gates intact, is a learning outcome, not a failure: the engine records the
+  miss and keeps farming, at most 3 times per batch. Any other miss still stops it.
 - Agents may restore focus to the attached MapleStory window whenever focus is lost,
   including after startup or restart, without asking the operator. Use only the engine's
   guarded `focus_game` command; its verified title-bar click fallback is allowed.

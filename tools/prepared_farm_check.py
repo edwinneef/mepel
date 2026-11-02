@@ -56,6 +56,8 @@ def main(argv: list[str] | None = None, *, api=None) -> int:
     print(json.dumps({"result": str(output / "result.json"), "outcome": result.get("outcome"),
                       "error": result.get("error"), "stop_error": result.get("stop_error"),
                       "proven_before": before, "proven_after": proven(after),
+                      "misses": [(m.get("edge"), m.get("landed")) for m in (
+                          (after.get("navigation") or {}).get("learning") or {}).get("misses", [])],
                       "input_state": after.get("input_state"), "stop": after.get("stop"),
                       "command_seconds": round(time.monotonic() - started, 2)}), flush=True)
     if result.get("outcome") != "functional_success":
