@@ -47,6 +47,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const startRef = useRef(false);
   const wasRunning = useRef(false);
   const dataKey = useRef('');
+  const dataRetryAfter = useRef(0);
   const currentToggle = useRef<() => void>(() => {});
   const view = useViewport(client, s, state.connected && (panel || Boolean(dashboard)), Boolean(dashboard && layers));
   const running = isRunning(s);
@@ -95,17 +96,25 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   useEffect(() => {
     if (!s || !state.connected || state.busy) return;
     const key = `${s.session_id}:${s.position?.area_id}:${s.position?.teaching?.map_revision}`;
-    if (key === dataKey.current) return;
+    if (key === dataKey.current || Date.now() < dataRetryAfter.current) return;
     dataKey.current = key;
     setMap(null);
     void act(async () => {
-      await refreshAreas();
-      if (s.position?.area_id) {
-        const value = await client.command<{ profile: AreaProfile }>('area_load', { area_id: s.position.area_id });
-        if (dataKey.current === key) setMap(value.profile);
+      try {
+        await refreshAreas();
+        if (s.position?.area_id) {
+          const value = await client.command<{ profile: AreaProfile }>('area_load', { area_id: s.position.area_id });
+          if (dataKey.current === key) setMap(value.profile);
+        }
+      } catch (error) {
+        if (dataKey.current === key) {
+          dataKey.current = '';
+          dataRetryAfter.current = Date.now() + 1000;
+        }
+        throw error;
       }
     });
-  }, [client, s?.session_id, s?.position?.area_id, s?.position?.teaching?.map_revision, state.connected, state.busy]);
+  }, [client, s?.session_id, s?.position?.area_id, s?.position?.teaching?.map_revision, state.connected, state.busy, now]);
   const toggle = async () => {
     if (running || startRef.current) {
       startRef.current = false; setStarting(false);
@@ -170,10 +179,10 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   if (outlinesOnly && !dashboard) return <div className="native-overlay">
     {learning && gameBounds?.visible && <div className="overlay-learning" aria-label="Position learning"
       style={{ left: game.x + game.width / 2, top: game.y + 8 }}>{learning}</div>}
-    {layers && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
+    {(layers || attackRange) && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
       viewBox={`0 0 ${drawing.frame.width} ${drawing.frame.height}`} preserveAspectRatio="none" aria-label="Live detections">
-      <LiveDetectionBoxes drawing={drawing} compact />
+      {layers && <LiveDetectionBoxes drawing={drawing} compact />}
       {attackRange && <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
     </svg>}
     {gameBounds && <OverlayMenu s={s ?? null} status={status} game={game}

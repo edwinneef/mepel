@@ -44,6 +44,14 @@ it('shows detection outlines and attack range without native settings or HUD', a
   // The in-game overlay is outlines only: no labels or tracking diagnostics.
   expect(screen.getByLabelText('Detection boxes').querySelectorAll('text')).toHaveLength(0);
   expect(screen.queryByLabelText('Enemy tracking diagnostics')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Enemies' }));
+  expect(screen.queryByLabelText('Detection boxes')).toBeNull();
+  expect(screen.getByLabelText('Configured attack range')).toBeTruthy();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Range' }));
+  expect(screen.queryByLabelText('Configured attack range')).toBeNull();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Range' }));
+  expect(screen.getByLabelText('Configured attack range')).toBeTruthy();
 });
 
 it('shows passive position learning progress over the focused game only', async () => {
@@ -342,7 +350,7 @@ it('opens settings from the HUD button when hotkeys are swallowed by the game', 
   expect(screen.queryByRole('button', { name: '⚙ Settings' })).toBeNull();
 });
 
-it('names the platforms over the game without opening any panel', async () => {
+it('recovers platform names after a failed map load without cycling Map', async () => {
   const position: LivePosition = { area_id: 'map', kind: 'platform', surface_id: 'floor', reason: 'Matched',
     input_sent: false, captured_at: Date.now() / 1000, projection: { x: 0, y: 0, scale: 1, revision: 3 } };
   const profile: AreaProfile = { schema_version: 2, id: 'map', revision: 3, name: 'Map',
@@ -350,13 +358,17 @@ it('names the platforms over the game without opening any panel', async () => {
     platforms: [{ id: 'floor', name: 'Level 7', start: { x: 100, y: 200 }, end: { x: 300, y: 200 } },
       { id: 'ledge', name: 'Level 8', start: { x: 100, y: 120 }, end: { x: 300, y: 120 } }], ropes: [] };
   const current = snapshot({ position });
+  let mapLoads = 0;
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+    current.frame.captured_at = Date.now() / 1000;
+    position.captured_at = Date.now() / 1000;
     if (url === '/api/v1/status') return json(current);
     // The live display feed sends no terrain alignment here; the position still projects.
     if (url === '/api/v1/drawings') return json({ display: true, terrain: null, position,
       frame: { ...current.frame, id: 'display:1', source_id: `${current.session_id}:source:1` },
       player: current.player, monsters: [], target: null });
     const command = JSON.parse(String(options?.body));
+    if (command.name === 'area_load' && mapLoads++ === 0) throw new Error('Temporary map load failure');
     return json(command.name === 'area_load' ? { profile } : { areas: [] });
   });
   vi.stubGlobal('fetch', fetcher);
@@ -366,7 +378,7 @@ it('names the platforms over the game without opening any panel', async () => {
       return () => {};
     } };
   render(<OverlayApp client={new OverlayClient('token', fetcher)} outlinesOnly />);
-  await waitFor(() => expect(screen.getByLabelText('Platform names')).toBeTruthy());
+  await waitFor(() => expect(screen.getByLabelText('Platform names')).toBeTruthy(), { timeout: 2500 });
   expect(screen.getByText('Level 7')).toBeTruthy();
   expect(screen.getByText('Level 8')).toBeTruthy();
 });
