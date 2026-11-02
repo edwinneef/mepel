@@ -1602,7 +1602,8 @@ class Application:
             platforms=platforms, visible=visible, edges=edges, explore=explore,
         )
         if target is None:
-            if self.rotation.stranded and self.farming is not None and self.mode == "live":
+            if (self.rotation.stranded and self.farming is not None and self.mode == "live"
+                    and any(p["id"] == f.surface for p in nav.graph.profile["platforms"])):
                 here = nav.graph.nodes[f.surface].get("name", f.surface)
                 message = (f"Nothing left to do on {here}: no enemy, no proven route "
                            "and no new move to try")

@@ -279,3 +279,33 @@ def test_a_farming_batch_with_nothing_left_to_do_stops_cleanly(app):
     app.farming, app.mode, app.rotation = None, "dry_run", Rotation(1)
     app._rotate(SEARCH, observation, now)
     assert app._rotate(SEARCH, observation, now + 1) is None
+
+
+def test_a_batch_left_on_a_stranded_platform_stops_cleanly(app):
+    # Live (Tree Dungeon batch 11): a missed rope climb left fh278 with no way back; the map
+    # excluded it, rotation stayed, and farming ended on the 15 s no-combat alarm.
+    from maplebot.farming import Farming
+
+    profile, evidence = fixture()
+    nav = app.navigation
+    nav.graph = RouteMap(profile, evidence)
+    nav.feedback = Feedback(time.perf_counter(), nav.graph.fingerprint, (100, 200),
+                            "island", True)  # excluded: no route in or out
+    assert "island" in nav.graph.excluded
+    app.mode, app.rotating, app.rotation = "live", True, Rotation(1)
+    app.farming = Farming({"no_consumables": True, "pet_recovery": False})
+    observation = Observation(Detection("player", Rect(500, 300, 40, 60), .95), [])
+    now = time.perf_counter()
+    assert app._rotate(SEARCH, observation, now) is None
+    assert app._rotate(SEARCH, observation, now + 1).startswith("Nothing left to do on island")
+    assert app.stop_record.code == "FARMING_DONE" and not app.alarm.snapshot()["active"]
+
+
+def test_fighting_on_an_outside_platform_never_counts_as_stranded():
+    rotation = Rotation(1)
+    assert rotation.step(0, searching=True, surface="x", platforms=["a"], visible={}) is None
+    rotation.step(.5, searching=False, surface="x", platforms=["a"], visible={})
+    assert rotation.step(1.2, searching=True, surface="x", platforms=["a"], visible={}) is None
+    assert not rotation.stranded  # the clear wait restarted after fighting
+    rotation.step(2.3, searching=True, surface="x", platforms=["a"], visible={})
+    assert rotation.stranded

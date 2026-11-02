@@ -108,6 +108,14 @@ class Rotation:
         proven destinations, so a supervised batch grows the round-trip map.
         """
         self.stranded = False
+        if searching and surface is not None and surface not in platforms:
+            # Outside the round-trip map with no way back, as after a missed move left a
+            # platform stranded (Tree Dungeon batch 11, fh278): nothing to do here either.
+            if self.clear_since is None:
+                self.clear_since = now
+            self.stranded = now - self.clear_since >= self.clear_seconds
+            self.reason = "Platform outside the round-trip map; staying"
+            return None
         if not searching or surface not in platforms:
             self.clear_since = None
             self.reason = ("Platform unknown or outside the round-trip map; staying"
