@@ -150,12 +150,17 @@ it('starts one guarded batch tool at a time from the in-game menu, validating th
   expect(win.webContents.send).toHaveBeenLastCalledWith('overlay-event', { type: 'batch',
     value: { running: false, kind: 'single', code: 0, output: '{"outcome": "nothing_left"}\n' } });
   expect((await launch(own, { kind: 'learn', area: 'a'.repeat(32) })).started).toBe(false);
+  expect((await launch(own, { kind: 'single', area: 'a'.repeat(32), minutes: 7 })).started).toBe(false);
   expect((await launch(own, { kind: 'learn', area: 'a'.repeat(32),
     circuit: { id: '../x', revision: 2 }, minutes: 1 })).started).toBe(false);
   expect(await launch(own, { kind: 'learn', area: 'a'.repeat(32),
     circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 })).toEqual({ started: true });
   expect(spawn.mock.calls[1][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', 'a'.repeat(32),
     '--run', '--focus', '--minutes', '1', '--circuit', 'lower-loop', '--revision', '2', '--consumables']);
+  spawn.mock.results[1].value.handlers.close(0);
+  expect(await launch(own, { kind: 'single', area: 'a'.repeat(32), minutes: 1 })).toEqual({ started: true });
+  expect(spawn.mock.calls[2][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', 'a'.repeat(32),
+    '--run', '--focus', '--minutes', '1', '--single']);
 });
 
 
@@ -186,4 +191,40 @@ it('registers only companion health and refuses batch input without a live dashb
     .toEqual({ started: false, reason: 'Connect the browser dashboard before starting a batch' });
   expect(spawn).not.toHaveBeenCalled();
   expect(win.webContents.send).toHaveBeenCalledWith('overlay-event', { type: 'controller', value: false });
+});
+
+it('runs a dashboard batch request from the companion heartbeat once, through the same launcher', async () => {
+  try {
+    const { win, electron, spawn, intervals, requests } = await startOverlay();
+    electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: win.webContents });
+    engineStatus = { batch_request: { id: 3, kind: 'single', area: 'a'.repeat(32), minutes: 1 } };
+    await intervals[0]();
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(spawn.mock.calls[0][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', 'a'.repeat(32),
+      '--run', '--focus', '--minutes', '1', '--single']);
+    await intervals[0]();  // the engine still lists it until the acknowledgement arrives
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const sent = requests.filter(r => r.url.endsWith('/api/overlay_companion')).map(r => r.body);
+    expect(sent.some(body => body.batch_ack?.id === 3 && body.batch_ack.started === true)).toBe(true);
+    expect(sent.at(-1).batch).toMatchObject({ running: true, kind: 'single' });
+    // An invalid queued request is refused by the launcher and acknowledged as not started.
+    engineStatus = { batch_request: { id: 4, kind: 'jump', area: 'a'.repeat(32), minutes: 1 } };
+    spawn.mock.results[0].value.handlers.close(0);
+    await intervals[0]();
+    await intervals[0]();
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const last = requests.filter(r => r.url.endsWith('/api/overlay_companion')).map(r => r.body);
+    expect(last.some(body => body.batch_ack?.id === 4 && body.batch_ack.started === false)).toBe(true);
+  } finally { engineStatus = {}; }
+});
+
+it('registers the engine’s configured stop, drawings and widget keys', async () => {
+  try {
+    engineStatus = { key_settings: { active: { emergency_key: 'f10', drawings: 'f11', widget: 'f12' } } };
+    const { shortcuts } = await startOverlay();
+    expect([...shortcuts.keys()].sort()).toEqual(['F10', 'F11', 'F12']);
+    engineStatus = { key_settings: { active: { emergency_key: 'ctrl' } } };  // never a non F-key
+    const second = await startOverlay();
+    expect([...second.shortcuts.keys()].sort()).toEqual(['F7', 'F8', 'F9']);
+  } finally { engineStatus = {}; }
 });

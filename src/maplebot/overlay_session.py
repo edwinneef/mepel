@@ -1,10 +1,49 @@
 """A shared fail-closed control lease. It never authorizes keyboard output."""
 
+import json
+import re
 import threading
 import time
 
 START_COMMANDS = frozenset({"arm", "dry_run", "probe", "autopotter_live",
                             "nav_start", "nav_go", "nav_edge", "nav_walk"})
+AREA_ID = re.compile(r"[a-f0-9]{32}")
+CIRCUIT_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
+BATCH_OUTPUT_LIMIT = 4000
+
+
+def batch_request(payload):
+    """Validate a dashboard batch request the same way the widget host does."""
+    kind, area, minutes = payload.get("kind"), payload.get("area"), payload.get("minutes")
+    if kind not in ("learn", "single") or not isinstance(area, str) or not AREA_ID.fullmatch(area):
+        raise ValueError("Invalid batch request")
+    if type(minutes) is not int or minutes not in (1, 15):
+        raise ValueError("Choose a 1 or 15 minute run")
+    request = {"kind": kind, "area": area, "minutes": minutes}
+    if kind == "learn":
+        circuit = payload.get("circuit")
+        if (not isinstance(circuit, dict) or not isinstance(circuit.get("id"), str)
+                or not CIRCUIT_ID.fullmatch(circuit["id"])
+                or type(circuit.get("revision")) is not int
+                or circuit["revision"] < 1):
+            raise ValueError("Choose a saved loop revision")
+        request["circuit"] = {"id": circuit["id"], "revision": circuit["revision"]}
+    return request
+
+
+def batch_report(value):
+    """Keep only the widget host's batch fields, bounded, for the dashboard to show."""
+    if not isinstance(value, dict):
+        return None
+    report = {"running": value.get("running") is True}
+    if value.get("kind") in ("learn", "single"):
+        report["kind"] = value["kind"]
+    for key in ("line", "output"):
+        if isinstance(value.get(key), str):
+            report[key] = value[key][-BATCH_OUTPUT_LIMIT:]
+    if type(value.get("code")) is int:
+        report["code"] = value["code"]
+    return report
 
 
 class OverlaySession:
@@ -20,6 +59,11 @@ class OverlaySession:
         self.worker = None
         self.close_requested = False
         self.companions = {}
+        # One dashboard batch request waits here until the widget host takes it. The host runs
+        # it through its own guarded batch launcher; this lease never starts input itself.
+        self.batch_pending = None
+        self.batch_sequence = 0
+        self.batch_state = {"running": False}
 
     def companion_heartbeat(self, payload):
         """Observe widget health without granting or extending control ownership."""
@@ -31,7 +75,40 @@ class OverlaySession:
         with self.lock:
             self.companions[owner] = self.clock() + 2
             self._start_watch()
-            return {"connected": True, "controller_ready": self.dashboard_ready()}
+            if (report := batch_report(payload.get("batch"))) is not None:
+                self.batch_state = report
+            ack = payload.get("batch_ack")
+            pending = self.batch_pending
+            if isinstance(ack, dict) and pending and ack.get("id") == pending["id"]:
+                if ack.get("started") is not True:
+                    reason = str(ack.get("reason") or "The widget refused the batch")[:300]
+                    self.batch_state = {"running": False, "output": json.dumps({"blocked": reason})}
+                self.batch_pending = None
+            return {"connected": True, "controller_ready": self.dashboard_ready(),
+                    "batch_request": self.batch_pending}
+
+    def _companion_live(self):
+        return any(deadline is not None and self.clock() < deadline
+                   for deadline in self.companions.values())
+
+    def dashboard_batch(self, payload):
+        """Queue one batch from the dashboard that holds the lease, for the widget host to run."""
+        owner = payload.get("owner")
+        with self.lock:
+            if not (self.dashboard_ready() and owner == self.owner):
+                raise ValueError("Dashboard controls are disconnected; reload the dashboard")
+            if not self._companion_live():
+                raise ValueError("Start the in-game overlay first; batches run through it")
+            if self.batch_pending or self.batch_state.get("running"):
+                raise ValueError("A batch is already running")
+            request = batch_request(payload)
+            self.batch_sequence += 1
+            self.batch_pending = {**request, "id": self.batch_sequence}
+            return {"queued": True, "id": self.batch_sequence}
+
+    def batch_status(self):
+        with self.lock:
+            return {**self.batch_state, "pending": self.batch_pending is not None}
 
     def dashboard_ready(self):
         return bool(self.owner and self.surface == "dashboard" and not self.expired
@@ -74,7 +151,8 @@ class OverlaySession:
             if opening or replacing:
                 self.pause()
             self._start_watch()
-        return {"connected": True, "panel": panel, "close_requested": self.close_requested}
+        return {"connected": True, "panel": panel, "close_requested": self.close_requested,
+                "batch": self.batch_status()}
 
     def dashboard_disconnect(self, payload):
         owner = payload.get("owner")

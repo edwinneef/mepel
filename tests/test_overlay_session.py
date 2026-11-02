@@ -192,3 +192,66 @@ def test_widget_loss_stops_once_without_disconnecting_dashboard():
     lease.check()
     assert len(events) == 2
     lease.guard("stop")
+
+
+def _ready_dashboard_with_widget(lease):
+    lease.dashboard_heartbeat({"owner": "d" * 32, "panel": False})
+    lease.companion_heartbeat({"owner": "w" * 32})
+
+
+def test_dashboard_batch_is_queued_once_for_the_widget_host_and_never_starts_input():
+    lease, app, now, events = fixture()
+    _ready_dashboard_with_widget(lease)
+    request = {"owner": "d" * 32, "kind": "learn", "area": "a" * 32, "minutes": 1,
+               "circuit": {"id": "lower-loop", "revision": 2}}
+    assert lease.dashboard_batch(request) == {"queued": True, "id": 1}
+    with pytest.raises(ValueError, match="already running"):
+        lease.dashboard_batch(request)
+    pending = lease.companion_heartbeat({"owner": "w" * 32})["batch_request"]
+    assert pending == {"kind": "learn", "area": "a" * 32, "minutes": 1,
+                       "circuit": {"id": "lower-loop", "revision": 2}, "id": 1}
+    # The host acknowledges and reports progress; the request is consumed exactly once.
+    progress = {"running": True, "kind": "learn", "line": "Starting"}
+    result = lease.companion_heartbeat({"owner": "w" * 32, "batch": progress,
+                                        "batch_ack": {"id": 1, "started": True}})
+    assert result["batch_request"] is None
+    status = lease.dashboard_heartbeat({"owner": "d" * 32, "panel": False})["batch"]
+    assert status == {"running": True, "kind": "learn", "line": "Starting", "pending": False}
+    with pytest.raises(ValueError, match="already running"):
+        lease.dashboard_batch({**request, "kind": "single"})
+    done = {"running": False, "kind": "learn", "code": 0, "output": "x" * 5000}
+    lease.companion_heartbeat({"owner": "w" * 32, "batch": done})
+    assert len(lease.batch_status()["output"]) == 4000
+    single = {**request, "kind": "single", "circuit": None}
+    assert lease.dashboard_batch(single) == {"queued": True, "id": 2}
+    assert len(events) == 1  # only the pause from opening the lease; queueing stops nothing
+
+
+def test_dashboard_batch_refusals():
+    lease, _, now, events = fixture()
+    good = {"owner": "d" * 32, "kind": "single", "area": "a" * 32, "minutes": 15}
+    with pytest.raises(ValueError, match="disconnected"):
+        lease.dashboard_batch(good)  # no dashboard lease
+    lease.dashboard_heartbeat({"owner": "d" * 32, "panel": False})
+    with pytest.raises(ValueError, match="in-game overlay"):
+        lease.dashboard_batch(good)  # no widget host to run it
+    lease.companion_heartbeat({"owner": "w" * 32})
+    with pytest.raises(ValueError, match="disconnected"):
+        lease.dashboard_batch({**good, "owner": "x" * 32})  # not the lease owner
+    for bad, message in [({"minutes": 7}, "1 or 15"), ({"area": "../x"}, "Invalid"),
+                         ({"kind": "jump"}, "Invalid"), ({"kind": "learn"}, "saved loop"),
+                         ({"kind": "learn", "circuit": {"id": "../x", "revision": 2}},
+                          "saved loop")]:
+        with pytest.raises(ValueError, match=message):
+            lease.dashboard_batch({**good, **bad})
+    assert lease.batch_pending is None
+
+
+def test_widget_refusal_of_a_dashboard_batch_is_reported_and_clears_the_request():
+    lease, _, now, events = fixture()
+    _ready_dashboard_with_widget(lease)
+    lease.dashboard_batch({"owner": "d" * 32, "kind": "single", "area": "a" * 32, "minutes": 1})
+    refused = {"id": 1, "started": False, "reason": "Widget renderer is not fresh"}
+    lease.companion_heartbeat({"owner": "w" * 32, "batch_ack": refused})
+    assert lease.batch_pending is None
+    assert "Widget renderer is not fresh" in lease.batch_status()["output"]

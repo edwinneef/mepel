@@ -11,6 +11,8 @@ const owner = randomUUID();
 let win, token, panel = false, quitting = false, lastPaint = 0, polling = false;
 let session = null, lastBounds = '', transition = false, batch = null;
 let controllerReady = false, gameFocused = false;
+// Dashboard starts arrive through the companion heartbeat; each runs once through startBatch.
+let batchReport = { running: false }, batchAck = null, handledRequest = null;
 // Screen areas of the in-game menu, in window pixels, reported by the renderer.
 let menuRects = [], hovering = false, takingMouse = false;
 const validRect = rect => rect && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key]))
@@ -51,12 +53,36 @@ async function post(route, body) {
   return value;
 }
 const stop = () => post('stop', {}).catch(() => {});
+/** Electron accelerators for the engine's active stop, drawings and widget keys (F1-F12). */
+async function activeKeys() {
+  const fallback = { emergency_key: 'F8', drawings: 'F9', widget: 'F7' };
+  try {
+    const response = await fetch(`${base}/api/v1/status`, { signal: AbortSignal.timeout(1500) });
+    const active = (await response.json())?.key_settings?.active ?? {};
+    return Object.fromEntries(Object.entries(fallback).map(([name, key]) => {
+      const value = String(active[name] ?? '');
+      return [name, /^f([1-9]|1[0-2])$/.test(value) ? value.toUpperCase() : key];
+    }));
+  } catch { return fallback; }  // An older engine: the engine still polls its own stop key.
+}
 const send = (type, value) => { if (win && !win.isDestroyed()) win.webContents.send('overlay-event', { type, value }); };
+const reportBatch = value => { batchReport = value; send('batch', value); };
 const heartbeat = async open => {
+  const ack = batchAck;
   const state = await post('overlay_companion', { owner, panel: open,
-    hwnd: Number(win.getNativeWindowHandle().readBigUInt64LE()) });
+    hwnd: Number(win.getNativeWindowHandle().readBigUInt64LE()), batch: batchReport, ...(ack ? { batch_ack: ack } : {}) });
+  if (ack && batchAck === ack) batchAck = null;
   controllerReady = state.controller_ready === true;
   send('controller', controllerReady);
+  const request = state.batch_request;
+  if (request && Number.isInteger(request.id) && request.id !== handledRequest) {
+    // The same launcher as the in-game Start: validation, renderer freshness, controller
+    // check and one-at-a-time all apply. The engine only queued the request.
+    handledRequest = request.id;
+    const { id, ...fields } = request;
+    const result = await startBatch(fields);
+    batchAck = { id, started: result.started === true, ...(result.reason ? { reason: result.reason } : {}) };
+  }
   return state;
 };
 function keepAboveGame() {
@@ -80,6 +106,11 @@ async function startBatch(request) {
       || ![1, 15].includes(request.minutes))) {
     return { started: false, reason: 'Choose a saved circuit revision and a 1 or 15 minute run' };
   }
+  // One platform takes the same 1 or 15 minute choice; older widgets send none and get 15.
+  const minutes = kind === 'single' && request?.minutes === undefined ? 15 : request?.minutes;
+  if (kind === 'single' && ![1, 15].includes(minutes)) {
+    return { started: false, reason: 'Choose a 1 or 15 minute run' };
+  }
   if (Date.now() - lastPaint >= 1200) {
     return { started: false, reason: 'Widget renderer is not fresh' };
   }
@@ -90,7 +121,7 @@ async function startBatch(request) {
   if (batch) return { started: false, reason: 'A batch is already running' };
   const root = path.resolve(__dirname, '..', '..');
   const args = ['-m', 'tools.prepared_farm_check', '--area', area, '--run', '--focus',
-    '--minutes', kind === 'single' ? '15' : String(request.minutes),
+    '--minutes', String(minutes),
     ...(kind === 'single' ? ['--single'] : ['--circuit', circuit.id,
       '--revision', String(circuit.revision), '--consumables'])];
   let output = '';
@@ -99,19 +130,19 @@ async function startBatch(request) {
   batch = child;
   const read = chunk => {
     output = (output + chunk.toString()).slice(-4000);
-    send('batch', { running: true, kind, line: output.trim().split(/\r?\n/).pop() });
+    reportBatch({ running: true, kind, line: output.trim().split(/\r?\n/).pop() });
   };
   child.stdout.on('data', read);
   child.stderr.on('data', read);
   child.on('error', error => {
     if (batch === child) batch = null;
-    send('batch', { running: false, kind, code: -1, output: error.message });
+    reportBatch({ running: false, kind, code: -1, output: error.message });
   });
   child.on('close', code => {
     if (batch === child) batch = null;
-    send('batch', { running: false, kind, code, output });
+    reportBatch({ running: false, kind, code, output });
   });
-  send('batch', { running: true, kind, line: 'Starting one guarded batch; restoring game focus...' });
+  reportBatch({ running: true, kind, line: 'Starting one guarded batch; restoring game focus...' });
   return { started: true };
 }
 async function settings(open) {
@@ -258,12 +289,15 @@ else app.whenReady().then(async () => {
         } catch (error) { console.error(error); }
       }, 3000);
     }
+    // Hotkeys come from the engine's active keys (config.toml, applied at engine start). The
+    // overlay quits on a new engine session, so it never re-binds keys while it runs.
+    const keys = await activeKeys();
     for (const [key, action] of [
       // Always deliver the key. The renderer reports blockers and the engine
       // retains its authoritative focus/input gates. Off must never be ignored.
-      ['F8', () => { void stop(); send('off'); }],
-      ['F9', () => send('layers')],
-      ['F7', () => send('widget')],
+      [keys.emergency_key, () => { void stop(); send('off'); }],
+      [keys.drawings, () => send('layers')],
+      [keys.widget, () => send('widget')],
     ]) if (!globalShortcut.register(key, action)) throw new Error(`${key} is already registered by another app`);
     setInterval(poll, 300);
     setInterval(updateMouse, 50);
