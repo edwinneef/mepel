@@ -139,6 +139,8 @@ def test_up_is_not_released_when_the_jump_ticket_completes(route, monkeypatch):
     app, nav, now, _ = route
     motions = [Motion((KeyHold("jump", .02),), vertical="up"), Motion(vertical="up")]
     monkeypatch.setattr(nav.agent, "step", lambda f: motions.pop(0))
+    # The controller refuses a plan without a current originating frame (9b9d181).
+    app.processing_frame = {"capture_clock": time.perf_counter(), "sequence": 1}
     nav.tick(None, now[0])
     deadline = time.monotonic() + 1
     outcomes = []

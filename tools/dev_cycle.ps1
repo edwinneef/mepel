@@ -41,6 +41,7 @@ if ($Scope -ne 'ui') {
             'combat' { @('tests/test_decision.py', 'tests/test_keyboard.py', 'tests/test_runtime.py',
                 'tests/test_farming.py', 'tests/test_farming_check.py') }
             'perception' { @('tests/test_perception.py', 'tests/test_reacquisition.py') }
+            'all' { @('tests') }
             default { @('tests/test_dev_cycle.py', 'tests/test_failure_report.py',
                 'tests/test_town_check.py', 'tests/test_navigation_check.py',
                 'tests/test_navigation_runtime.py', 'tests/test_navigation_harness.py') }
@@ -74,6 +75,11 @@ if ($BuildUi) {
     if ($Scope -notin @('ui', 'all')) { throw '-BuildUi requires -Scope ui or all so UI tests run first.' }
     $steps += @{ name = 'UI build'; directory = "$root/ui"; command = 'npm.cmd';
         arguments = @('run', 'build') }
+}
+if ($Scope -eq 'all') {
+    # After any -BuildUi: the installed bundle must equal a fresh build of ui/.
+    $steps += @{ name = 'bundle freshness'; directory = $root; command = 'pwsh';
+        arguments = @('-NoProfile', '-File', "$PSScriptRoot/check_workbench_bundle.ps1") }
 }
 if ($ReloadNavigation) {
     $steps += @{ name = 'navigation reload'; directory = $root;

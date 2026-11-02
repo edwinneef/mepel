@@ -119,17 +119,23 @@ def test_summary_only_override_and_general_lint_default(tmp_path):
             ReplayPolicy = $false; DryRun = $true }
         $reports += (& $args[0] @options | ConvertFrom-Json)
         $reports += (& $args[0] -Scope engine -DryRun | ConvertFrom-Json)
+        $reports += (& $args[0] -Scope all -BuildUi -DryRun | ConvertFrom-Json)
         ConvertTo-Json -InputObject $reports -Depth 8
     """, "utf-8")
     result = subprocess.run(["pwsh", "-NoProfile", "-File", str(runner), str(source), str(failure)],
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
-    perception, engine = json.loads(result.stdout)
+    perception, engine, everything = json.loads(result.stdout)
     assert "--replay-policy" not in perception["steps"][0]["arguments"]
     assert perception["steps"][2]["arguments"] == [
         "check", "src/maplebot/perception.py", "src/maplebot/reacquisition.py",
         "tests/test_perception.py", "tests/test_reacquisition.py"]
     assert engine["steps"][1]["arguments"] == ["check", "src", "tests", "tools"]
+    # The full suite, then the bundle diff after any rebuild, so a stale bundle fails.
+    assert [s["name"] for s in everything["steps"]] == [
+        "engine tests", "lint", "UI tests", "UI build", "bundle freshness"]
+    assert everything["steps"][0]["arguments"] == ["-m", "pytest", "-q", "tests"]
+    assert everything["steps"][4]["arguments"][-1].endswith("check_workbench_bundle.ps1")
 
 
 def test_rejects_reload_of_other_scopes_or_combined_restart(tmp_path):

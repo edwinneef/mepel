@@ -43,7 +43,7 @@ def test_a_miss_that_lands_safely_resumes_combat_and_keeps_the_move_off(app):
     fingerprint = nav.graph.fingerprint
     assert set(nav.proofs.failures("a" * 32, fingerprint)) == {"m_floor_ledge"}
     # The next batch keeps it off while the generator proposes the same geometry.
-    app.position = type("P", (), {"profile": {"id": "a" * 32}})()
+    app.position = type("P", (), {"profile": imported()})()
     app.areas.load = lambda _id: {"profile": imported()}
     nav.failed = set()  # a new session forgets in-memory failures
     nav.refresh()
