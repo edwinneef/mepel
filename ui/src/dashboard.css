@@ -135,3 +135,25 @@ body:has(.dash) { background: #1c120d; }
   .dash-hud { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .dash * { transition: none !important; } .dash button:not(:disabled):active { transform: none; } }
+
+/* Settings tabs: recolour the shared workbench tool styles to Autumn wood. Colours only; layout and behaviour unchanged. */
+.dash .dash-settings { font-family: var(--body); }
+.dash .dash-settings :is(p, li, label, .tool-intro, .tool-group p, .saved-map-note, .demo) { color: var(--muted); }
+.dash .dash-settings :is(h2, h3, strong, .go-bar strong) { color: var(--ink); font-family: var(--display); }
+.dash .dash-settings h3 { color: var(--gold); font-size: 15px; }
+.dash .dash-settings :is(small, .eyebrow, .probe-list span, .history time, dt) { color: var(--faint); }
+.dash .dash-settings dd { color: var(--ink); }
+.dash .dash-settings :is(dl > div, .history li) { border-bottom-color: var(--line-soft); }
+.dash .dash-settings summary { color: var(--gold); }
+.dash .dash-settings pre { color: var(--muted); background: var(--deep); border-radius: 6px; padding: 8px; }
+.dash .dash-settings a { color: var(--gold); }
+.dash .dash-settings :is(.warning-copy, .route-preview-note, .tool-group .warning-copy) { color: var(--stop); }
+.dash .dash-settings .tool-group .reading { color: var(--ink); border-left-color: var(--orange); }
+.dash .dash-settings :is(.go-bar, .probe-active, .route-preview) { background: var(--deep); border-color: var(--line); }
+.dash .dash-settings textarea { background: var(--deep); border-color: var(--line); color: var(--ink); }
+.dash .dash-settings :is(input[type=checkbox], input[type=radio], input[type=range]) { accent-color: var(--orange); }
+.dash .dash-settings button[aria-pressed=true] { --face: linear-gradient(#6a4526, #4e321b); border-color: #a8692c; color: var(--gold); }
+.dash .dash-settings .danger { --face: linear-gradient(#b8382b, #8e2219); --edge: #3a0b06; color: #fff3ee; }
+.dash .dash-settings :is(.map-sketch, .map-frame) { background: var(--deep); border-color: var(--line); }
+.dash .dash-settings :is(.map-label, .sketch-label) { fill: var(--ink); stroke: var(--deep); }
+.dash .dash-settings .position-canvas { stroke: var(--gold); }
