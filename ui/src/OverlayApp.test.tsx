@@ -383,7 +383,8 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
   vi.stubGlobal('fetch', fetcher);
   let listener: (event: OverlayEvent) => void = () => {};
   const batch = vi.fn(async () => ({ started: true }));
-  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), batch,
+  const interactive = vi.fn();
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), batch, interactive,
     subscribe: callback => {
       listener = callback;
       callback({ type: 'game-bounds', value: { x: 0, y: 0, width: 1366, height: 768, visible: true } });
@@ -392,6 +393,12 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
   render(<OverlayApp client={new OverlayClient('token', fetcher)} outlinesOnly />);
   await waitFor(() => expect(screen.getByLabelText('Bot menu')).toBeTruthy());
   expect(screen.getByText('6.0 fps')).toBeTruthy();
+  // Live: re-renders cleared and re-sent the menu area, and the overlay flickered under the
+  // cursor. Re-renders that keep the menu in place report nothing new and never clear it.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
+  expect(interactive.mock.calls.every(([rects]) => rects.length === 1)).toBe(true);
+  expect(new Set(interactive.mock.calls.map(([rects]) => JSON.stringify(rects))).size)
+    .toBe(interactive.mock.calls.length);
   expect(screen.getByText(/Standing on fh320/)).toBeTruthy();
   const names = screen.getByLabelText('Show platform names') as HTMLInputElement;
   expect(names.checked).toBe(true);

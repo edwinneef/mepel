@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('mapleOverlay', {
   quit: () => ipcRenderer.invoke('overlay-quit'),
   heartbeat: () => ipcRenderer.send('overlay-paint'),
   batch: request => ipcRenderer.invoke('overlay-batch', request),
+  interactive: rects => ipcRenderer.send('overlay-rects', rects),
   subscribe: callback => {
     const handler = (_event, value) => callback(value);
     ipcRenderer.on('overlay-event', handler);

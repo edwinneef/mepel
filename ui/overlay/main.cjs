@@ -10,6 +10,25 @@ const base = `http://127.0.0.1:${port}`;
 const owner = randomUUID();
 let win, token, panel = false, quitting = false, lastPaint = 0, polling = false;
 let session = null, lastBounds = '', transition = false, batch = null;
+// Screen areas of the in-game menu, in window pixels, reported by the renderer.
+let menuRects = [], hovering = false, takingMouse = false;
+const validRect = rect => rect && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key]))
+  && rect.width > 0 && rect.height > 0 && rect.width <= 2000 && rect.height <= 2000;
+// Forwarded mouse moves never arrived on the live overlay, so the menu could not be clicked.
+// The cursor position is read directly instead; only the menu's own area takes the mouse.
+// The window is never focusable, so a menu click leaves the game focused.
+function updateMouse() {
+  if (!win || win.isDestroyed()) return;
+  const cursor = screen.getCursorScreenPoint(), bounds = win.getBounds();
+  const x = cursor.x - bounds.x, y = cursor.y - bounds.y;
+  const inside = menuRects.some(rect => x >= rect.x && x < rect.x + rect.width
+    && y >= rect.y && y < rect.y + rect.height);
+  const take = inside || hovering;
+  if (take === takingMouse) return;
+  takingMouse = take;
+  win.setIgnoreMouseEvents(!take, { forward: true });
+  keepAboveGame();
+}
 function desktopBounds() {
   const displays = screen.getAllDisplays().map(display => display.bounds);
   const x = Math.min(...displays.map(rect => rect.x));
@@ -147,11 +166,12 @@ else app.whenReady().then(async () => {
     const own = event => event.sender === win.webContents;
     ipcMain.on('overlay-paint', event => { if (own(event)) lastPaint = Date.now(); });
     ipcMain.on('overlay-mouse', (event, interactive) => {
-      if (own(event) && typeof interactive === 'boolean') {
-        // Only the in-game menu takes the mouse; everywhere else clicks reach the game.
-        // The window is never focusable, so a menu click leaves the game focused.
-        win.setIgnoreMouseEvents(!interactive, { forward: true });
-        keepAboveGame();
+      if (own(event) && typeof interactive === 'boolean') { hovering = interactive; updateMouse(); }
+    });
+    ipcMain.on('overlay-rects', (event, rects) => {
+      if (own(event) && Array.isArray(rects)) {
+        menuRects = rects.filter(validRect).slice(0, 4);
+        updateMouse();
       }
     });
     ipcMain.handle('overlay-settings', (event, open) => own(event) && settings(Boolean(open)));
@@ -208,6 +228,7 @@ else app.whenReady().then(async () => {
       ['F9', () => send('layers')],
     ]) if (!globalShortcut.register(key, action)) throw new Error(`${key} is already registered by another app`);
     setInterval(poll, 300);
+    setInterval(updateMouse, 50);
   } catch (error) {
     await stop();
     if (!quitting) dialog.showErrorBox('Maple Overlay', error.message);

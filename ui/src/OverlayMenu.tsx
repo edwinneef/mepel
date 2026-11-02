@@ -1,10 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Snapshot } from './contracts';
 
 export interface BatchState { running: boolean; kind?: string; line?: string; output?: string; code?: number }
 type Rect = { x: number; y: number; width: number; height: number };
 
 const WIDTH = 236;
+const HEIGHT = 250;  // generous: the open menu is about 230 px tall
+
+/** Where the menu goes: beside the game view, never over it.
+
+Live: over the game's top-right it covered one of the engine's coverage sample points
+(5%, 50% and 95% of the view in each direction) whenever it took the mouse, so the
+engine saw the game as covered (which also refuses gameplay input) and the menu vanished
+under the cursor. Inside the view is a last resort, clear of every sample point.
+*/
+export function menuPlacement(game: Rect, viewport: { width: number; height: number }) {
+  const top = Math.max(0, Math.min(game.y, viewport.height - HEIGHT));
+  if (game.x + game.width + 8 + WIDTH <= viewport.width) return { left: game.x + game.width + 8, top };
+  if (game.x - 8 - WIDTH >= 0) return { left: game.x - 8 - WIDTH, top };
+  return { left: game.x + Math.round(game.width * .55), top: game.y + Math.round(game.height * .06) + 4 };
+}
 
 /** Frames per second the engine is analysing, from its own count or the frame interval. */
 export function engineFps(s: Snapshot | null | undefined): number | null {
@@ -45,13 +60,28 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   onStart(kind: 'learn' | 'single'): void; onStop(): void;
 }) {
   const [open, setOpen] = useState(true);
+  const menu = useRef<HTMLElement>(null);
+  const reported = useRef('');
+  // Tell the overlay host where the menu is, so only that area takes the mouse. Report only
+  // changes: clearing the area on every re-render (about five per second) made the overlay
+  // switch mouse capture and topmost on and off under the cursor, and the menu flickered.
+  useEffect(() => {
+    const rect = menu.current?.getBoundingClientRect();
+    const rects = rect ? [{ x: Math.round(rect.x), y: Math.round(rect.y),
+      width: Math.round(rect.width), height: Math.round(rect.height) }] : [];
+    const key = JSON.stringify(rects);
+    if (key === reported.current) return;
+    reported.current = key;
+    window.mapleOverlay?.interactive?.(rects);
+  });
+  useEffect(() => () => window.mapleOverlay?.interactive?.([]), []);
   const fps = engineFps(s);
   const where = s?.position?.surface_id ?? null;
   const busy = batch.running || status === 'ON' || status === 'STARTING';
   const ready = canBatch && !busy && Boolean(s?.position?.area_id) && status !== 'DISCONNECTED';
   const summary = batchSummary(batch);
-  const style = { left: Math.max(game.x + 8, game.x + game.width - WIDTH - 8), top: game.y + 8, width: WIDTH };
-  return <section className="overlay-menu" aria-label="Bot menu" style={style}>
+  const style = { ...menuPlacement(game, { width: window.innerWidth, height: window.innerHeight }), width: WIDTH };
+  return <section ref={menu} className="overlay-menu" aria-label="Bot menu" style={style}>
     <header>
       <button className="overlay-menu-fold" aria-expanded={open} aria-label={open ? 'Fold menu' : 'Open menu'}
         onClick={() => setOpen(value => !value)}>{open ? '▾' : '▸'}</button>

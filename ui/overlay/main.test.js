@@ -11,6 +11,7 @@ function fakeChild() {
     on: (name, callback) => { handlers[name] = callback; } };
 }
 
+let cursor = { x: 0, y: 0 };
 async function startOverlay() {
   const shortcuts = new Map(), requests = [], intervals = [];
   const spawn = vi.fn(() => fakeChild());
@@ -21,7 +22,7 @@ async function startOverlay() {
     focus: vi.fn(), blur: vi.fn(), showInactive: vi.fn(), setAlwaysOnTop: vi.fn(), moveTop: vi.fn(),
     setBounds: vi.fn(),
     isDestroyed: () => false, isVisible: () => true,
-    getNativeWindowHandle: () => Buffer.alloc(8, 1),
+    getNativeWindowHandle: () => Buffer.alloc(8, 1), getBounds: () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
     loadURL: vi.fn(async () => {}),
   };
   const construct = vi.fn();
@@ -33,7 +34,8 @@ async function startOverlay() {
     constructor(options) { construct(options); return win; }
   }, globalShortcut: { register: (key, action) => { shortcuts.set(key, action); return true; } },
   ipcMain: { on: vi.fn(), handle: vi.fn() },
-  screen: { getAllDisplays: () => [{ bounds: { x: 0, y: 0, width: 1920, height: 1080 } }] },
+  screen: { getAllDisplays: () => [{ bounds: { x: 0, y: 0, width: 1920, height: 1080 } }],
+    getCursorScreenPoint: () => cursor },
   dialog: { showErrorBox: vi.fn() } };
   vm.runInNewContext(readFileSync(new URL('./main.cjs', import.meta.url), 'utf8'), {
     require: name => ({ electron, 'node:path': path,
@@ -126,4 +128,20 @@ it('starts one guarded batch tool at a time from the in-game menu, validating th
     value: { running: false, kind: 'single', code: 0, output: '{"outcome": "nothing_left"}\n' } });
   expect(launch(own, { kind: 'learn', area: 'a'.repeat(32) })).toEqual({ started: true });
   expect(spawn.mock.calls[1][1]).toContain('5');
+});
+
+
+it('takes the mouse while the cursor is inside the reported menu area, without forwarded moves', async () => {
+  // Live: forwarded mouse moves never reached the overlay, so the menu could not be clicked.
+  const { win, electron } = await startOverlay();
+  const rects = electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-rects')[1];
+  rects({ sender: win.webContents }, [{ x: 1100, y: 40, width: 236, height: 200 }]);
+  cursor = { x: 1200, y: 100 };
+  rects({ sender: win.webContents }, [{ x: 1100, y: 40, width: 236, height: 200 }]);
+  expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(false, { forward: true });
+  cursor = { x: 500, y: 500 };
+  rects({ sender: {} }, [{ x: 0, y: 0, width: 1920, height: 1080 }]);  // other senders ignored
+  rects({ sender: win.webContents }, [{ x: 1100, y: 40, width: 236, height: 200 }]);
+  expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true, { forward: true });
+  cursor = { x: 0, y: 0 };
 });
