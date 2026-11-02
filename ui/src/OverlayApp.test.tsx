@@ -37,26 +37,14 @@ it('shows detection outlines and attack range without native settings or HUD', a
   await waitFor(() => expect(screen.getByLabelText('Detection boxes')).toBeTruthy());
   expect(screen.queryByRole('status')).toBeNull();
   expect(screen.queryByLabelText('Overlay settings')).toBeNull();
-  // The only controls in game are the small bot menu's; no settings, tabs or terrain inset.
-  expect(view.container.querySelector('nav, .terrain-inset')).toBeNull();
-  for (const control of view.container.querySelectorAll('button, input')) {
-    expect(control.closest('.overlay-menu')).toBeTruthy();
-  }
+  // Outlines only in game: no controls, settings, tabs or terrain inset.
+  expect(view.container.querySelectorAll('button, input, nav, .terrain-inset')).toHaveLength(0);
   expect(view.container.querySelector('[aria-label="Live detections"]')).toBeTruthy();
   expect(screen.getByLabelText('Configured attack range')).toBeTruthy();
   expect(screen.getByLabelText('Detection boxes').querySelectorAll('rect')).toHaveLength(2);
   // The in-game overlay is outlines only: no labels or tracking diagnostics.
   expect(screen.getByLabelText('Detection boxes').querySelectorAll('text')).toHaveLength(0);
   expect(screen.queryByLabelText('Enemy tracking diagnostics')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Enemies' }));
-  expect(screen.queryByLabelText('Detection boxes')).toBeNull();
-  // A loaded run can spend over 500 ms here; the range returns with the next fresh frame.
-  expect(await screen.findByLabelText('Configured attack range')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Attack range' }));
-  expect(screen.queryByLabelText('Configured attack range')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Attack range' }));
-  expect(await screen.findByLabelText('Configured attack range')).toBeTruthy();
 });
 
 it('shows passive position learning progress over the focused game only', async () => {
@@ -80,31 +68,6 @@ it('shows passive position learning progress over the focused game only', async 
   act(() => listener({ type: 'game-bounds', value: { x: 0, y: 0, width: 1024, height: 768, visible: true } }));
   await waitFor(() => expect(screen.getByLabelText('Position learning').textContent)
     .toBe('Learning position · Collecting pairs while you walk (12/20)'));
-});
-
-it('hides and shows the in-game widget with F7 and releases its mouse area while hidden', async () => {
-  const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
-    if (url === '/api/v1/status') return json(snapshot());
-    if (url === '/api/v1/drawings') return json(null);
-    return json({ areas: [] });
-  });
-  vi.stubGlobal('fetch', fetcher);
-  let listener: (event: OverlayEvent) => void = () => {};
-  const interactive = vi.fn();
-  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), interactive,
-    subscribe: callback => { listener = callback; return () => {}; } };
-  render(<OverlayApp client={new OverlayClient('token', fetcher)} outlinesOnly />);
-  act(() => listener({ type: 'game-bounds', value: { x: 0, y: 0, width: 1024, height: 768, visible: true } }));
-  await waitFor(() => expect(screen.getByLabelText('Bot menu')).toBeTruthy());
-  // A failed poll clears the game position; the widget stays where it was, still open.
-  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  act(() => listener({ type: 'game-bounds', value: null }));
-  expect(screen.getByLabelText('Bot menu').className).toContain('is-open');
-  act(() => listener({ type: 'widget' }));
-  expect(screen.queryByLabelText('Bot menu')).toBeNull();
-  expect(interactive).toHaveBeenLastCalledWith([]);
-  act(() => listener({ type: 'widget' }));
-  expect(screen.getByLabelText('Bot menu')).toBeTruthy();
 });
 
 it('keeps dashboard drawings paired with the displayed analyzed picture while newer frames load', async () => {
@@ -413,66 +376,4 @@ it('recovers platform names after a failed map load without cycling Map', async 
   expect(screen.getByText('Level 8')).toBeTruthy();
 });
 
-
-it('shows the bot menu in game and starts batches through the overlay host', async () => {
-  const current = snapshot({ position: { area_id: 'a'.repeat(32), kind: 'platform', surface_id: 'fh320',
-    reason: 'Matched', input_sent: false }, fps: 6 });
-  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
-    if (url === '/api/v1/status') return json(current);
-    if (url === '/api/v1/drawings') return json(null);
-    if (JSON.parse(String(options?.body ?? '{}')).name === 'farm_route_list') return json({ routes: [{
-      version: 1, id: 'lower-loop', revision: 2, name: 'Lower loop', area_id: 'a'.repeat(32),
-      map_hash: 'b'.repeat(64), stops: ['fh320', 'fh315'], loop: true,
-    }] });
-    return json({ areas: [] });
-  });
-  vi.stubGlobal('fetch', fetcher);
-  let listener: (event: OverlayEvent) => void = () => {};
-  const batch = vi.fn(async () => ({ started: true }));
-  const interactive = vi.fn();
-  window.mapleOverlay = { companion: true, settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), batch, interactive,
-    subscribe: callback => {
-      listener = callback;
-      callback({ type: 'game-bounds', value: { x: 0, y: 0, width: 1366, height: 768, visible: true } });
-      return () => {};
-    } };
-  render(<OverlayApp client={new OverlayClient('token', fetcher)} outlinesOnly />);
-  await waitFor(() => expect(screen.getByLabelText('Bot menu')).toBeTruthy());
-  expect(screen.getByText('6.0 fps')).toBeTruthy();
-  // Live: re-renders cleared and re-sent the menu area, and the overlay flickered under the
-  // cursor. Re-renders that keep the menu in place report nothing new and never clear it.
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
-  expect(interactive.mock.calls.every(([rects]) => rects.length === 1)).toBe(true);
-  expect(new Set(interactive.mock.calls.map(([rects]) => JSON.stringify(rects))).size)
-    .toBe(interactive.mock.calls.length);
-  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-  expect(screen.queryByText('Capture player screenshots')).toBeNull();  // dashboard only
-  expect(screen.getByText(/fh320/)).toBeTruthy();
-  const startButton = () => screen.getByRole('button', { name: 'Start' }) as HTMLButtonElement;
-  expect(startButton().disabled).toBe(true);
-  act(() => listener({ type: 'controller', value: true }));
-  const names = screen.getByRole('button', { name: 'Map lines' });
-  expect(names.getAttribute('aria-pressed')).toBe('true');
-  fireEvent.click(names);
-  expect(names.getAttribute('aria-pressed')).toBe('false');
-  await waitFor(() => expect((screen.getByRole('button', { name: 'Next loop' }) as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(screen.getByRole('button', { name: 'Next loop' }));
-  expect(screen.getByText('Lower loop · r2')).toBeTruthy();
-  await waitFor(() => expect(startButton().disabled).toBe(false));
-  fireEvent.click(startButton());
-  await waitFor(() => expect(batch).toHaveBeenCalledWith({ kind: 'learn', area: 'a'.repeat(32),
-    circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 }));
-  fireEvent.click(screen.getByRole('radio', { name: 'One platform' }));
-  fireEvent.click(startButton());
-  await waitFor(() => expect(batch).toHaveBeenCalledWith({ kind: 'single', area: 'a'.repeat(32), minutes: 1 }));
-  act(() => listener({ type: 'batch', value: { running: true, kind: 'single', line: 'Starting one guarded batch' } }));
-  expect(screen.getByText('Running')).toBeTruthy();
-  expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
-  act(() => listener({ type: 'batch', value: { running: false, kind: 'single', code: 1,
-    output: '{"blocked": "Stand still on a recognized platform of this map first", "input_sent": false}' } }));
-  expect(screen.getByText('Not started · no keys sent')).toBeTruthy();
-  expect(screen.getByText('Stand still on a recognized platform of this map first')).toBeTruthy();
-  act(() => listener({ type: 'controller', value: false }));
-  expect((screen.getByRole('button', { name: 'Start' }) as HTMLButtonElement).disabled).toBe(true);
-});
 

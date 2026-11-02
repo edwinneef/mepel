@@ -13,6 +13,14 @@ function fakeChild() {
 
 let cursor = { x: 0, y: 0 };
 let engineStatus = {};
+// Hands the overlay one request the way the engine queues a dashboard Start; returns its acknowledgement.
+async function queue({ intervals, requests }, id, fields) {
+  engineStatus = { batch_request: { id, ...fields } };
+  await intervals[0]();
+  engineStatus = {};
+  await intervals[0]();
+  return requests.map(request => request.body.batch_ack).filter(Boolean).find(ack => ack.id === id);
+}
 async function startOverlay(controllerReady = true) {
   const shortcuts = new Map(), requests = [], intervals = [];
   const spawn = vi.fn(() => fakeChild());
@@ -72,11 +80,9 @@ it('starts Off with settings closed and click-through without activating the ove
   expect(win.webContents.send).toHaveBeenCalledWith('overlay-event', { type: 'panel', value: false });
 });
 
-it('registers only emergency Stop, outline visibility and widget visibility shortcuts', async () => {
-  const { shortcuts, win } = await startOverlay();
-  expect([...shortcuts.keys()]).toEqual(['F8', 'F9', 'F7']);
-  shortcuts.get('F7')();
-  expect(win.webContents.send).toHaveBeenLastCalledWith('overlay-event', { type: 'widget', value: undefined });
+it('registers only emergency Stop and outline visibility shortcuts', async () => {
+  const { shortcuts } = await startOverlay();
+  expect([...shortcuts.keys()]).toEqual(['F8', 'F9']);
 });
 
 it('raises the visible overlay above the game again each time the game regains focus', async () => {
@@ -98,7 +104,7 @@ it('raises the visible overlay above the game again each time the game regains f
   } finally { engineStatus = {}; }
 });
 
-it('takes the mouse only over the in-game menu and refuses native settings requests', async () => {
+it('takes the mouse only while hovering its panel and refuses native settings requests', async () => {
   const { win, requests, electron } = await startOverlay();
   const mouse = electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-mouse')[1];
   mouse({ sender: win.webContents }, true);
@@ -130,65 +136,50 @@ it('keeps a visible overlay shown without repeating Win32 show transitions on ev
 });
 
 
-it('starts one guarded batch tool at a time from the in-game menu, validating the request', async () => {
-  const { win, electron, spawn } = await startOverlay();
+it('starts one guarded dashboard batch at a time, validating the request', async () => {
+  const overlay = await startOverlay();
+  const { win, electron, spawn } = overlay;
   electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: win.webContents });
-  const launch = electron.ipcMain.handle.mock.calls.find(([name]) => name === 'overlay-batch')[1];
-  const own = { sender: win.webContents };
-  expect(launch({ sender: {} }, { kind: 'learn', area: 'a'.repeat(32) }).started).toBe(false);
-  expect((await launch(own, { kind: 'learn', area: '../x' })).started).toBe(false);
-  expect((await launch(own, { kind: 'jump', area: 'a'.repeat(32) })).started).toBe(false);
-  expect(spawn).not.toHaveBeenCalled();
-  expect(await launch(own, { kind: 'single', area: 'a'.repeat(32) })).toEqual({ started: true });
-  const [, args] = spawn.mock.calls[0];
-  expect(args).toEqual(['-m', 'tools.prepared_farm_check', '--area', 'a'.repeat(32), '--run', '--focus',
-    '--minutes', '15', '--single']);
-  expect((await launch(own, { kind: 'learn', area: 'a'.repeat(32) })).reason).toBe('A batch is already running');
-  const child = spawn.mock.results[0].value;
-  child.handlers['out:data'](Buffer.from('{"outcome": "nothing_left"}\n'));
-  child.handlers.close(0);
-  expect(win.webContents.send).toHaveBeenLastCalledWith('overlay-event', { type: 'batch',
-    value: { running: false, kind: 'single', code: 0, output: '{"outcome": "nothing_left"}\n' } });
-  expect((await launch(own, { kind: 'learn', area: 'a'.repeat(32) })).started).toBe(false);
-  expect((await launch(own, { kind: 'single', area: 'a'.repeat(32), minutes: 7 })).started).toBe(false);
-  expect((await launch(own, { kind: 'learn', area: 'a'.repeat(32),
-    circuit: { id: '../x', revision: 2 }, minutes: 1 })).started).toBe(false);
-  expect(await launch(own, { kind: 'learn', area: 'a'.repeat(32),
-    circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 })).toEqual({ started: true });
-  expect(spawn.mock.calls[1][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', 'a'.repeat(32),
-    '--run', '--focus', '--minutes', '1', '--circuit', 'lower-loop', '--revision', '2', '--consumables']);
-  spawn.mock.results[1].value.handlers.close(0);
-  expect(await launch(own, { kind: 'single', area: 'a'.repeat(32), minutes: 1 })).toEqual({ started: true });
-  expect(spawn.mock.calls[2][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', 'a'.repeat(32),
-    '--run', '--focus', '--minutes', '1', '--single']);
-});
-
-
-it('takes the mouse while the cursor is inside the reported menu area, without forwarded moves', async () => {
-  // Live: forwarded mouse moves never reached the overlay, so the menu could not be clicked.
-  const { win, electron } = await startOverlay();
-  const rects = electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-rects')[1];
-  rects({ sender: win.webContents }, [{ x: 1100, y: 40, width: 236, height: 200 }]);
-  cursor = { x: 1200, y: 100 };
-  rects({ sender: win.webContents }, [{ x: 1100, y: 40, width: 236, height: 200 }]);
-  expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(false, { forward: true });
-  cursor = { x: 500, y: 500 };
-  rects({ sender: {} }, [{ x: 0, y: 0, width: 1920, height: 1080 }]);  // other senders ignored
-  rects({ sender: win.webContents }, [{ x: 1100, y: 40, width: 236, height: 200 }]);
-  expect(win.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true, { forward: true });
-  cursor = { x: 0, y: 0 };
+  const area = 'a'.repeat(32);
+  try {
+    expect((await queue(overlay, 1, { kind: 'learn', area: '../x' })).started).toBe(false);
+    expect((await queue(overlay, 2, { kind: 'jump', area })).started).toBe(false);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(await queue(overlay, 3, { kind: 'single', area })).toEqual({ id: 3, started: true });
+    expect(spawn.mock.calls[0][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', area, '--run', '--focus',
+      '--minutes', '15', '--single']);
+    expect((await queue(overlay, 4, { kind: 'learn', area })).reason).toBe('A batch is already running');
+    const child = spawn.mock.results[0].value;
+    child.handlers['out:data'](Buffer.from('{"outcome": "nothing_left"}\n'));
+    child.handlers.close(0);
+    expect(win.webContents.send).toHaveBeenLastCalledWith('overlay-event', { type: 'batch',
+      value: { running: false, kind: 'single', code: 0, output: '{"outcome": "nothing_left"}\n' } });
+    expect((await queue(overlay, 5, { kind: 'learn', area })).started).toBe(false);
+    expect((await queue(overlay, 6, { kind: 'single', area, minutes: 7 })).started).toBe(false);
+    expect((await queue(overlay, 7, { kind: 'learn', area,
+      circuit: { id: '../x', revision: 2 }, minutes: 1 })).started).toBe(false);
+    expect(await queue(overlay, 8, { kind: 'learn', area,
+      circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 })).toEqual({ id: 8, started: true });
+    expect(spawn.mock.calls[1][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', area,
+      '--run', '--focus', '--minutes', '1', '--circuit', 'lower-loop', '--revision', '2', '--consumables']);
+    spawn.mock.results[1].value.handlers.close(0);
+    expect(await queue(overlay, 9, { kind: 'single', area, minutes: 1 })).toEqual({ id: 9, started: true });
+    expect(spawn.mock.calls[2][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', area,
+      '--run', '--focus', '--minutes', '1', '--single']);
+  } finally { engineStatus = {}; }
 });
 
 it('registers only companion health and refuses batch input without a live dashboard controller', async () => {
-  const { win, electron, requests, spawn } = await startOverlay(false);
+  const { win, electron, requests, spawn, intervals } = await startOverlay(false);
   expect(requests.some(request => request.url.endsWith('/api/overlay'))).toBe(false);
   expect(requests.some(request => request.url.endsWith('/api/dashboard'))).toBe(false);
   expect(requests.some(request => request.url.endsWith('/api/overlay_companion'))).toBe(true);
   electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: win.webContents });
-  const launch = electron.ipcMain.handle.mock.calls.find(([name]) => name === 'overlay-batch')[1];
-  expect(await launch({ sender: win.webContents }, { kind: 'learn', area: 'a'.repeat(32),
-    circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 }))
-    .toEqual({ started: false, reason: 'Connect the browser dashboard before starting a batch' });
+  try {
+    expect(await queue({ intervals, requests }, 1, { kind: 'learn', area: 'a'.repeat(32),
+      circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 }))
+      .toEqual({ id: 1, started: false, reason: 'Connect the browser dashboard before starting a batch' });
+  } finally { engineStatus = {}; }
   expect(spawn).not.toHaveBeenCalled();
   expect(win.webContents.send).toHaveBeenCalledWith('overlay-event', { type: 'controller', value: false });
 });
@@ -218,13 +209,13 @@ it('runs a dashboard batch request from the companion heartbeat once, through th
   } finally { engineStatus = {}; }
 });
 
-it('registers the engine’s configured stop, drawings and widget keys', async () => {
+it('registers the engine’s configured stop and drawings keys', async () => {
   try {
-    engineStatus = { key_settings: { active: { emergency_key: 'f10', drawings: 'f11', widget: 'f12' } } };
+    engineStatus = { key_settings: { active: { emergency_key: 'f10', drawings: 'f11' } } };
     const { shortcuts } = await startOverlay();
-    expect([...shortcuts.keys()].sort()).toEqual(['F10', 'F11', 'F12']);
+    expect([...shortcuts.keys()].sort()).toEqual(['F10', 'F11']);
     engineStatus = { key_settings: { active: { emergency_key: 'ctrl' } } };  // never a non F-key
     const second = await startOverlay();
-    expect([...second.shortcuts.keys()].sort()).toEqual(['F7', 'F8', 'F9']);
+    expect([...second.shortcuts.keys()].sort()).toEqual(['F8', 'F9']);
   } finally { engineStatus = {}; }
 });

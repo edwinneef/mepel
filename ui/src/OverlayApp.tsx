@@ -15,7 +15,7 @@ import { MapTab } from './MapTab';
 import type { FarmingRoute } from './PathBuilder';
 import { AlarmBanner } from './AlarmBanner';
 import { SavedTerrainOverlay } from './SavedTerrainOverlay';
-import { OverlayMenu, type BatchState, type PathAvailability } from './OverlayMenu';
+import type { BatchState, PathAvailability } from './batch';
 import { BowmanSetup, WeaponRange } from './BowmanSetup';
 import { CombatResults } from './CombatResults';
 import { AttackRangeOverlay } from './AttackRangeOverlay';
@@ -35,13 +35,9 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const s = state.snapshot;
   const [panel, setPanel] = useState(Boolean(dashboard));
   const [gameBounds, setGameBounds] = useState<(Rect & { visible: boolean }) | null>(null);
-  // The widget keeps the last known game position: one failed poll or a missing preview
-  // frame clears gameBounds, and unmounting there made the widget vanish and fold.
-  const [widgetGame, setWidgetGame] = useState<Rect | null>(null);
   const layout = useOverlayLayout(panel && !dashboard);
   const [tab, setTab] = useState('Bot');
   const [layers, setLayers] = useState(true);
-  const [widget, setWidget] = useState(true);
   const [terrain, setTerrain] = useState(true);
   const [attackRange, setAttackRange] = useState(true);
   const [action, setAction] = useState<OverlayAction>({ name: 'dry_run', payload: {}, label: 'Decision preview' });
@@ -49,7 +45,6 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const [map, setMap] = useState<AreaProfile | null>(null);
   const [areas, setAreas] = useState<{ id: string; name: string; revision: number }[]>([]);
   const [starting, setStarting] = useState(false);
-  const [controllerReady, setControllerReady] = useState(!window.mapleOverlay?.companion);
   const [batch, setBatch] = useState<BatchState>({ running: false });
   // Dashboard pages: Set up and Maps hold the lease's settings flag (which stops the bot), Run and History do not.
   const [page, setPageState] = useState<Page>('run');
@@ -80,10 +75,10 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     && (!fastDrawing || Date.now() - (fastDrawing.frame.captured_at ?? 0) * 1000 <= 500);
   const disabled = !state.connected || state.busy || state.needsReload || Boolean(dashboard?.disconnected);
   const builderDisabled = !state.connected || state.busy || state.needsReload;
-  // In-game widget: saved paths for the player's map. The engine refuses route reads during
+  // Saved paths for the player's map. The engine refuses route reads during
   // gameplay, so read only while Off, keep the last answer meanwhile, and re-read every 30 s
   // so a path saved in the dashboard appears.
-  const pathArea = (outlinesOnly || Boolean(dashboard)) && state.connected ? s?.position?.area_id ?? null : null;
+  const pathArea = Boolean(dashboard) && state.connected ? s?.position?.area_id ?? null : null;
   const [paths, setPaths] = useState<PathAvailability>({ state: 'unknown' });
   const pathRead = useRef({ key: '', area: '' });
   const pathKey = pathArea && !running ? `${pathArea}:${Math.floor(now / 30000)}` : '';
@@ -127,18 +122,12 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     const timer = setInterval(() => { setNow(Date.now()); host?.heartbeat(); }, 200);
     const unsub = host?.subscribe(event => {
       if (event.type === 'panel') setPanel(Boolean(event.value));
-      if (event.type === 'game-bounds') {
-        const bounds = event.value as (Rect & { visible: boolean }) | null;
-        setGameBounds(bounds);
-        if (bounds) setWidgetGame({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
-      }
+      if (event.type === 'game-bounds') setGameBounds(event.value as (Rect & { visible: boolean }) | null);
       if (event.type === 'toggle') currentToggle.current();
       if (event.type === 'off') { startRef.current = false; setStarting(false); void act(() => client.command('stop')); }
       if (event.type === 'layers') setLayers(value => !value);
-      if (event.type === 'widget') setWidget(value => !value);
       if (event.type === 'error') client.fail(event.value);
       if (event.type === 'batch') setBatch(event.value as BatchState);
-      if (event.type === 'controller') setControllerReady(event.value === true);
     });
     return () => { clearInterval(timer); unsub?.(); };
   }, [client, host]);
@@ -184,7 +173,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       if (panel || dashboard) await host?.settings(false);
       if (!startRef.current) return;
       if (action.name === 'batch' && dashboard) {
-        // One start path: the in-game overlay runs the same guarded batch as its own Start.
+        // One start path: the in-game overlay runs the guarded batch tool.
         const area = s?.position?.area_id;
         if (!area) throw new Error("Can't start: this map isn't recognised");
         await dashboard.startBatch({ ...action.payload, area });
@@ -206,7 +195,6 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       if (is('emergency_key', 'f8')) { event.preventDefault(); startRef.current = false; setStarting(false); void act(() => client.command('stop')); return; }
       if (event.repeat || event.target instanceof Element && event.target.closest('input, select, textarea, [contenteditable=true]')) return;
       if (is('start_stop', 'f6')) { event.preventDefault(); currentToggle.current(); }
-      if (is('widget', 'f7')) { event.preventDefault(); setPage(panel ? 'run' : 'setup'); }
       if (is('drawings', 'f9')) { event.preventDefault(); setLayers(value => !value); }
     };
     window.addEventListener('keydown', keydown);
@@ -258,20 +246,6 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       {layers && <LiveDetectionBoxes drawing={drawing} compact />}
       {attackRange && <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
     </svg>}
-    {widgetGame && widget && <OverlayMenu s={s ?? null} status={status} game={widgetGame}
-      layers={layers} attackRange={attackRange} names={terrain}
-      setLayers={setLayers} setAttackRange={setAttackRange} setNames={setTerrain}
-      batch={batch} canBatch={Boolean(window.mapleOverlay?.batch) && controllerReady} paths={paths}
-      startBlocker={window.mapleOverlay?.companion && !controllerReady
-        ? 'Open the browser dashboard to enable starting. Stop and F8 remain available.' : undefined}
-      onStart={(kind, circuit, minutes) => void act(async () => {
-        const area = s?.position?.area_id;
-        const launch = window.mapleOverlay?.batch;
-        if (!area || !launch) return;
-        const result = await launch({ kind, area, ...(circuit ? { circuit } : {}), ...(minutes ? { minutes } : {}) });
-        if (!result.started) setBatch({ running: false, output: JSON.stringify({ blocked: result.reason }) });
-      })}
-      onStop={() => void act(() => client.command('stop'))} />}
     {terrain && map && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
       viewBox={`0 0 ${drawing.frame.width} ${drawing.frame.height}`} preserveAspectRatio="none">

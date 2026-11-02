@@ -6,7 +6,7 @@ import type { EngineClient } from './client';
 
 afterEach(() => cleanup());
 const active = { hp_potion: 'insert', mp_potion: 'delete', pet_food: 'f', attack: 'ctrl', skill: 'ctrl', jump: 'alt',
-  emergency_key: 'f8', start_stop: 'f6', widget: 'f7', drawings: 'f9', pet_feed_seconds: 600 };
+  emergency_key: 'f8', start_stop: 'f6', drawings: 'f9', pet_feed_seconds: 600 };
 const supported = ['a', 'f', 'home', 'insert', 'delete', 'ctrl', 'alt', 'space', 'f6', 'f7', 'f8', 'f9', 'f10'];
 const view = (overrides = {}) => {
   const command = vi.fn(async () => ({ restart_required: true }));

@@ -3,8 +3,6 @@ html:has(.native-overlay), body:has(.native-overlay), body:has(.native-overlay) 
 }
 .native-overlay { color: #ecf1f7; font: 13px/1.4 system-ui, sans-serif; }
 .world-layer { position: fixed; pointer-events: none; }
-.overlay-menu { position: fixed; box-sizing: border-box; pointer-events: auto; }
-.overlay-menu header { display: flex; align-items: center; gap: 8px; }
 .overlay-learning { position: fixed; transform: translateX(-50%); padding: 4px 12px; background: #ffffffee; color: #12263a;
   border: 1px solid #d2dce5; border-radius: 999px; pointer-events: none; white-space: nowrap; font: 700 13px 'Atkinson Hyperlegible', 'Segoe UI', system-ui, sans-serif; }
 .overlay-hud { position: fixed; top: 14px; left: 14px; max-width: min(430px, 45vw); padding: 12px 16px;
@@ -41,6 +39,3 @@ html:has(.native-overlay), body:has(.native-overlay), body:has(.native-overlay) 
 .hud-settings { margin-top: 6px; pointer-events: auto; }
 .overlay-recording { display: block; margin-top: 6px; color: #ff6b6b; font-weight: 700; }
 
-/* In-game widget: look and size live in clear.css (design 2a); here only dragging. */
-.overlay-menu header { cursor: grab; touch-action: none; user-select: none; }
-.overlay-menu header:active { cursor: grabbing; }

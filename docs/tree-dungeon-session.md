@@ -57,10 +57,10 @@ time is separate from active gameplay. No unattended testing is authorized.
 `data/areas/farming-routes/tree-lower-acceptance.json`. Offline geometry validation
 and before/after hashes are in `artifacts/tree-dungeon-20261102/offline-circuit.json`.
 
-After separate batch authorization, with the dashboard connected and the widget
-open: stand on fh308 or fh315 in Tree Dungeon, open the widget menu, choose
-**Farming circuit: Tree lower acceptance · r1**, set **Run duration: 1 minute**,
-then click **Start run**. Fresh player/map/enemy and normal gates must pass.
+After separate batch authorization, with the dashboard and in-game overlay running:
+stand on fh308 or fh315 in Tree Dungeon; on the dashboard's Run page choose
+**Follow a saved loop**, **Tree lower acceptance**, length **1 min**,
+then click **Start**. Fresh player/map/enemy and normal gates must pass.
 Use the 15-minute choice only after the first batch passes and it is separately
 authorized. HP/MP use confirmed potion keys; food uses the existing F/10-minute
 setting. A key press does not prove a potion or food was consumed.

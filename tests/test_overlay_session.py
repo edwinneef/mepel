@@ -178,7 +178,7 @@ def test_widget_companion_does_not_claim_or_renew_dashboard_control():
     assert len(events) == 2
 
 
-def test_widget_loss_stops_once_without_disconnecting_dashboard():
+def test_overlay_loss_stops_once_without_disconnecting_dashboard():
     lease, _, now, events = fixture()
     lease.companion_heartbeat({"owner": "w" * 32})
     with pytest.raises(ValueError, match="dashboard"):
@@ -188,7 +188,7 @@ def test_widget_loss_stops_once_without_disconnecting_dashboard():
     lease.dashboard_heartbeat({"owner": "d" * 32, "panel": False})
     now[0] = 2.1
     lease.check()
-    assert len(events) == 2 and "Widget" in events[-1][1]
+    assert len(events) == 2 and "In-game overlay disconnected" in events[-1][1]
     assert lease.owner == "d" * 32 and not lease.expired
     lease.check()
     assert len(events) == 2

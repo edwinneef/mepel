@@ -15,10 +15,10 @@ from .keyboard import KEYS
 
 GAME_KEYS = ("hp_potion", "mp_potion", "pet_food", "attack", "skill", "jump")
 STOP_KEY = "emergency_key"
-HOTKEYS = ("start_stop", "widget", "drawings")
+HOTKEYS = ("start_stop", "drawings")
 LABELS = {"hp_potion": "HP potion", "mp_potion": "MP potion", "pet_food": "Pet food",
           "attack": "Attack", "skill": "Attack skill", "jump": "Jump", STOP_KEY: "Stop",
-          "start_stop": "Start or stop", "widget": "Show or hide the widget",
+          "start_stop": "Start or stop",
           "drawings": "Show or hide drawings"}
 # The bot may press both with one key; the game binds them separately.
 SHARED_OK = frozenset({"attack", "skill"})

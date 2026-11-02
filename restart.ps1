@@ -3,7 +3,7 @@ param(
     # session's mode is kept (capture-only when nothing is running).
     [switch]$EnableGameplayInput,
     [switch]$CaptureOnly,
-    # Skip the in-game overlay (drawings and widget).
+    # Skip the in-game overlay (drawings; dashboard batches run through it).
     [switch]$NoOverlay,
     # Also open a dashboard tab. Off by default: the open tab reconnects by itself, and a
     # second tab would compete with it for dashboard controls.

@@ -9,7 +9,7 @@ from maplebot.runtime import Application
 
 ACTIVE = {"hp_potion": "insert", "mp_potion": "delete", "pet_food": "f", "attack": "ctrl",
           "skill": "ctrl", "jump": "alt", "emergency_key": "f8", "start_stop": "f6",
-          "widget": "f7", "drawings": "f9", "pet_feed_seconds": 600}
+          "drawings": "f9", "pet_feed_seconds": 600}
 
 
 def test_valid_change_returns_the_full_key_set():
@@ -22,7 +22,7 @@ def test_valid_change_returns_the_full_key_set():
     ({"start_stop": "f8"}, "used for both Stop and Start or stop"),
     ({"emergency_key": "q"}, "Stop must be one of F1 to F12"),
     ({"emergency_key": ""}, "cannot be pressed"),
-    ({"widget": "ctrl"}, "Show or hide the widget must be one of F1 to F12"),
+    ({"drawings": "ctrl"}, "Show or hide drawings must be one of F1 to F12"),
     ({"jump": "up"}, "Arrow keys"),
     ({"hp_potion": "numlock"}, "cannot be pressed"),
     ({"left": "a"}, "Unknown key setting"),
@@ -52,7 +52,7 @@ def test_write_keeps_comments_and_other_settings_and_makes_a_backup(tmp_path):
     assert backup.read_text("utf-8") == original
     assert 'hp_potion = "home"  # HP' in text and "# Potion keys" in text
     assert "pet_feed_seconds = 600\n\n[probe]\npotion_effect_seconds = 2.0" in text
-    assert text.endswith('[hotkeys]\nstart_stop = "f5"\nwidget = "f7"\ndrawings = "f9"\n')
+    assert text.endswith('[hotkeys]\nstart_stop = "f5"\ndrawings = "f9"\n')
     config = Config.load(path)
     assert config.input.hp_potion == "home" and config.hotkeys.start_stop == "f5"
     assert key_settings.current(config) == keys

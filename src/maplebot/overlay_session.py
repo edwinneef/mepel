@@ -13,7 +13,7 @@ BATCH_OUTPUT_LIMIT = 4000
 
 
 def batch_request(payload):
-    """Validate a dashboard batch request the same way the widget host does."""
+    """Validate a dashboard batch request the same way the in-game overlay does."""
     kind, area, minutes = payload.get("kind"), payload.get("area"), payload.get("minutes")
     if kind not in ("learn", "single") or not isinstance(area, str) or not AREA_ID.fullmatch(area):
         raise ValueError("Invalid batch request")
@@ -32,7 +32,7 @@ def batch_request(payload):
 
 
 def batch_report(value):
-    """Keep only the widget host's batch fields, bounded, for the dashboard to show."""
+    """Keep only the in-game overlay's batch fields, bounded, for the dashboard to show."""
     if not isinstance(value, dict):
         return None
     report = {"running": value.get("running") is True}
@@ -59,17 +59,17 @@ class OverlaySession:
         self.worker = None
         self.close_requested = False
         self.companions = {}
-        # One dashboard batch request waits here until the widget host takes it. The host runs
+        # One dashboard batch request waits here until the in-game overlay takes it. The host runs
         # it through its own guarded batch launcher; this lease never starts input itself.
         self.batch_pending = None
         self.batch_sequence = 0
         self.batch_state = {"running": False}
 
     def companion_heartbeat(self, payload):
-        """Observe widget health without granting or extending control ownership."""
+        """Observe in-game overlay health without granting or extending control ownership."""
         owner = payload.get("owner")
         if not isinstance(owner, str) or not 16 <= len(owner) <= 80:
-            raise ValueError("Invalid widget owner")
+            raise ValueError("Invalid overlay owner")
         if windows := getattr(self.app, "windows", None):
             windows.verify_overlay(payload.get("hwnd"))
         with self.lock:
@@ -81,7 +81,7 @@ class OverlaySession:
             pending = self.batch_pending
             if isinstance(ack, dict) and pending and ack.get("id") == pending["id"]:
                 if ack.get("started") is not True:
-                    reason = str(ack.get("reason") or "The widget refused the batch")[:300]
+                    reason = str(ack.get("reason") or "The in-game overlay refused the batch")[:300]
                     self.batch_state = {"running": False, "output": json.dumps({"blocked": reason})}
                 self.batch_pending = None
             return {"connected": True, "controller_ready": self.dashboard_ready(),
@@ -92,7 +92,7 @@ class OverlaySession:
                    for deadline in self.companions.values())
 
     def dashboard_batch(self, payload):
-        """Queue one batch from the dashboard that holds the lease, for the widget host to run."""
+        """Queue one batch from the dashboard that holds the lease, for the in-game overlay to run."""
         owner = payload.get("owner")
         with self.lock:
             if not (self.dashboard_ready() and owner == self.owner):
@@ -194,7 +194,7 @@ class OverlaySession:
                 if deadline is not None and self.clock() >= deadline:
                     self.companions[owner] = None
                     self.app.stop_requested.set()
-                    self.app.safe_stop("OPERATOR_STOP", "Widget disconnected; bot off")
+                    self.app.safe_stop("OPERATOR_STOP", "In-game overlay disconnected; bot off")
 
     def _watch(self):
         while not self.app.closed.wait(0.1):
@@ -205,7 +205,7 @@ class OverlaySession:
         if self.owner and (self.expired or self.clock() >= self.deadline):
             return f"{self.surface.title()} disconnected; reconnect before starting"
         if self.companions and not self.dashboard_ready():
-            return "Connect the browser dashboard before starting from the widget"
+            return "Connect the browser dashboard before starting"
         # Open settings no longer refuse a start (operator decision, 2026-11-01);
         # opening them still stops running work.
         return None

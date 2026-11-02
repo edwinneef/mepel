@@ -15,8 +15,8 @@ import { MapTab } from './MapTab';
 import { PositionPanel } from './PositionPanel';
 import { AlarmBanner } from './AlarmBanner';
 import { Facts, Journal, SpotMap } from './DashboardParts';
-import { batchReport } from './OverlayMenu';
-import type { BatchState } from './OverlayMenu';
+import { batchReport } from './batch';
+import type { BatchState } from './batch';
 import { CheckList, LayerToggles, LengthPicker, LoopChooser, Meter, NextCheck, PlanPicker, StateBadge } from './ClearParts';
 import { firstBlocker, PLANS, startChecks, statusSentence } from './vocabulary';
 import { KeySettings } from './KeySettings';
@@ -217,7 +217,7 @@ export function ClearDashboard(p: ClearDashboardProps) {
   </div>;
 }
 
-/** The last batch result in the widget's words, else the engine's last stop. */
+/** The last batch result in plain words, else the engine's last stop. */
 function LastRun({ s, batch }: { s: Snapshot | null; batch: BatchState }) {
   if (batch.running || batch.pending) return <div className="c-result" data-tone="info">
     <b>{batch.pending ? 'Waiting for the in-game overlay to start it' : 'Running'}</b>

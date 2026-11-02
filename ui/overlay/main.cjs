@@ -13,23 +13,13 @@ let session = null, lastBounds = '', transition = false, batch = null;
 let controllerReady = false, gameFocused = false;
 // Dashboard starts arrive through the companion heartbeat; each runs once through startBatch.
 let batchReport = { running: false }, batchAck = null, handledRequest = null;
-// Screen areas of the in-game menu, in window pixels, reported by the renderer.
-let menuRects = [], hovering = false, takingMouse = false;
-const validRect = rect => rect && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key]))
-  && rect.width > 0 && rect.height > 0 && rect.width <= 2000 && rect.height <= 2000;
-// Forwarded mouse moves never arrived on the live overlay, so the menu could not be clicked.
-// The cursor position is read directly instead; only the menu's own area takes the mouse.
-// The window is never focusable, so a menu click leaves the game focused.
+// The overlay is click-through except while the cursor is over its settings panel.
+// The window is never focusable, so a click leaves the game focused.
+let hovering = false, takingMouse = false;
 function updateMouse() {
-  if (!win || win.isDestroyed()) return;
-  const cursor = screen.getCursorScreenPoint(), bounds = win.getBounds();
-  const x = cursor.x - bounds.x, y = cursor.y - bounds.y;
-  const inside = menuRects.some(rect => x >= rect.x && x < rect.x + rect.width
-    && y >= rect.y && y < rect.y + rect.height);
-  const take = inside || hovering;
-  if (take === takingMouse) return;
-  takingMouse = take;
-  win.setIgnoreMouseEvents(!take, { forward: true });
+  if (!win || win.isDestroyed() || hovering === takingMouse) return;
+  takingMouse = hovering;
+  win.setIgnoreMouseEvents(!hovering, { forward: true });
   keepAboveGame();
 }
 function desktopBounds() {
@@ -53,9 +43,9 @@ async function post(route, body) {
   return value;
 }
 const stop = () => post('stop', {}).catch(() => {});
-/** Electron accelerators for the engine's active stop, drawings and widget keys (F1-F12). */
+/** Electron accelerators for the engine's active stop and drawings keys (F1-F12). */
 async function activeKeys() {
-  const fallback = { emergency_key: 'F8', drawings: 'F9', widget: 'F7' };
+  const fallback = { emergency_key: 'F8', drawings: 'F9' };
   try {
     const response = await fetch(`${base}/api/v1/status`, { signal: AbortSignal.timeout(1500) });
     const active = (await response.json())?.key_settings?.active ?? {};
@@ -76,8 +66,8 @@ const heartbeat = async open => {
   send('controller', controllerReady);
   const request = state.batch_request;
   if (request && Number.isInteger(request.id) && request.id !== handledRequest) {
-    // The same launcher as the in-game Start: validation, renderer freshness, controller
-    // check and one-at-a-time all apply. The engine only queued the request.
+    // The batch launcher: validation, renderer freshness, controller check and
+    // one-at-a-time all apply. The engine only queued the request.
     handledRequest = request.id;
     const { id, ...fields } = request;
     const result = await startBatch(fields);
@@ -92,7 +82,7 @@ function keepAboveGame() {
   win.setAlwaysOnTop(false);
   win.setAlwaysOnTop(true);
 }
-// One guarded batch at a time from the in-game menu: the same tool the start window runs,
+// One guarded batch at a time, from the dashboard: the same tool the start window runs,
 // so its focus handoff, preflight, bounded session, result file and alarm stay identical.
 async function startBatch(request) {
   const kind = request?.kind, area = String(request?.area ?? '');
@@ -106,13 +96,13 @@ async function startBatch(request) {
       || ![1, 15].includes(request.minutes))) {
     return { started: false, reason: 'Choose a saved circuit revision and a 1 or 15 minute run' };
   }
-  // One platform takes the same 1 or 15 minute choice; older widgets send none and get 15.
+  // One platform takes the same 1 or 15 minute choice; a request without one gets 15.
   const minutes = kind === 'single' && request?.minutes === undefined ? 15 : request?.minutes;
   if (kind === 'single' && ![1, 15].includes(minutes)) {
     return { started: false, reason: 'Choose a 1 or 15 minute run' };
   }
   if (Date.now() - lastPaint >= 1200) {
-    return { started: false, reason: 'Widget renderer is not fresh' };
+    return { started: false, reason: 'Overlay renderer is not fresh' };
   }
   await heartbeat(false);
   if (!controllerReady) {
@@ -236,16 +226,8 @@ else app.whenReady().then(async () => {
     ipcMain.on('overlay-mouse', (event, interactive) => {
       if (own(event) && typeof interactive === 'boolean') { hovering = interactive; updateMouse(); }
     });
-    ipcMain.on('overlay-rects', (event, rects) => {
-      if (own(event) && Array.isArray(rects)) {
-        menuRects = rects.filter(validRect).slice(0, 4);
-        updateMouse();
-      }
-    });
     ipcMain.handle('overlay-settings', (event, open) => own(event) && settings(Boolean(open)));
     ipcMain.handle('overlay-quit', event => { if (own(event)) app.quit(); });
-    ipcMain.handle('overlay-batch', (event, request) => own(event)
-      ? startBatch(request) : { started: false, reason: 'Unknown sender' });
     win.webContents.on('render-process-gone', () => { void stop(); app.quit(); });
     win.on('unresponsive', () => { void stop(); });
     win.on('close', () => { void stop(); });
@@ -297,10 +279,8 @@ else app.whenReady().then(async () => {
       // retains its authoritative focus/input gates. Off must never be ignored.
       [keys.emergency_key, () => { void stop(); send('off'); }],
       [keys.drawings, () => send('layers')],
-      [keys.widget, () => send('widget')],
     ]) if (!globalShortcut.register(key, action)) throw new Error(`${key} is already registered by another app`);
     setInterval(poll, 300);
-    setInterval(updateMouse, 50);
   } catch (error) {
     await stop();
     if (!quitting) dialog.showErrorBox('Maple Overlay', error.message);

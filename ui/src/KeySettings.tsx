@@ -20,7 +20,6 @@ const GAME: { id: string; label: string; used: string; probe?: string; uncheckab
 const BOT: { id: string; label: string; used: string }[] = [
   { id: 'start_stop', label: 'Start or stop', used: 'While the game or dashboard is in front.' },
   { id: 'emergency_key', label: 'Stop from anywhere', used: 'Always stops and releases every key.' },
-  { id: 'widget', label: 'Show or hide the widget', used: 'In game.' },
   { id: 'drawings', label: 'Show or hide drawings', used: 'Enemy boxes on the game.' },
 ];
 const FEED = [300, 600, 900];

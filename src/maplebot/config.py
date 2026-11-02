@@ -120,11 +120,10 @@ class InputConfig:
 class HotkeyConfig:
     """Bot hotkeys handled by the overlay and dashboard; Stop is input.emergency_key."""
     start_stop: str = "f6"
-    widget: str = "f7"
     drawings: str = "f9"
 
     def __post_init__(self) -> None:
-        for name in ("start_stop", "widget", "drawings"):
+        for name in ("start_stop", "drawings"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"hotkeys.{name} must be a non-empty key name")

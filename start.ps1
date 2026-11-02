@@ -1,7 +1,7 @@
 param(
     # Allow gameplay keys (elevated MapleBot task). Without it the session is capture-only.
     [switch]$EnableGameplayInput,
-    # Skip the in-game overlay (drawings and widget).
+    # Skip the in-game overlay (drawings; dashboard batches run through it).
     [switch]$NoOverlay,
     # Do not open the dashboard in the browser.
     [switch]$NoBrowser,

@@ -1,19 +1,19 @@
-/* Design 2a "Clear sky": tokens and shared pieces for the dashboard (.clear) and widget (.clear-widget).
+/* Design 2a "Clear sky": tokens and shared pieces for the dashboard (.clear).
    Scoped so the workbench (?workbench) keeps its own look. Overlay drawing colours live in theme.ts. */
 @import '@fontsource/atkinson-hyperlegible/latin-400.css';
 @import '@fontsource/atkinson-hyperlegible/latin-700.css';
 
-.clear, .clear-widget {
+.clear {
   --bg: #e6edf2; --panel: #ffffff; --ink: #12263a; --muted: #55687a; --line: #d2dce5; --soft: #f2f6f9;
   --green: #17804f; --green-bg: #e1f3ea; --amber: #9a5b00; --amber-bg: #fff1d6;
   --red: #c4302b; --red-bg: #fde6e4; --sky: #2468b4; --sky-bg: #e8f1fb;
   --font: 'Atkinson Hyperlegible', 'Segoe UI', system-ui, sans-serif;
   color: var(--ink); font: 400 15px/1.5 var(--font); color-scheme: light;
 }
-.clear *, .clear-widget * { box-sizing: border-box; }
-.clear button, .clear-widget button { font: inherit; color: inherit; cursor: pointer; }
-.clear button:disabled, .clear-widget button:disabled { cursor: not-allowed; }
-.clear :focus-visible, .clear-widget :focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
+.clear * { box-sizing: border-box; }
+.clear button { font: inherit; color: inherit; cursor: pointer; }
+.clear button:disabled { cursor: not-allowed; }
+.clear :focus-visible { outline: 3px solid var(--sky); outline-offset: 2px; }
 .c-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 /* State badge */
@@ -191,37 +191,6 @@ details.c-card[open] > summary { margin-bottom: 12px; }
 .clear .dash-spot .rope { stroke: #8aa0b4; stroke-dasharray: 2 3; }
 .clear .dash-spot .player { fill: var(--green); stroke: #fff; }
 
-/* ---- In-game widget (design 2a). Fixed 300 px wide; open it keeps one height (360 px). ---- */
-.overlay-menu.clear-widget { padding: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-  box-shadow: 0 12px 28px rgba(10, 25, 40, .35); font-size: 13px; line-height: 1.4; overflow: hidden; color: var(--ink); }
-.clear-widget.is-open { height: 360px; display: flex; flex-direction: column; }
-.overlay-menu.clear-widget p { color: var(--ink); margin: 0; }
-.clear-widget .w-head { background: var(--panel); color: var(--ink); display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line); cursor: grab; }
-.clear-widget.is-folded .w-head { border-bottom: 0; }
-.clear-widget .w-fold { border: 0; background: none; padding: 0; width: 16px; color: var(--muted); font-size: 13px; }
-.clear-widget .c-badge { padding: 1px 8px; font-size: 13px; }
-.clear-widget .w-fps { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.clear-widget .w-stop { padding: 3px 10px; font-size: 13px; }
-.clear-widget .w-stop:disabled { opacity: .55; }
-.clear-widget .w-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px; }
-.clear-widget .w-line { margin: 0; font-weight: 700; font-size: 14px; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.clear-widget .w-where { margin: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.clear-widget .c-seg button { font-size: 12px; padding: 4px 2px; }
-.clear-widget .c-chooser { padding: 2px; } .clear-widget .c-chooser .c-btn.icon { width: 26px; padding: 1px 0; }
-.clear-widget .c-quiet { font-size: 12px; padding: 4px 2px; }
-.clear-widget .w-start { padding: 6px; font-size: 16px; }
-.clear-widget .w-running { display: grid; gap: 6px; padding: 4px 0; }
-.clear-widget .c-gauge { grid-template-columns: 24px 1fr 38px; font-size: 12px; }
-.clear-widget .c-layers { gap: 4px; flex-wrap: nowrap; }
-.clear-widget .c-layers button { padding: 3px 5px; font-size: 11px; gap: 4px; }
-.clear-widget .c-switch { width: 20px; height: 11px; } .clear-widget .c-switch::after { width: 7px; height: 7px; }
-.clear-widget .c-layers button[aria-pressed=true] .c-switch::after { left: 11px; }
-.clear-widget .w-report { flex: 1; min-height: 44px; overflow: auto; padding: 6px 8px; border-radius: 8px; background: var(--soft); border: 1px solid var(--line); }
-.clear-widget .w-report.tone-ok { background: var(--green-bg); border-color: #a9d9c0; }
-.clear-widget .w-report.tone-fail { background: var(--red-bg); border-color: #f2b3ae; }
-.clear-widget .w-report strong { display: block; font-size: 12px; }
-.clear-widget .w-report .w-empty { color: var(--muted); }
-.clear-widget .w-report p { margin: 2px 0 0; font-size: 12px; white-space: pre-line; color: var(--ink); }
 
 /* ---- Set up › Keys ---- */
 .c-keys { display: grid; gap: 20px; grid-column: 1 / -1; }
@@ -243,8 +212,3 @@ details.c-card[open] > summary { margin-bottom: 12px; }
 .c-keys-save .c-btn.start { padding: 8px 18px; font-size: 16px; }
 .c-keys .c-banner code { font-size: 13px; }
 
-/* Docked bottom-left inside the game picture: the folded bar stays put and the widget slides up. */
-.overlay-menu.clear-widget.is-docked { display: flex; flex-direction: column; transition: top .2s ease-out, height .2s ease-out; }
-.clear-widget.is-docked.is-folded .w-head { height: 100%; }
-@media (prefers-reduced-motion: reduce) { .overlay-menu.clear-widget.is-docked { transition: none; } }
-.overlay-menu.clear-widget.is-docked .w-head, .overlay-menu.clear-widget.is-docked .w-head:active { cursor: default; }
