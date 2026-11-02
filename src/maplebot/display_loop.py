@@ -58,6 +58,9 @@ class Track:
     rvx: float = 0.0
     rvy: float = 0.0
     predicted: bool = False  # this frame's place came from recognition speed, not pixels
+    # Player only: a strip of the name tag text and its offset from the box's top-left.
+    tag: np.ndarray | None = None
+    tag_offset: tuple[float, float] = (0.0, 0.0)
 
     def at(self, moment: float) -> tuple[float, float]:
         """Top-left at the history sample closest to a recognition timestamp."""
@@ -85,6 +88,12 @@ class DisplayTracks:
     FRESH = 0.1  # a patch match this recent outranks a late recognition box
     ASSOCIATE = 48.0
     AMBIGUOUS = 16.0
+    # The player box follows its name tag text between recognition results: white glyphs on
+    # a dark box that move exactly with the character and hold no scrolling scenery. The
+    # strip lies inside every taught tag (text at least 54 px wide, 11 px tall, 2 px below
+    # the feet, centred). Without a confident match the box stays at recognition's place.
+    TAG_WIDTH, TAG_HEIGHT, TAG_GAP = 52, 11, 2
+    TAG_SCORE = 0.7
 
     def __init__(self) -> None:
         self.reset()
@@ -97,9 +106,20 @@ class DisplayTracks:
         self.gray: np.ndarray | None = None
         self.time: float | None = None
 
+    @classmethod
+    def _tag(cls, gray: np.ndarray, box: Rect) -> tuple[np.ndarray, int, int] | None:
+        """The name tag strip under a player box, or None when it is off-screen or flat."""
+        x = round(box.x + box.width / 2 - cls.TAG_WIDTH / 2)
+        y = box.y + box.height + cls.TAG_GAP
+        if (x < 0 or y < 0 or x + cls.TAG_WIDTH > gray.shape[1]
+                or y + cls.TAG_HEIGHT > gray.shape[0]):
+            return None
+        patch = gray[y:y + cls.TAG_HEIGHT, x:x + cls.TAG_WIDTH].copy()
+        return (patch, x, y) if float(patch.std()) >= 25 else None
+
     @staticmethod
     def _search(gray: np.ndarray, template: np.ndarray, x: float, y: float,
-                margin: float) -> tuple[int, int, float] | None:
+                margin: float, score: float | None = None) -> tuple[int, int, float] | None:
         h, w = template.shape
         left, top = max(0, int(x - margin)), max(0, int(y - margin))
         right = min(gray.shape[1], int(x + w + margin) + 1)
@@ -107,14 +127,25 @@ class DisplayTracks:
         if right - left < w or bottom - top < h or float(template.std()) < 6:
             return None
         scores = cv2.matchTemplate(gray[top:bottom, left:right], template, cv2.TM_CCOEFF_NORMED)
-        _, score, _, (px, py) = cv2.minMaxLoc(scores)
-        return (left + px, top + py, score) if score >= DisplayTracks.SCORE else None
+        _, best, _, (px, py) = cv2.minMaxLoc(scores)
+        floor = DisplayTracks.SCORE if score is None else score
+        return (left + px, top + py, best) if best >= floor else None
 
     def update(self, gray: np.ndarray, now: float) -> None:
         """Move existing tracks into a fresh frame."""
         for track in self.tracks.values():
             if track.kind == "player":
-                track.updated = now  # Drawn where recognition put it; see anchor().
+                # Only the name tag moves the player box; see anchor().
+                if track.tag is not None:
+                    dt = max(0.0, now - track.updated)
+                    tx, ty = track.x + track.tag_offset[0], track.y + track.tag_offset[1]
+                    found = self._search(gray, track.tag, tx, ty,
+                                         min(120.0, 12 + self.SPEED * dt), self.TAG_SCORE)
+                    if found is not None:
+                        track.x, track.y = track.x + found[0] - tx, track.y + found[1] - ty
+                        track.seen = now
+                track.updated = now
+                track.history.append((now, track.x, track.y))
                 continue
             dt = max(0.0, now - track.updated)
             px, py = track.x + track.vx * dt, track.y + track.vy * dt
@@ -208,9 +239,21 @@ class DisplayTracks:
             if kind == "player":
                 # The player's box is mostly scenery that scrolls with the camera, so patch
                 # matching and speed prediction dragged it 100-200 px away from the player
-                # (live, 2026-11-02). Draw recognition's own box: late, but never elsewhere.
-                track = Track(key, kind, identity(item), item, template, float(left),
-                              float(top), arrival, arrival, arrival)
+                # (live, 2026-11-02). Recognition places it; its name tag carries it forward
+                # to the newest displayed frame and between results.
+                x, y = float(left), float(top)
+                tag = self._tag(gray, Rect(left, top, right - left, bottom - top))
+                if (tag is not None and self.gray is not None and self.time is not None
+                        and self.time > moment):
+                    found = self._search(self.gray, tag[0], tag[1], tag[2],
+                                         min(200.0, 24 + self.SPEED * (self.time - moment)),
+                                         self.TAG_SCORE)
+                    if found is not None:
+                        x, y = x + found[0] - tag[1], y + found[1] - tag[2]
+                track = Track(key, kind, identity(item), item, template, x, y,
+                              arrival, arrival, arrival)
+                if tag is not None:
+                    track.tag, track.tag_offset = tag[0], (tag[1] - left, tag[2] - top)
                 track.recognized = recognized
                 track.history.append((arrival, track.x, track.y))
                 tracks[key] = track

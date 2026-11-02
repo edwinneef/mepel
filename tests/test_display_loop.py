@@ -176,6 +176,37 @@ def test_player_box_stays_on_recognition_and_ignores_scrolling_scenery():
     assert tracks.items(1.9)[0] is None  # no recognition for over VISIBLE seconds
 
 
+def tagged_player(image, x, y):
+    """A player sprite at (x, y) with a name tag (white glyphs on dark) under its feet."""
+    image = image.copy()
+    image[y:y + 50, x:x + 40] = sprite(3)
+    glyphs = np.random.default_rng(9).random((13, 64)) < 0.35
+    tag = np.where(glyphs[..., None], 255, 30).astype(np.uint8).repeat(3, axis=2)
+    image[y + 51:y + 64, x - 12:x + 52] = tag
+    return image
+
+
+def test_player_box_follows_its_name_tag_between_recognition_results():
+    tracks = DisplayTracks()
+    player = {**monster(600, 300), "kind": "player", "template": "nametag:x"}
+    first = tagged_player(background(), 600, 300)
+    tracks.update(cv2.cvtColor(first, cv2.COLOR_BGR2GRAY), 1.0)
+    tracks.anchor(drawing("a", 1.0, [], player=player), first)
+    # The character walks 30 px right and jumps 20 px while the scenery scrolls 90 px.
+    walked = tagged_player(np.roll(background(), 90, axis=1), 630, 280)
+    tracks.update(cv2.cvtColor(walked, cv2.COLOR_BGR2GRAY), 1.1)
+    box = tracks.items(1.1)[0]["box"]
+    assert (box["x"], box["y"]) == (630, 280)
+    # A late recognition result (from the first frame) does not pull the box back.
+    tracks.anchor(drawing("b", 1.0001, [], player=player), first)
+    box = tracks.items(1.12)[0]["box"]
+    assert (box["x"], box["y"]) == (630, 280)
+    # The tag is hidden: the box stays where it was last seen, never sliding with scenery.
+    tracks.update(cv2.cvtColor(np.roll(background(), 150, axis=1), cv2.COLOR_BGR2GRAY), 1.2)
+    box = tracks.items(1.2)[0]["box"]
+    assert (box["x"], box["y"]) == (630, 280)
+
+
 def test_late_recognition_refreshes_boxes_before_they_expire():
     # Recognition arrives about 0.5 s after its capture, every 0.55 s.
     tracks = DisplayTracks()
