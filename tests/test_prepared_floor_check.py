@@ -121,3 +121,31 @@ def test_focus_timeout_does_not_arm_or_retry_focus():
         restore_focus(api, clock=lambda: next(ticks), wall_clock=lambda: 10,
                       sleep=lambda _: None)
     assert api.calls == ["focus_game"]
+
+
+def test_the_start_click_acknowledges_the_previous_alarm_before_focus():
+    # Batch 7 refused with "Engine no longer ready during focus handoff": batch 6's alarm
+    # was still active, and the handoff treated it as new.
+    from tools.prepared_floor_check import restore_focus
+
+    class Api:
+        def __init__(self):
+            self.calls, self.alarm = [], True
+
+        def status(self):
+            status = ready()
+            status["alarm"] = {"active": self.alarm, "incident_id": "old" if self.alarm else None}
+            status["focused"] = any(name == "focus_game" for name, _ in self.calls)
+            return status
+
+        def command(self, name, payload):
+            self.calls.append((name, payload))
+            if name == "acknowledge":
+                self.alarm = False
+                return {"acknowledged": True}
+            return {"focused": True}
+
+    api = Api()
+    assert restore_focus(api)["focused"]
+    assert api.calls[0] == ("acknowledge", {"incident_id": "old"})
+    assert api.calls[1] == ("focus_game", {"click_fallback": True})

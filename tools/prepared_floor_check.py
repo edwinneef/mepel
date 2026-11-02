@@ -34,6 +34,14 @@ def restore_focus(api, *, clock=time.monotonic, wall_clock=time.time, sleep=time
     state = status.get("input_state") or {}
     if state.get("held_keys") != [] or state.get("active") or state.get("queued"):
         raise RuntimeError("Input must be released and idle")
+    # Operator rule (2026-11-02): the start click acknowledges the previous alarm. One that
+    # appears during the handoff below is new and still refuses the batch.
+    alarm = status.get("alarm") or {}
+    if alarm.get("active"):
+        if not api.command("acknowledge", {"incident_id": alarm.get("incident_id")}).get(
+                "acknowledged"):
+            raise RuntimeError("Earlier alarm changed while starting; no batch started")
+        status = api.status()
     # Cached capture status can still say focused just after the operator clicks the GUI.
     if not api.command("focus_game", {"click_fallback": True}).get("focused"):
         raise RuntimeError("Guarded focus failed; no retry")
