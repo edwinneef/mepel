@@ -148,3 +148,14 @@ def test_close_drains_and_disables_new_samples(store):
     assert not store.writer.is_alive()
     sample(store, 180)
     assert store.saved == 1
+
+
+def test_capture_timeout_and_preview(store):
+    store.configure("name", "new")
+    sample(store)
+    settle(store)
+    assert len(store.snapshot()["candidates"]) == 1
+    store.deadline = time.monotonic() - 1
+    assert not store.snapshot()["enabled"]
+    assert store.snapshot()["reason"] == "Capture complete"
+    assert store.snapshot()["candidates"][0]["crop"]

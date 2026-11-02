@@ -1,3 +1,4 @@
+import { PlayerCapture } from './PlayerCapture';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { OverlayClient, freshDetections, isRunning, positionLearning } from './overlay';
 import type { OverlayAction } from './overlay';
@@ -186,6 +187,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
         const result = await launch({ kind, area });
         if (!result.started) setBatch({ running: false, output: JSON.stringify({ blocked: result.reason }) });
       })}
+      capture={s && <PlayerCapture snapshot={s} client={client} act={act} disabled={disabled} />}
       onStop={() => void act(() => client.command('stop'))} />}
     {terrain && map && drawingFresh && drawing && gameBounds?.visible && <svg className="world-layer"
       style={{ left: game.x, top: game.y, width: game.width, height: game.height }}
@@ -302,6 +304,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
             {state.notice && <p className="overlay-notice">{state.notice}</p>}
             <button className="dash-btn ghost" disabled={disabled} onClick={record}>{recordingFull ? `Stop recording${recordLeft == null ? '' : ` · ${Math.ceil(recordLeft)} s left`}` : 'Record 30 s'}</button>
             <hr />
+            {s && <PlayerCapture snapshot={s} client={client} act={act} disabled={disabled} />}
             <Facts snapshot={s} />
             <hr />
             <p className="dash-keys">F6 on/off · F7 settings · F9 layers · F8 stops from anywhere.</p>
@@ -335,6 +338,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       <strong className="panel-drag-handle" {...layout.handlers('hud')}><span className="status-dot" /> BOT {status}{panel && <small>Drag to move</small>}</strong><span>{action.label}</span>
       <small>F6 On/Off · F7 Settings · F8 Stop · F9 Layers</small>
       {!panel && <button className="hud-settings" onClick={() => void act(() => host!.settings(true))}>⚙ Settings</button>}
+      {s && <PlayerCapture snapshot={s} client={client} act={act} disabled={disabled} />}
       {state.notice && <p className="overlay-notice">{state.notice}</p>}
       <p>{state.error || (!fresh ? 'Waiting for fresh recognition' : s?.active_probe?.instruction || s?.navigation?.active && s.navigation.reason || s?.reason)}</p>
       <span>{(['hp', 'mp'] as const).map(r => `${r.toUpperCase()} ${s?.autopotter.readings[r]?.percent ?? '—'}%`).join(' · ')}</span>

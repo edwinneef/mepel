@@ -399,8 +399,10 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
   expect(interactive.mock.calls.every(([rects]) => rects.length === 1)).toBe(true);
   expect(new Set(interactive.mock.calls.map(([rects]) => JSON.stringify(rects))).size)
     .toBe(interactive.mock.calls.length);
+  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+  expect(screen.getByText('Capture player screenshots')).toBeTruthy();
   expect(screen.getByText(/Standing on fh320/)).toBeTruthy();
-  const names = screen.getByLabelText('Show platform names') as HTMLInputElement;
+  const names = screen.getByRole('checkbox', { name: /Map/ }) as HTMLInputElement;
   expect(names.checked).toBe(true);
   fireEvent.click(names);
   expect(names.checked).toBe(false);
@@ -408,10 +410,11 @@ it('shows the bot menu in game and starts batches through the overlay host', asy
   fireEvent.click(screen.getByText('Start single platform'));
   await waitFor(() => expect(batch).toHaveBeenCalledWith({ kind: 'single', area: 'a'.repeat(32) }));
   act(() => listener({ type: 'batch', value: { running: true, kind: 'single', line: 'Starting one guarded batch' } }));
-  expect(screen.getByText('BATCH RUNNING')).toBeTruthy();
+  expect(screen.getByText('Batch running')).toBeTruthy();
   expect((screen.getByText('Start run') as HTMLButtonElement).disabled).toBe(true);
   act(() => listener({ type: 'batch', value: { running: false, kind: 'single', code: 1,
     output: '{"blocked": "Stand still on a recognized platform of this map first", "input_sent": false}' } }));
   expect(screen.getByText('Last batch: Refused, no keys sent: Stand still on a recognized platform of this map first'))
     .toBeTruthy();
 });
+

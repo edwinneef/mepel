@@ -1,7 +1,9 @@
+import base64
 import hashlib
 import json
 import math
 import queue
+import re
 import threading
 import time
 import uuid
@@ -13,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import cv2
+import numpy as np
 
 from .alarm import AlarmManager
 from .attack_ranges import RangeStore, range_options, range_profile
@@ -1193,12 +1196,38 @@ class Application:
                 gate = self.snapshot()["readiness"].get(activity)
                 if gate is None or not gate["ready"]:
                     raise ValueError(gate["reason"] if gate else "Invalid control probe")
+        if name == "pose_collection" and payload.get("use"):
+            if self.pose_collection.enabled or self.pose_collection.jobs.unfinished_tasks:
+                raise ValueError("Stop capture and wait for saved screenshots")
+            candidate = str(payload["use"])
+            if not re.fullmatch(r"[a-f0-9]{32}", candidate):
+                raise ValueError("Invalid candidate")
+            directory = (self.pose_collection.root / self.pose_collection.identity /
+                         self.pose_collection.outfit)
+            data = json.loads((directory / f"{candidate}.json").read_text())
+            crop = cv2.imdecode(np.frombuffer(base64.b64decode(data["crop"]), np.uint8), 1)
+            if crop is None or hashlib.sha256(crop.tobytes()).hexdigest() != data["crop_sha256"]:
+                raise ValueError("Candidate checksum mismatch")
+            if data["identity"] not in {tag.name for tag in self.detector.nametags}:
+                raise ValueError("Candidate needs its taught name")
+            self.detector.validate(crop)
+            if data.get("provenance") != "two-full-name-observations":
+                raise ValueError("Candidate lacks verified capture provenance")
+            self._stop("CALIBRATION", "Adding player screenshot; input disabled")
+            target = self.data / "templates" / "player"
+            target.mkdir(parents=True, exist_ok=True)
+            path = target / f"{uuid.uuid4().hex}.png"
+            path.write_bytes(png(crop))
+            self.detector.reload()
+            return {"saved": str(path)}
         if name == "pose_collection":
             if not isinstance(payload.get("enabled", False), bool):
                 raise ValueError("enabled must be a boolean")
             if not payload.get("enabled", False):
                 return self.pose_collection.configure()
             identity = str(payload.get("identity", ""))
+            if not identity and len(self.detector.nametags) == 1:
+                identity = self.detector.nametags[0].name
             if identity not in {tag.name for tag in self.detector.nametags}:
                 raise ValueError("Select a taught name before collecting poses")
             return self.pose_collection.configure(identity, str(payload.get("outfit", "")))

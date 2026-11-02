@@ -29,6 +29,8 @@ class PoseCollection:
         self.jobs = queue.Queue(maxsize=2)
         self.closed = threading.Event()
         self.writer = None
+        self.deadline = 0.0
+        self.candidates = []
 
     def configure(self, identity: str = "", outfit: str = "") -> dict:
         with self.lock:
@@ -45,6 +47,7 @@ class PoseCollection:
                 raise ValueError("Identity/outfit must use letters, digits, _ or -")
             directory = self.root / identity / outfit
             examples = []
+            candidates = []
             files = list(directory.glob("*.json"))
             if len(files) > self.limit:
                 raise ValueError("Collection exceeds its limit; existing files preserved")
@@ -58,20 +61,26 @@ class PoseCollection:
                 digest = hashlib.sha256(crop.tobytes()).hexdigest()
                 if data.get("crop_sha256") != digest:
                     raise ValueError("Saved pose checksum mismatch")
+                candidates.append(dict(id=path.stem, crop=data["crop"]))
                 examples.append((crop, data["anchor"], data["mask"], digest))
             self.identity, self.outfit = identity, outfit
             self.examples, self.saved = examples, len(examples)
+            self.candidates = candidates
             self.duplicates = self.rejected = 0
             self.last_sample = float("-inf")
+            self.deadline = time.monotonic() + 30
             self.enabled = self.saved < self.limit
             self.reason = "Waiting for two clear name observations" if self.enabled else "Full"
             return self.snapshot()
 
     def snapshot(self) -> dict:
         with self.lock:
+            if self.enabled and time.monotonic() >= self.deadline:
+                self.enabled, self.reason = False, "Capture complete"
             return dict(enabled=self.enabled, identity=self.identity, outfit=self.outfit,
                         saved=self.saved, duplicates=self.duplicates, rejected=self.rejected,
-                        pending=self.jobs.unfinished_tasks, limit=self.limit, reason=self.reason)
+                        pending=self.jobs.unfinished_tasks, limit=self.limit, reason=self.reason,
+                        candidates=list(self.candidates))
 
     def reject(self, reason: str) -> None:
         with self.lock:
@@ -82,7 +91,7 @@ class PoseCollection:
     def observe(self, image, detector, observation, now: float, captured_at: float,
                 generation, *, eligible: bool) -> None:
         with self.lock:
-            if not self.enabled:
+            if not self.snapshot()["enabled"]:
                 return
             if not eligible or not 0 <= time.time() - captured_at <= .5:
                 self.reject("Waiting for a fresh verified frame")
@@ -188,6 +197,7 @@ class PoseCollection:
                 temporary.replace(path)
                 with self.lock:
                     self.saved += 1
+                    self.candidates.append(dict(id=path.stem, crop=data["crop"]))
             except Exception as error:
                 with self.lock:
                     self.enabled, self.reason = False, f"Pose write failed: {error}"

@@ -2043,3 +2043,33 @@ def test_pose_collection_commands_are_opt_in_and_send_no_input(app):
     assert not app.snapshot()["pose_collection"]["enabled"]
     assert app.controller.backend.events == before
     app.pose_collection.close()
+
+
+def test_player_screenshot_activation_preserves_old_templates(app, monkeypatch):
+    from dataclasses import asdict
+    from types import SimpleNamespace
+
+    app.detector.nametags = [SimpleNamespace(name="alice")]
+    app._command("pose_collection", {"enabled": True, "identity": "alice", "outfit": "new"})
+    crop = np.random.default_rng(42).integers(0, 255, (40, 40, 3), dtype=np.uint8)
+    app.pose_collection.submit(crop, np.full((40, 40), 255, np.uint8),
+                               asdict(Rect(0, 0, 40, 40)),
+                               {"provenance": "two-full-name-observations"})
+    app.pose_collection.jobs.join()
+    candidate = app.pose_collection.snapshot()["candidates"][0]["id"]
+    with pytest.raises(ValueError, match="Stop capture"):
+        app._command("pose_collection", {"use": candidate})
+    app._command("pose_collection", {"enabled": False})
+    target = app.data / "templates" / "player"
+    target.mkdir(parents=True, exist_ok=True)
+    old = target / "existing.txt"
+    old.write_text("preserve")
+    loaded = []
+    monkeypatch.setattr(app.detector, "reload", lambda: loaded.append(True))
+    result = app._command("pose_collection", {"use": candidate})
+    assert Path(result["saved"]).is_file()
+    assert old.read_text() == "preserve"
+    assert loaded == [True]
+    with pytest.raises(ValueError, match="Invalid candidate"):
+        app._command("pose_collection", {"use": "../escape"})
+    app.pose_collection.close()

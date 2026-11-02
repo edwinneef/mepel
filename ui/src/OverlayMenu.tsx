@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { Snapshot } from './contracts';
 
 export interface BatchState { running: boolean; kind?: string; line?: string; output?: string; code?: number }
@@ -52,7 +53,8 @@ export function batchSummary(batch: BatchState): string | null {
 
 /** Small in-game menu: what the bot is doing, display switches and the two batch starts. */
 export function OverlayMenu({ s, status, game, layers, attackRange, names, setLayers, setAttackRange, setNames,
-  batch, canBatch, onStart, onStop }: {
+  batch, canBatch, onStart, onStop, capture }: {
+  capture?: ReactNode;
   s: Snapshot | null; status: string; game: Rect;
   layers: boolean; attackRange: boolean; names: boolean;
   setLayers(value: boolean): void; setAttackRange(value: boolean): void; setNames(value: boolean): void;
@@ -107,6 +109,7 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
     {open && <>
       <p className="overlay-menu-where">{where ? `Standing on ${where}` : 'Position unknown'}
         {s?.stop?.message && !busy ? ` · last stop: ${s.stop.message}` : ''}</p>
+      {capture}
       <div className="overlay-menu-switches">
         <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">◉</span><span>Enemies</span></label>
         <label><input type="checkbox" checked={attackRange} onChange={e => setAttackRange(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">◎</span><span>Range</span></label>

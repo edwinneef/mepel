@@ -1,3 +1,4 @@
+import { PlayerCapture } from './PlayerCapture';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Selection, Snapshot, WindowInfo } from './contracts';
@@ -27,6 +28,7 @@ export function TrackingTool({ snapshot: s, client, act, selected, disabled }: T
   const poses = s.pose_collection;
   const teach = (kind: string) => act(() => client.command('template', { ...selected(), kind }));
   return <><p className="tool-intro">Freeze the preview, then draw a tight rectangle around the example.</p>
+    <PlayerCapture snapshot={s} client={client} act={act} disabled={disabled} />
     <Group title="Player identity"><p>Include the player's feet. A name tag helps recognition through gear changes and climbing.</p>
       <div className="button-grid"><button disabled={disabled} onClick={() => void teach('player')}>Add player</button>
         <button disabled={disabled} onClick={() => void teach('nametag')}>Add name tag</button></div>
