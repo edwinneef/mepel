@@ -36,6 +36,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   const layout = useOverlayLayout(panel && !dashboard);
   const [tab, setTab] = useState('Bot');
   const [layers, setLayers] = useState(true);
+  const [widget, setWidget] = useState(true);
   const [terrain, setTerrain] = useState(true);
   const [attackRange, setAttackRange] = useState(true);
   const [action, setAction] = useState<OverlayAction>({ name: 'dry_run', payload: {}, label: 'Decision preview' });
@@ -111,6 +112,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       if (event.type === 'toggle') currentToggle.current();
       if (event.type === 'off') { startRef.current = false; setStarting(false); void act(() => client.command('stop')); }
       if (event.type === 'layers') setLayers(value => !value);
+      if (event.type === 'widget') setWidget(value => !value);
       if (event.type === 'error') client.fail(event.value);
       if (event.type === 'batch') setBatch(event.value as BatchState);
       if (event.type === 'controller') setControllerReady(event.value === true);
@@ -221,7 +223,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       {layers && <LiveDetectionBoxes drawing={drawing} compact />}
       {attackRange && <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
     </svg>}
-    {gameBounds && <OverlayMenu s={s ?? null} status={status} game={game}
+    {gameBounds && widget && <OverlayMenu s={s ?? null} status={status} game={game}
       layers={layers} attackRange={attackRange} names={terrain}
       setLayers={setLayers} setAttackRange={setAttackRange} setNames={setTerrain}
       batch={batch} canBatch={Boolean(window.mapleOverlay?.batch) && controllerReady} paths={paths}

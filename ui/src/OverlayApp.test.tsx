@@ -82,6 +82,27 @@ it('shows passive position learning progress over the focused game only', async 
     .toBe('Learning position · Collecting pairs while you walk (12/20)'));
 });
 
+it('hides and shows the in-game widget with F7 and releases its mouse area while hidden', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
+    if (url === '/api/v1/status') return json(snapshot());
+    if (url === '/api/v1/drawings') return json(null);
+    return json({ areas: [] });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  let listener: (event: OverlayEvent) => void = () => {};
+  const interactive = vi.fn();
+  window.mapleOverlay = { settings: vi.fn(), quit: vi.fn(), heartbeat: vi.fn(), interactive,
+    subscribe: callback => { listener = callback; return () => {}; } };
+  render(<OverlayApp client={new OverlayClient('token', fetcher)} outlinesOnly />);
+  act(() => listener({ type: 'game-bounds', value: { x: 0, y: 0, width: 1024, height: 768, visible: true } }));
+  await waitFor(() => expect(screen.getByLabelText('Bot menu')).toBeTruthy());
+  act(() => listener({ type: 'widget' }));
+  expect(screen.queryByLabelText('Bot menu')).toBeNull();
+  expect(interactive).toHaveBeenLastCalledWith([]);
+  act(() => listener({ type: 'widget' }));
+  expect(screen.getByLabelText('Bot menu')).toBeTruthy();
+});
+
 it('keeps dashboard drawings paired with the displayed analyzed picture while newer frames load', async () => {
   vi.stubGlobal('Image', class { src = ''; decode = async () => {}; });
   let imageNumber = 0;

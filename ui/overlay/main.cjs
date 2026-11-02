@@ -10,7 +10,7 @@ const base = `http://127.0.0.1:${port}`;
 const owner = randomUUID();
 let win, token, panel = false, quitting = false, lastPaint = 0, polling = false;
 let session = null, lastBounds = '', transition = false, batch = null;
-let controllerReady = false;
+let controllerReady = false, gameFocused = false;
 // Screen areas of the in-game menu, in window pixels, reported by the renderer.
 let menuRects = [], hovering = false, takingMouse = false;
 const validRect = rect => rect && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key]))
@@ -168,7 +168,12 @@ async function poll() {
     if (!panel && !win.isVisible()) {
       win.showInactive();
       keepAboveGame();
+    } else if (status.focused === true && !gameFocused && !panel) {
+      // Windows can drop the topmost flag of a visible overlay (for example when a browser
+      // opens over it), and nothing else restores it. Raise it again when the game regains focus.
+      keepAboveGame();
     }
+    gameFocused = status.focused === true;
   } catch (error) {
     controllerReady = false;
     send('controller', false);
@@ -258,6 +263,7 @@ else app.whenReady().then(async () => {
       // retains its authoritative focus/input gates. Off must never be ignored.
       ['F8', () => { void stop(); send('off'); }],
       ['F9', () => send('layers')],
+      ['F7', () => send('widget')],
     ]) if (!globalShortcut.register(key, action)) throw new Error(`${key} is already registered by another app`);
     setInterval(poll, 300);
     setInterval(updateMouse, 50);

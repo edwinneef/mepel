@@ -12,6 +12,7 @@ function fakeChild() {
 }
 
 let cursor = { x: 0, y: 0 };
+let engineStatus = {};
 async function startOverlay(controllerReady = true) {
   const shortcuts = new Map(), requests = [], intervals = [];
   const spawn = vi.fn(() => fakeChild());
@@ -46,7 +47,7 @@ async function startOverlay(controllerReady = true) {
     fetch: async (url, options) => {
       if (options?.body) requests.push({ url, body: JSON.parse(options.body) });
       return { ok: true, text: async () => '<meta name="debug-token" content="token">',
-        json: async () => ({ connected: true, controller_ready: controllerReady }) };
+        json: async () => ({ connected: true, controller_ready: controllerReady, ...engineStatus }) };
     },
   });
   await started;
@@ -71,9 +72,30 @@ it('starts Off with settings closed and click-through without activating the ove
   expect(win.webContents.send).toHaveBeenCalledWith('overlay-event', { type: 'panel', value: false });
 });
 
-it('registers only emergency Stop and outline visibility shortcuts', async () => {
-  const { shortcuts } = await startOverlay();
-  expect([...shortcuts.keys()]).toEqual(['F8', 'F9']);
+it('registers only emergency Stop, outline visibility and widget visibility shortcuts', async () => {
+  const { shortcuts, win } = await startOverlay();
+  expect([...shortcuts.keys()]).toEqual(['F8', 'F9', 'F7']);
+  shortcuts.get('F7')();
+  expect(win.webContents.send).toHaveBeenLastCalledWith('overlay-event', { type: 'widget', value: undefined });
+});
+
+it('raises the visible overlay above the game again each time the game regains focus', async () => {
+  const { win, intervals } = await startOverlay();
+  try {
+    const raised = () => win.moveTop.mock.calls.length;
+    const before = raised();
+    engineStatus = { focused: true };
+    await intervals[0]();
+    expect(raised()).toBe(before + 1);
+    await intervals[0]();  // still focused: no repeated Win32 transitions
+    expect(raised()).toBe(before + 1);
+    engineStatus = { focused: false };
+    await intervals[0]();
+    engineStatus = { focused: true };
+    await intervals[0]();
+    expect(raised()).toBe(before + 2);
+    expect(win.setAlwaysOnTop.mock.calls.slice(-2)).toEqual([[false], [true]]);
+  } finally { engineStatus = {}; }
 });
 
 it('takes the mouse only over the in-game menu and refuses native settings requests', async () => {
