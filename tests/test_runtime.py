@@ -1751,7 +1751,10 @@ def test_target_loss_cancels_held_and_queued_combat_then_reacquires(app, monkeyp
     app.stop_requested.clear()
     app.controller.enable()
     app.agent.start()
-    app._process(app.image, time.perf_counter())  # Acquire, without moving.
+    observation = Observation(player, [])
+    app._process(app.image, time.perf_counter())  # Establish fresh input context, without moving.
+    observation = Observation(player, [enemy])
+    app.agent.step(observation, time.perf_counter())  # Seed target; tickets below own movement.
     tickets = [app._arbitrate(Action("right", .25), None)]
     assert down.wait(1)
     for kind in ("attack", "skill"):
@@ -1772,7 +1775,8 @@ def test_target_loss_cancels_held_and_queued_combat_then_reacquires(app, monkeyp
     assert app.controller.backend.events == [("right", True), ("right", False)]
     observation = Observation(player, [enemy])
     _, status = app._process(app.image, time.perf_counter())
-    assert status["state"] == "APPROACH" and status["decision"]["action"]["kind"] == "release"
+    assert status["state"] == "ATTACK" and status["decision"]["action"]["kind"] == "right"
+    assert status["policy_input"]["immediate_actions"] is True
     app._stop("EMERGENCY_STOP", "F8")
     app._process(app.image, time.perf_counter())
     assert app.mode == "capture" and not app.controller.enabled
@@ -1885,7 +1889,6 @@ def test_in_range_attack_brakes_a_running_step_without_an_extra_facing_frame(app
     app.stop_requested.clear()
     app.controller.enable()
     app.agent.start()
-    app._process(app.image, time.perf_counter())
     app._process(app.image, time.perf_counter())
     movement = app.policy_outcome["ticket"]
     assert down.wait(1)

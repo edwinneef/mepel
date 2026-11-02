@@ -1,3 +1,5 @@
+import { render, fireEvent, screen, cleanup } from '@testing-library/react';
+import { OverlayMenu } from './OverlayMenu';
 import { expect, it } from 'vitest';
 import { menuPlacement } from './OverlayMenu';
 
@@ -21,4 +23,19 @@ it('inside a full-screen game view, avoids every coverage sample point', () => {
     const inside = point.x >= left && point.x < left + 236 && point.y >= top && point.y < top + 250;
     expect(inside).toBe(false);
   }
+});
+
+it('keeps Stop visible when folded and aligns independently labelled layer controls', () => {
+  const calls: boolean[] = [];
+  render(<OverlayMenu s={null} status="OFF" game={{ x: 0, y: 0, width: 600, height: 400 }}
+    layers={false} attackRange={false} names={false} setLayers={v => calls.push(v)}
+    setAttackRange={() => {}} setNames={() => {}} batch={{ running: false }} canBatch={false}
+    onStart={() => {}} onStop={() => {}} />);
+  expect(screen.getByRole('button', { name: 'Stop (F8)' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Enemies' }));
+  expect(calls).toEqual([true]);
+  expect(screen.getByRole('checkbox', { name: 'Map' })).toBeTruthy();
+  expect(screen.getByRole('checkbox', { name: 'Range' })).toBeTruthy();
+  cleanup();
 });

@@ -82,12 +82,14 @@ class MapFilter:
         self.previous = None
         self.allowed = None
         self.title = None
+        self.map_id = None
         self.error = None
         self.taught: tuple[str | None, set[str]] | None = None
         self.held = False
 
     def match(self, text: str) -> tuple[str | None, set[str] | None]:
         self.coverage_error = None
+        self.map_id = None
         # Windows OCR reads a run of Roman I glyphs as "Ill" or "IIl".
         text = re.sub(r"\bI[Il]*\b", lambda match: match[0].replace("l", "I"), text)
         numbers = re.findall(r"\d+|\b[IVX]+\b", text.upper())
@@ -127,6 +129,8 @@ class MapFilter:
         # Identically named maps share a union, so ambiguous titles cannot omit their mobs.
         longest = max(len(normalize(p["streetName"] + p["name"])) for p in matches)
         matches = [p for p in matches if len(normalize(p["streetName"] + p["name"])) == longest]
+        if len(matches) == 1:
+            self.map_id = matches[0].get("id")
         missing = sorted({name for p in matches for name in p.get("missing", [])})
         if missing:
             self.coverage_error = "Missing sprite coverage: " + ", ".join(missing)
@@ -180,7 +184,7 @@ class MapFilter:
             or np.count_nonzero(cv2.absdiff(title, self.previous) > 12) > title.size * 0.01
         )
         if changed:
-            self.allowed, self.title = None, None
+            self.allowed, self.title, self.map_id = None, None, None
             self.coverage_error = None
         if self.pending is not None and self.pending.done():
             try:

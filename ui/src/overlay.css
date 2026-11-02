@@ -57,3 +57,26 @@ html:has(.native-overlay), body:has(.native-overlay), body:has(.native-overlay) 
 .overlay-notice { color: #b9e7ce; }
 .hud-settings { margin-top: 6px; pointer-events: auto; }
 .overlay-recording { display: block; margin-top: 6px; color: #ff6b6b; font-weight: 700; }
+
+/* Pocket pill menu; Stop remains available while folded. */
+.overlay-menu { padding: 0; border: 0; background: transparent; color: #eef2f7; }
+.overlay-menu header { height: 40px; padding: 4px 6px 4px 10px; border-radius: 24px; background: #161d28f5; border: 1px solid #ffffff30; box-shadow: 0 4px 14px #0005; gap: 6px; }
+.overlay-menu-state { letter-spacing: 0; font-size: 11px; }
+.overlay-menu-fps { font-size: 10px; white-space: nowrap; }
+.overlay-menu.is-open { background: #121821f5; border-radius: 22px 22px 16px 16px; box-shadow: 0 8px 24px #0006; }
+.overlay-menu p { margin: 10px 12px; }
+.overlay-menu-switches { margin: 10px; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.overlay-menu-switches label { justify-content: center; flex-wrap: wrap; padding: 8px 2px; border: 1px solid #ffffff25; border-radius: 10px; font-size: 11px; }
+.overlay-menu-switches label:has(:checked) { background: #a99cff22; color: #ded8ff; border-color: #a99cff88; }
+.overlay-menu-actions { margin: 10px; grid-template-columns: 1fr; }
+.overlay-menu-actions button { border-radius: 12px; padding: 7px 10px; background: #ffffff10; }
+.overlay-menu-stop { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 0 !important; background: #d8473b; color: white; cursor: pointer; }
+.overlay-menu-stop:disabled { opacity: .4; cursor: default; }
+.overlay-menu-result { padding-bottom: 10px; }
+
+.overlay-menu header { cursor: grab; touch-action: none; user-select: none; }
+.overlay-menu header:active { cursor: grabbing; }
+.overlay-menu-switches label { display: grid; grid-template-columns: 1fr; justify-items: center; gap: 4px; padding: 8px 2px; position: relative; }
+.overlay-menu-switches input[type=checkbox] { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.overlay-menu-switches label:has(:focus-visible) { outline: 2px solid #b9adff; outline-offset: 2px; }
+.overlay-menu-icon { display: grid; place-items: center; width: 24px; height: 24px; font-size: 22px; line-height: 1; }

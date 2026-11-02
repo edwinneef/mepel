@@ -59,9 +59,11 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   batch: BatchState; canBatch: boolean;
   onStart(kind: 'learn' | 'single'): void; onStop(): void;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const menu = useRef<HTMLElement>(null);
   const reported = useRef('');
+  const [offset, setOffset] = useState<{ left: number; top: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   // Tell the overlay host where the menu is, so only that area takes the mouse. Report only
   // changes: clearing the area on every re-render (about five per second) made the overlay
   // switch mouse capture and topmost on and off under the cursor, and the menu flickered.
@@ -80,29 +82,41 @@ export function OverlayMenu({ s, status, game, layers, attackRange, names, setLa
   const busy = batch.running || status === 'ON' || status === 'STARTING';
   const ready = canBatch && !busy && Boolean(s?.position?.area_id) && status !== 'DISCONNECTED';
   const summary = batchSummary(batch);
-  const style = { ...menuPlacement(game, { width: window.innerWidth, height: window.innerHeight }), width: WIDTH };
-  return <section ref={menu} className="overlay-menu" aria-label="Bot menu" style={style}>
-    <header>
+  const style = { ...(offset ?? menuPlacement(game, { width: window.innerWidth, height: window.innerHeight })), width: WIDTH };
+  return <section ref={menu} className={`overlay-menu ${open ? "is-open" : "is-folded"}`} aria-label="Bot menu" style={style}>
+    <header title="Drag to move" onPointerDown={event => {
+      if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
+      const rect = menu.current!.getBoundingClientRect();
+      drag.current = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    }} onPointerMove={event => {
+      const current = drag.current;
+      if (!current) return;
+      const height = menu.current?.offsetHeight ?? 40;
+      setOffset({ left: Math.max(0, Math.min(innerWidth - WIDTH, current.left + event.clientX - current.x)),
+        top: Math.max(0, Math.min(innerHeight - height, current.top + event.clientY - current.y)) });
+    }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
       <button className="overlay-menu-fold" aria-expanded={open} aria-label={open ? 'Fold menu' : 'Open menu'}
         onClick={() => setOpen(value => !value)}>{open ? '▾' : '▸'}</button>
       <strong className={`overlay-menu-state state-${status.toLowerCase()}`}>
-        {batch.running ? 'BATCH RUNNING' : status}</strong>
+        {batch.running ? 'Batch running' : status}</strong>
       <span className="overlay-menu-fps">{fps == null ? '– fps' : `${fps.toFixed(1)} fps`}</span>
+      <button className="overlay-menu-stop" disabled={!busy} onClick={onStop} aria-label="Stop (F8)" title="Stop (F8)">■</button>
     </header>
     {open && <>
       <p className="overlay-menu-where">{where ? `Standing on ${where}` : 'Position unknown'}
         {s?.stop?.message && !busy ? ` · last stop: ${s.stop.message}` : ''}</p>
       <div className="overlay-menu-switches">
-        <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /> Show detection boxes</label>
-        <label><input type="checkbox" checked={attackRange} onChange={e => setAttackRange(e.target.checked)} /> Show attack range</label>
-        <label><input type="checkbox" checked={names} onChange={e => setNames(e.target.checked)} /> Show platform names</label>
+        <label><input type="checkbox" checked={layers} onChange={e => setLayers(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">◉</span><span>Enemies</span></label>
+        <label><input type="checkbox" checked={attackRange} onChange={e => setAttackRange(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">◎</span><span>Range</span></label>
+        <label><input type="checkbox" checked={names} onChange={e => setNames(e.target.checked)} /><span className="overlay-menu-icon" aria-hidden="true">▧</span><span>Map</span></label>
       </div>
       <div className="overlay-menu-actions">
         <button disabled={!ready} onClick={() => onStart('learn')}
           title="5 minutes; learns new moves while farming; no potions, stops at 50% HP/MP">Start run</button>
         <button disabled={!ready} onClick={() => onStart('single')}
           title="15 minutes on the platform you stand on; uses your confirmed potion keys">Start single platform</button>
-        <button className="overlay-menu-stop" disabled={!busy} onClick={onStop}>Stop (F8)</button>
       </div>
       {summary && <p className="overlay-menu-result" role="status">{batch.running ? summary : `Last batch: ${summary}`}</p>}
     </>}

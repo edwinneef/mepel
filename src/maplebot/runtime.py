@@ -1560,6 +1560,30 @@ class Application:
             "frame": [image.shape[1], image.shape[0]],
         }
 
+    def _combat_platforms(self, position: dict | None) -> tuple:
+        """Project geometry only from this frame's confirmed grounded position."""
+        if (not position or position.get("kind") != "platform"
+                or any(position.get(key) for key in ("stale", "held", "provisional"))):
+            return ()
+        projection = position.get("projection")
+        locator = self.position
+        if (not projection or locator is None
+                or position.get("area_id") != locator.profile["id"]
+                or projection.get("revision") != locator.profile["revision"]):
+            return ()
+        x, y, scale = (projection.get(key) for key in ("x", "y", "scale"))
+        if (not all(type(v) in (int, float) and math.isfinite(v) for v in (x, y, scale))
+                or scale <= 0):
+            return ()
+        segments = []
+        for platform in locator.platforms:
+            points = platform.bends or ((platform.left, platform.y),
+                                       (platform.right, platform.y_at(platform.right)))
+            for start, end in zip(points, points[1:], strict=False):
+                segments.append((platform.id, x + start[0] * scale, y + start[1] * scale,
+                                 x + end[0] * scale, y + end[1] * scale))
+        return tuple(segments)
+
     def _prepare_rotation(self, enabled: bool, *, learn: bool = False) -> None:
         """Opt-in platform rotation needs a tracked map with two round-trip platforms.
 
@@ -1715,6 +1739,7 @@ class Application:
     def _position_command(self, name: str, payload: dict) -> dict:
         """Read-only position tracking. These commands never enable or send input."""
         if name == "position_stop":
+            self.auto_area_pending = False
             if self.position is not None:
                 self.position.close()
             self.position, self.detector.taught_map = None, False
@@ -1733,11 +1758,17 @@ class Application:
         if self.area_editing:
             raise ValueError("Finish area editing before tracking the live position")
         if name == "position_start":
+            self.auto_area_pending = False
             area_id = payload.get("area_id")
             if area_id is None:  # No map chosen: identify the saved area from the minimap.
                 if self.image is None:
                     raise ValueError("No current screenshot to detect the map from")
-                area_id = detect_area(self.areas, self.image)
+                try:
+                    area_id = detect_area(self.areas, self.image)
+                except ValueError:
+                    self.auto_area_pending = True
+                    return {"tracking": False, "pending": True,
+                            "reason": "Waiting for confident map identity and alignment"}
             if self.position is not None:
                 if (self.position.profile["id"] == area_id
                         and payload.get("map_id") in (None, self.position.map_id)):
@@ -1903,6 +1934,19 @@ class Application:
         perception_began = time.perf_counter()
         self.processing_frame = {**self.processing_frame, "stage": "perception"}
         observation = self.detector.detect(image, now, monsters=self.monster_search)
+        if (getattr(self, "auto_area_pending", False) and not self.area_editing
+                and self.mode in {"capture", "dry_run"}
+                and now >= getattr(self, "auto_area_retry_at", 0)):
+            self.auto_area_retry_at = now + 1
+            from .automatic_area import create_area
+
+            try:
+                area_id = create_area(self.areas, image, self.detector.map_filter)
+                if area_id is not None:
+                    self._position_command("position_start", {"area_id": area_id})
+                    self.auto_area_pending = False
+            except (ValueError, OSError) as error:
+                self.note(f"Automatic area waiting: {error}")
         pose_began = time.perf_counter()
         self.pose_collection.observe(
             image, self.detector, observation, now, captured_at,
@@ -2163,7 +2207,8 @@ class Application:
                     self.policy_outcome = {**self.policy_outcome, "status": "held",
                                            "action": movement, "result": f"{movement} held"}
             policy_input = PolicyInput(
-                observation, policy_now, self.policy_outcome, self.mp_percent
+                observation, policy_now, self.policy_outcome, self.mp_percent,
+                self._combat_platforms(position), immediate_actions=True,
             )
             policy_before = self.agent.snapshot()
             paused = self._reacquire(observation.player, now)

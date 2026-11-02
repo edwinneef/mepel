@@ -175,7 +175,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
       <LiveDetectionBoxes drawing={drawing} compact />
       {attackRange && <AttackRangeOverlay player={drawing.player} setup={s?.attack_setup} threshold={s?.player_threshold} />}
     </svg>}
-    {gameBounds?.visible && <OverlayMenu s={s ?? null} status={status} game={game}
+    {gameBounds && <OverlayMenu s={s ?? null} status={status} game={game}
       layers={layers} attackRange={attackRange} names={terrain}
       setLayers={setLayers} setAttackRange={setAttackRange} setNames={setTerrain}
       batch={batch} canBatch={Boolean(window.mapleOverlay?.batch)}

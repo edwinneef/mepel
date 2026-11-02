@@ -50,6 +50,9 @@ class PolicyInput:
     now: float
     last_outcome: dict[str, Any]
     mp_percent: float | None = None
+    platforms: tuple[tuple[str, float, float, float, float], ...] = ()
+    # Legacy recordings retain their original one-frame handoff for replay parity.
+    immediate_actions: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -104,6 +107,8 @@ class PolicyInput:
                 now,
                 dict(value["last_outcome"]),
                 value.get("mp_percent"),
+                tuple(tuple(segment) for segment in value.get("platforms", [])),
+                value.get("immediate_actions", False),
             )
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError(f"Invalid PolicyInput: {error}") from error
@@ -223,7 +228,7 @@ class Agent:
             for monster in observation.monsters
             if monster.confidence >= self.confidence
             and not monster.tracked
-            and abs(monster.box.feet - player.box.feet) <= self.config.platform_tolerance
+            and self._same_platform(player, monster, policy_input.platforms)
         ]
         if policy_input.last_outcome.get("status") == "pending":
             return self._result("Input pending; retain target until action boundary")
@@ -239,7 +244,8 @@ class Agent:
             self.target_seen_at = now
             self.acquisitions += 1
             self.last_distance, self.stalled_steps = None, 0
-            return self._result("Acquired nearest same-platform target")
+            if not policy_input.immediate_actions:
+                return self._result("Acquired nearest same-platform target")
 
         if self.target is None:
             return self._search("Target tracking lost; waiting for a fresh target")
@@ -257,7 +263,7 @@ class Agent:
             key=lambda item: math.dist(item.box.center, expected.center),
         )
         if same_species and not tracked:
-            return self._reacquire(candidates, player, now, "Target track changed")
+            return self._reacquire(candidates, player, policy_input, "Target track changed")
         match = tracked[0] if tracked else None
         distance = math.dist(match.box.center, expected.center) if match else math.inf
         if len(tracked) > 1:
@@ -266,7 +272,7 @@ class Agent:
                 return self._search("Ambiguous target association; waiting for a fresh target")
         if match is None or distance > 80:
             if candidates:
-                return self._reacquire(candidates, player, now, "Target missing")
+                return self._reacquire(candidates, player, policy_input, "Target missing")
             hidden = self._hidden_target(observation, player, now)
             if hidden is not None and not (self.state == State.VERIFY and now < self.verify_until):
                 return self._attack_hidden(hidden, policy_input)
@@ -309,7 +315,11 @@ class Agent:
                 self.ready_facing = self.ready_facing and self.facing == side
                 self.acquisitions += 1
                 self.challenger, self.challenger_at = None, None
-                return self._result("Nearer same-platform target; retargeting at action boundary")
+                if not policy_input.immediate_actions:
+                    return self._result(
+                        "Nearer same-platform target; retargeting at action boundary"
+                    )
+                return self.step_input(policy_input)
         else:
             self.challenger, self.challenger_at = None, None
         if self.state == State.VERIFY:
@@ -321,6 +331,9 @@ class Agent:
             # The previous attack established facing. Reuse it if the target stayed
             # on that side; perform the range check and next attack in this frame.
             self.ready_facing = self.facing == direction
+        if (abs(dx) <= self.config.attack_range
+                and abs(match.box.feet - player.box.feet) > self.config.platform_tolerance):
+            return self._result("Same-platform target airborne; waiting for strike height")
         if abs(dx) < self.config.attack_min_range:
             return self.stop("Target inside minimum attack range; reposition manually")
         if abs(dx) > self.config.attack_range:
@@ -387,16 +400,45 @@ class Agent:
         )
 
     def _reacquire(self, candidates: list[Detection], player: Detection,
-                   now: float, reason: str) -> Decision:
+                   policy_input: PolicyInput, reason: str) -> Decision:
         self.target = min(candidates, key=lambda item: self._target_rank(item, player))
         side = "right" if self.target.box.center[0] >= player.box.center[0] else "left"
         self.ready_facing = self.ready_facing and self.facing == side
-        self.target_seen_at, self.missing_frames = now, 0
+        self.target_seen_at, self.missing_frames = policy_input.now, 0
         self.last_distance, self.stalled_steps = None, 0
         self.challenger, self.challenger_at = None, None
         self.acquisitions += 1
         # Preserve VERIFY, deadline and attempts: a replacement cannot buy extra attacks.
-        return self._result(f"{reason}; reacquired fresh target, release before action")
+        if not policy_input.immediate_actions:
+            return self._result(f"{reason}; reacquired fresh target, release before action")
+        return self.step_input(policy_input)
+
+    def _same_platform(self, player: Detection, monster: Detection,
+                       platforms: tuple[tuple[str, float, float, float, float], ...]) -> bool:
+        if not platforms:
+            return abs(monster.box.feet - player.box.feet) <= self.config.platform_tolerance
+
+        def support(box: Rect, airborne: float) -> str | None:
+            candidates = {}
+            for surface, x1, y1, x2, y2 in platforms:
+                if (not all(math.isfinite(v) for v in (x1, y1, x2, y2))
+                        or x2 <= x1 or not x1 <= box.center[0] <= x2):
+                    continue
+                height = y1 + (y2 - y1) * (box.center[0] - x1) / (x2 - x1)
+                gap = height - box.feet
+                if -self.config.platform_tolerance <= gap <= airborne:
+                    candidates[surface] = min(abs(gap), candidates.get(surface, math.inf))
+            ranked = sorted((gap, surface) for surface, gap in candidates.items())
+            if not ranked or (len(ranked) > 1
+                              and ranked[1][0] - ranked[0][0] <= 4):
+                return None
+            return ranked[0][1]
+
+        # Only fresh grounded player geometry enables this path. A jump animation
+        # may lift an enemy above that support; never bridge another intervening floor.
+        player_support = support(player.box, self.config.platform_tolerance)
+        monster_support = support(monster.box, 60)
+        return player_support is not None and player_support == monster_support
 
     def _target_rank(self, target: Detection, player: Detection) -> tuple[int, float]:
         distance = abs(target.box.center[0] - player.box.center[0])
