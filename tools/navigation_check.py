@@ -116,13 +116,27 @@ def run(api, output: Path, *, limit: int, chosen: list[str] | None = None,
                     "map_hash") != coverage["map_hash"]:
                 failure = row["outcome"] = "Map changed during coverage batch"
                 break
-            waited = clock()
+            waited, previewed, blocker = clock(), None, "platform unknown"
             # nav_go plans from the current platform; wait out brief name-tag dropouts.
-            while not ((api.status().get("position") or {}).get("surface_id") or None):
-                if clock() - waited >= READY_SECONDS:
-                    failure = row["outcome"] = "not ready: platform unknown"
-                    break
-                sleep(.25)
+            # Preview from that platform (no keys), then wait for the engine's own start
+            # gate: the preview's stop pauses fused feedback for about a second.
+            try:
+                while True:
+                    sample = api.status()
+                    surface = (sample.get("position") or {}).get("surface_id") or None
+                    if surface and surface != previewed:
+                        api.command("nav_preview", {"origin": surface, "target": target})
+                        previewed, blocker = surface, "preview pending"
+                    elif surface:
+                        blocker = (sample.get("navigation") or {}).get("blocker")
+                        if not blocker:
+                            break
+                    if clock() - waited >= READY_SECONDS:
+                        failure = row["outcome"] = f"not ready: {blocker}"
+                        break
+                    sleep(.25)
+            except RuntimeError as error:
+                failure = row["outcome"] = f"refused: {error}"
             if failure:
                 break
             try:

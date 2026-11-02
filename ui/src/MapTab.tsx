@@ -47,18 +47,19 @@ const LABEL_PX = 13; // on-screen label size
 const HOLD_MS = 2000;
 const LABELS_FROM_PX = 600; // narrower drawings leave names to the list beside them
 
-/** Rendered width of an element, kept current as it resizes. */
-function useWidth(fallback: number) {
+/** Rendered size of an element, kept current as it resizes. */
+function useSize(fallback: number) {
   const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(fallback);
+  const [size, setSize] = useState({ width: fallback, height: fallback });
   useEffect(() => {
     const element = ref.current;
     if (!element || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    const observer = new ResizeObserver(([entry]) =>
+      setSize({ width: entry.contentRect.width, height: entry.contentRect.height }));
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  return [ref, width] as const;
+  return [ref, size] as const;
 }
 
 /** The whole saved map with every place named; picking a platform previews a route there. */
@@ -68,8 +69,8 @@ export function MapTab({ snapshot: s, client, disabled, act, onPreview }: Props)
   const [showMoves, setShowMoves] = useState(false);
   const [large, setLarge] = useState(false);
   const [focus, setFocus] = useState<string | null>(null);
-  const [frame, frameWidth] = useWidth(400);
-  const [dialog, dialogWidth] = useWidth(1200);
+  const [frame, { width: frameWidth }] = useSize(400);
+  const [dialog, dialogSize] = useSize(1200);
   const live = s.position?.feet ?? null;
   const last = useRef<{ feet: [number, number]; area?: string; at: number } | null>(null);
   const [, tick] = useState(0);
@@ -117,9 +118,13 @@ export function MapTab({ snapshot: s, client, disabled, act, onPreview }: Props)
     });
   };
   const usable = (id: string) => Boolean(map && nodes.get(id) && !nodes.get(id)!.excluded);
-  const drawing = (width: number) => {
-    const label = LABEL_PX * box.width / Math.max(width, 1);
-    return <svg className="map-drawing" role="img" aria-label={`Map of ${profile.name}`}
+  // Screen pixels per map pixel. A tall map is limited by height, not width; the full
+  // map may grow to two screens high (scrolling) so its names stay readable.
+  const drawing = (width: number, height: number, screens = 1) => {
+    const scale = Math.max(Math.min(width / box.width, screens * height / box.height), 1e-3);
+    const label = LABEL_PX / scale;
+    const size = screens > 1 ? { width: box.width * scale, height: box.height * scale, maxHeight: 'none' } : undefined;
+    return <svg className="map-drawing" role="img" aria-label={`Map of ${profile.name}`} style={size}
     viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`} preserveAspectRatio="xMidYMid meet">
     {profile.zones.map(zone => <rect key={zone.id} className={`map-zone map-zone-${zone.kind}`}
       x={zone.rect.x} y={zone.rect.y} width={zone.rect.width} height={zone.rect.height}><title>Portal · keep clear</title></rect>)}
@@ -150,7 +155,7 @@ export function MapTab({ snapshot: s, client, disabled, act, onPreview }: Props)
     <h3>{here ? `You are on ${name(here)}` : 'Where you are is unknown'}</h3>
     <p>Pick a platform on the map or in the list to preview a route to it. Nothing moves until you start a supervised route.
       {frameWidth < LABELS_FROM_PX && ' Point at a name in the list to find it on the map, or open the full map to see every name.'}</p>
-    <div className="map-frame" ref={frame}>{drawing(frameWidth)}</div>
+    <div className="map-frame" ref={frame}>{drawing(frameWidth, 0.7 * window.innerHeight)}</div>
     <div className="map-actions">
       <button onClick={() => setLarge(true)}>Open full map</button>
       {map && <label className="map-toggle"><input type="checkbox" checked={showMoves} onChange={e => setShowMoves(e.target.checked)} /> Show moves</label>}
@@ -170,7 +175,7 @@ export function MapTab({ snapshot: s, client, disabled, act, onPreview }: Props)
       onKeyDown={e => { if (e.key === 'Escape') setLarge(false); }}>
       <div className="map-dialog-bar"><strong>{profile.name}</strong>
         <button autoFocus onClick={() => setLarge(false)}>Close</button></div>
-      <div className="map-dialog-body" ref={dialog}>{drawing(dialogWidth)}</div>
+      <div className="map-dialog-body" ref={dialog}>{drawing(dialogSize.width, dialogSize.height, 2)}</div>
     </div>}
   </section>;
 }

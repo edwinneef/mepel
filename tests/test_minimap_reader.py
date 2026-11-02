@@ -196,6 +196,14 @@ def test_scrolling_minimap_corrects_the_marker_to_the_reference_scroll():
     assert "scroll corrected" in climbed.reason
 
 
+def test_scrolling_minimap_reads_at_the_top_and_bottom_of_the_map():
+    picture = tall_picture()
+    reader = AreaMinimap(scrolling_view(picture, -40), picture)
+    for top in (0, -1, -79, -80):  # -80: the window shows the picture's last rows
+        crop = scrolling_view(picture, top)[72:142, 4:139]
+        assert reader._scroll_offset(crop)[0] == pytest.approx(top, abs=.25)
+
+
 def test_scrolling_minimap_without_a_clear_scroll_has_no_marker():
     picture = tall_picture()
     reader = AreaMinimap(scrolling_view(picture, -40), picture)

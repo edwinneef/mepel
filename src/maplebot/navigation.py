@@ -208,9 +208,14 @@ class RouteMap:
 
     @classmethod
     def computed(cls, profile: dict, proven: set[str] = frozenset(),
-                 failed: set[str] = frozenset()) -> "RouteMap":
-        """Edges computed from an imported map's geometry; `failed` ones are left out."""
-        moves = [m for m in generate(profile) if m.id not in failed]
+                 failed: set[str] = frozenset(), moves: list | None = None) -> "RouteMap":
+        """Edges computed from an imported map's geometry; `failed` ones are left out.
+
+        `moves` reuses an earlier generate(profile) for the same map; generating takes
+        seconds on tall maps.
+        """
+        moves = [m for m in (generate(profile) if moves is None else moves)
+                 if m.id not in failed]
         evidence = {"area_id": profile["id"], "revision": profile["revision"],
                     "map_hash": map_hash(profile),
                     "edges": {m.id: {"from": m.source, "to": m.target, "kind": m.kind,

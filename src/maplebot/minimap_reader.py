@@ -207,8 +207,8 @@ class AreaMinimap:
                                    cv2.TM_CCOEFF_NORMED, mask=cv2.merge([mask] * 3))
         scores = np.nan_to_num(scores[:, x0 - left], nan=-1, posinf=-1, neginf=-1)
         row = int(np.argmax(scores))
-        rival = float(np.max(np.delete(scores, np.arange(max(0, row - 3), row + 4)),
-                             initial=-1))
+        near = np.arange(max(0, row - 3), min(len(scores), row + 4))
+        rival = float(np.max(np.delete(scores, near), initial=-1))
         # Repeating terrain can fit at two scrolls; then the height stays unknown.
         if scores[row] < SCROLL_MATCH or scores[row] - rival < SCROLL_MARGIN:
             return None

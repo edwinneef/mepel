@@ -89,6 +89,33 @@ def test_run_refuses_when_not_ready_and_waits_for_a_known_platform(tmp_path):
     assert result["failure"] == "not ready: platform unknown"
 
 
+def test_run_previews_and_waits_for_the_engine_start_gate(tmp_path):
+    api, pending = Api(), [2]
+    status_of = api.status
+
+    def status():
+        value = status_of()
+        if pending[0] and api.calls and api.calls[-1][0] == "nav_preview":
+            pending[0] -= 1
+            value["navigation"]["blocker"] = "Waiting for fresh fused position"
+        return value
+
+    api.status = status
+    result = run(api, tmp_path / "a", limit=1, chosen=["ledge"], sleep=lambda s: None)
+    names = [c for c, _ in api.calls]
+    assert result["failure"] is None
+    assert names[names.index("nav_preview"):names.index("nav_preview") + 2] == [
+        "nav_preview", "nav_go"]
+    assert api.calls[names.index("nav_preview")][1] == {"origin": "floor", "target": "ledge"}
+    blocked = Api()
+    blocked.value["navigation"]["blocker"] = "Waiting for fresh fused position"
+    ticks = iter(range(100))
+    result = run(blocked, tmp_path / "b", limit=1, chosen=["ledge"],
+                 clock=lambda: next(ticks), sleep=lambda s: None)
+    assert result["failure"] == "not ready: Waiting for fresh fused position"
+    assert "nav_go" not in [c for c, _ in blocked.calls]
+
+
 def test_all_routes_covers_every_ordered_platform_pair():
     from tools.navigation_check import all_routes
     route = ["floor", *all_routes(status())]

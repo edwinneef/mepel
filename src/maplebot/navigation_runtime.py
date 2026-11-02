@@ -8,6 +8,7 @@ from dataclasses import replace
 from .contracts import FRESH_FRAME_SECONDS
 from .decision import Action
 from .move_proofs import MoveProofs
+from .moves import generate
 from .navigation import RouteMap, map_hash, pose_gaps, required_poses
 from .navigation_executor import EdgeStep, Feedback, Navigator, distance
 from .navigation_replay import recorded_step
@@ -43,6 +44,9 @@ class NavigationRuntime:
         self.proofs = MoveProofs(app.areas.directory)
         self.failed: set[str] = set()  # computed moves that failed this session
         self.failed_map: str | None = None
+        # Generated moves per map: generating them takes seconds on a tall map, and
+        # refresh runs on the worker thread right before nav_go checks frame freshness.
+        self.moves: tuple[tuple, list] | None = None
         self.counted = 0
         self.pending_proofs: list[tuple[str, str, str]] = []
         self.last_feedback_failure = None
@@ -93,8 +97,11 @@ class NavigationRuntime:
         fingerprint = map_hash(profile)
         if self.failed_map != fingerprint:
             self.failed, self.failed_map = set(), fingerprint
+        key = (profile["id"], profile["revision"], fingerprint)
+        if self.moves is None or self.moves[0] != key:
+            self.moves = (key, generate(profile))
         self.graph = RouteMap.computed(profile, self.proofs.load(profile["id"], fingerprint),
-                                       self.failed)
+                                       self.failed, self.moves[1])
         self.route = self.agent = None
         self.reason = "Choose a destination and preview its route; no keys are sent"
         return self.snapshot()

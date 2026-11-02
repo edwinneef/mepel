@@ -67,6 +67,6 @@
 .map-place-rope { color: #c9a46a; padding: 2px 0; }
 .map-dialog { position: fixed; inset: 24px; z-index: 50; display: grid; grid-template-rows: auto 1fr; gap: 8px;
   padding: 12px; background: #121a22; border: 1px solid #3a4a5a; border-radius: 8px; }
-.map-dialog-body { min-height: 0; display: grid; align-items: center; }
-.map-dialog .map-drawing { max-height: calc(100vh - 110px); }
+.map-dialog-body { min-height: 0; display: grid; overflow: auto; }
+.map-dialog .map-drawing { margin: auto; }
 .map-dialog-bar { display: flex; justify-content: space-between; align-items: center; }

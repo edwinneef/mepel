@@ -112,3 +112,30 @@ def test_a_map_without_public_data_must_be_imported_before_navigation(app):
     app.areas = type("Areas", (), {"load": lambda self, area_id: {"profile": profile}})()
     with pytest.raises(ValueError, match="Import this map first: maplebot import-map"):
         app.navigation.refresh()
+
+
+def test_refresh_reuses_generated_moves_until_the_map_changes(app, monkeypatch):
+    import maplebot.navigation_runtime as runtime
+    profile = imported()
+    app.position = type("Position", (), {"profile": profile})()
+    areas = app.areas
+    app.areas = type("Areas", (), {"load": lambda self, area_id: {"profile": profile},
+                                   "directory": areas.directory})()
+    generated = []
+
+    def generate(value):
+        generated.append(value["revision"])
+        return runtime_generate(value)
+
+    runtime_generate = runtime.generate
+    monkeypatch.setattr(runtime, "generate", generate)
+    nav = app.navigation
+    nav.refresh()
+    nav.refresh()
+    assert generated == [2]  # nav_go refreshes right before its frame-freshness check
+    nav.failed.add("m_floor_ledge")
+    nav.refresh()
+    assert "m_floor_ledge" not in nav.graph.edges and generated == [2]
+    profile["revision"] = 3
+    nav.refresh()
+    assert generated == [2, 3]
