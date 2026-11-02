@@ -463,3 +463,66 @@ def test_launch_near_a_platform_end_is_reached_from_rest_in_short_steps():
     for now in (0, .2, .4):
         nav.step(replace(f, now=now, feet=(190, 400)))
     assert nav.step(replace(f, now=.5, feet=(190, 400))).horizontal == "left"
+
+
+def _end_launch_profile():
+    def flat(key, x0, x1, y):
+        return {"id": key, "name": key, "start": {"x": x0, "y": y}, "end": {"x": x1, "y": y}}
+
+    # Tree Dungeon fh315 (Level 8) and fh320 (Level 9 right), flattened.
+    return {"id": "b" * 32, "revision": 1, "zones": [], "links": [],
+            "boundary": {"x": 0, "y": 700, "width": 1200, "height": 600},
+            "platforms": [flat("src", 600, 850, 1025), flat("dst", 794, 965, 972)],
+            "ropes": [], "public_map": {"id": 1, "sha256": "c" * 64,
+                                        "world": {"x": [1, 0], "y": [1, 0]}}}
+
+
+def _approach(graph, start: float, step_px: float) -> float | None:
+    """Drive the navigator with a coarse live model; the takeoff x, or None if it fell.
+
+    Live (Tree Dungeon, 2026-11-02): one-pulse steps from rest moved 16-48 px, released
+    walks ran on about 60 px, frames came every 0.17 s and the marker moved in 16 px steps.
+    """
+    nav = Navigator(graph, graph.plan("src", "dst"), 0)
+    x, now, walking = float(start), 0.0, None
+    for _ in range(400):
+        if not 600 <= x <= 850:
+            return None
+        feet = (16 * round(x / 16), 1025.0)
+        motion = nav.step(Feedback(now, graph.fingerprint, feet, "src", True))
+        if any(hold.action == "jump" for hold in motion.holds):
+            return x
+        assert nav.stage in {"settle_origin", "approach"}, nav.reason
+        sign = lambda key: 1 if key == "right" else -1  # noqa: E731
+        if motion.horizontal:
+            x += sign(motion.horizontal) * 137 * .17
+            walking = motion.horizontal
+        else:
+            if walking:
+                x += sign(walking) * 60
+                walking = None
+            for hold in motion.holds:
+                if hold.action in {"left", "right"}:
+                    x += sign(hold.action) * (step_px if hold.seconds >= nav.pulse else 5)
+        now += .17
+    raise AssertionError(f"no takeoff from {start}: {nav.reason}")
+
+
+@pytest.mark.parametrize("step_px", [16, 32, 48])
+def test_end_launches_are_reached_without_sliding_off_the_platform(step_px):
+    from maplebot.moves import generate
+
+    profile = _end_launch_profile()
+    graph = RouteMap.computed(profile)
+    launch = graph.edges["m_src_dst"].launch[0]
+    assert launch == 850 - 64
+    for start in range(610, 846, 9):
+        takeoff = _approach(graph, start, step_px)
+        assert takeoff is not None, f"slid off from {start} with {step_px} px steps"
+        assert abs(takeoff - launch) <= 16 + 8, (start, takeoff)
+    # The same model reproduces batch 2: a launch 24 px from the end slides off.
+    old = [m if m.id != "m_src_dst" else replace(
+        m, trace=((826.0, 1025.0), (848.0, 932.0), (870.0, 972.0))) for m in generate(profile)]
+    near = RouteMap.computed(profile, moves=old)
+    if step_px == 48:
+        assert any(_approach(near, start, step_px) is None for start in range(610, 846, 9))
