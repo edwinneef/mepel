@@ -83,14 +83,13 @@ class Debugger:
         if self.lease_error:
             raise RuntimeError(f"Batch runner lease lost: {self.lease_error}")
         status = self.status()
-        body = dict(payload or {})
-        if self.batch_token:
-            body["_batch_token"] = self.batch_token
         envelope = {"schema_version": 1, "session_id": self.expected_session,
                     "command_id": uuid.uuid4().hex, "issued_at": time.time(),
                     "command_epoch": status["command_epoch"],
                     "expected_frame_id": status["frame"]["id"], "name": name,
-                    "payload": body}
+                    "payload": dict(payload or {})}
+        if self.batch_token:
+            envelope["batch_token"] = self.batch_token
         return self._post("v1/command", envelope)
 
 

@@ -59,6 +59,13 @@ class CommandGate:
         payload = envelope.get("payload", {})
         if not isinstance(payload, dict) or any(key.startswith("_") for key in payload):
             raise ValueError("Command payload must be an object without reserved keys")
+        # A batch runner's authorization travels beside the payload; the engine validates it
+        # against the live batch lease before dispatch.
+        batch_token = envelope.get("batch_token")
+        if batch_token is not None:
+            if not isinstance(batch_token, dict):
+                raise ValueError("Batch authorization must be an object")
+            payload = {**payload, "_batch_token": batch_token}
         command_id = envelope.get("command_id")
         if not isinstance(command_id, str) or not 8 <= len(command_id) <= 128:
             raise ValueError("A unique command_id is required")

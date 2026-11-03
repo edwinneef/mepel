@@ -5,6 +5,7 @@ import pytest
 import test_runtime
 from test_overlay_session import fixture
 
+from maplebot.contracts import CommandGate
 from maplebot.overlay_session import OverlaySession
 from maplebot.runtime import REQUIRED_PROBES
 from tools.navigation_check import Debugger
@@ -143,7 +144,11 @@ def test_debugger_preserves_token_and_targets_explicit_endpoint(monkeypatch):
     api.command("arm")
     api.command("stop")
     assert requests[0][0] == "http://127.0.0.1:8877/api/v1/command"
-    assert requests[0][1]["payload"]["_batch_token"] == api.batch_token
+    # The real gate accepts the runner's envelope and hands the token to the engine.
+    snapshot = {"session_id": "s", "command_epoch": 90,
+                "frame": {"id": "f", "available": True, "age_ms": 0}}
+    name, payload, _ = CommandGate().accept(requests[0][1], snapshot)
+    assert (name, payload) == ("arm", {"_batch_token": api.batch_token})
     assert requests[1] == ("http://127.0.0.1:8877/api/batch_cancel",
                            {"token": api.batch_token})
 

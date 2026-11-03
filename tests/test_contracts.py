@@ -61,6 +61,15 @@ def test_gate_refuses_stale_or_invalid_commands_without_dispatch(change):
         CommandGate().accept(envelope(**change), snapshot())
 
 
+def test_gate_carries_batch_authorization_beside_the_payload():
+    token = {"session_id": "session", "epoch": 1}
+    _, payload, _ = CommandGate().accept(envelope(batch_token=token), snapshot())
+    assert payload == {"_batch_token": token}
+    for change in ({"batch_token": "token"}, {"payload": {"_batch_token": token}}):
+        with pytest.raises(ValueError):
+            CommandGate().accept(envelope(**change), snapshot())
+
+
 def test_concurrent_duplicate_is_reserved_once():
     gate = CommandGate()
     accepted = []
