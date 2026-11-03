@@ -21,6 +21,7 @@ import time
 import tomllib
 from collections import defaultdict
 from pathlib import Path
+from threading import Lock
 
 import cv2
 import numpy as np
@@ -29,6 +30,7 @@ from maplebot.config import PerceptionConfig
 from maplebot.perception import CameraTracker, Observation, TemplateDetector
 
 STAGES = ("_candidates", "_nametag_candidates", "_uncover", "_follow", "_refresh_sprite")
+CANDIDATE_STAGES = ("_color_index", "_sprite_batch", "_sprite_scores", "_anchor_candidates")
 NO_MONSTER_MODES = {"navigation", "navigation_wait"}
 
 
@@ -180,7 +182,8 @@ def main() -> None:
     parser.add_argument("--write", type=Path, help="Save outputs as the reference (JSONL)")
     parser.add_argument("--compare", type=Path, help="Compare outputs with a saved reference")
     parser.add_argument("--tolerance", type=float, default=1e-4)
-    parser.add_argument("--stages", action="store_true", help="Also time detector stages")
+    parser.add_argument("--stages", action="store_true",
+                        help="Time stages, including nested cumulative candidate worker time")
     parser.add_argument("--report", type=Path, help="Write the timing summary as JSON")
     parser.add_argument("--composite", help="Time monster search on this map's pasted sprites")
     args = parser.parse_args()
@@ -189,8 +192,9 @@ def main() -> None:
     detector = TemplateDetector(args.data / "templates", perception_config(args.config))
     load_seconds = time.perf_counter() - began
     stage_ms: dict[str, float] = defaultdict(float)
+    stage_lock = Lock()
     if args.stages:
-        for name in STAGES:
+        for name in (*STAGES, *CANDIDATE_STAGES):
             original = getattr(detector, name)
 
             def timed(*items, _original=original, _name=name, **options):
@@ -198,7 +202,9 @@ def main() -> None:
                 try:
                     return _original(*items, **options)
                 finally:
-                    stage_ms[_name] += (time.perf_counter() - start) * 1000
+                    elapsed = (time.perf_counter() - start) * 1000
+                    with stage_lock:
+                        stage_ms[_name] += elapsed
 
             setattr(detector, name, timed)
 
@@ -253,6 +259,7 @@ def main() -> None:
         "processing_fps": round(1000 / statistics.fmean(all_ms), 2),
         "stages_ms_per_frame": {key: round(value / len(all_ms), 1)
                                 for key, value in stage_ms.items()},
+        "stage_timing_note": "Nested stages overlap; parallel workers report cumulative time.",
         "sources": per_source,
     }
     if args.write:

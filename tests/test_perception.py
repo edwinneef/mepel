@@ -9,8 +9,38 @@ import pytest
 
 from maplebot.config import PerceptionConfig
 from maplebot.geometry import Rect
-from maplebot.perception import FULL_SCAN_EVERY, CameraTracker, Detection, TemplateDetector
+from maplebot.perception import (
+    FULL_SCAN_EVERY,
+    CameraTracker,
+    Detection,
+    Template,
+    TemplateDetector,
+)
 from maplebot.reacquisition import ConfirmedSprites
+
+
+@pytest.mark.parametrize("flat", [False, True])
+@pytest.mark.parametrize("channels,method", [(1, cv2.TM_CCOEFF_NORMED),
+                                            (3, cv2.TM_SQDIFF_NORMED)])
+def test_prepared_matching_masks_preserve_native_scores(flat, channels, method):
+    rng = np.random.default_rng(821)
+    image = rng.integers(0, 256, (27, 31, 3), dtype=np.uint8)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # OpenCV treats every nonzero uint8 mask value as one, including values below 255.
+    mask = rng.integers(0, 4, (19, 23), dtype=np.uint8)
+    template = Template("player", "fixture", image[:19, :23], gray[:19, :23],
+                        Rect(0, 0, 23, 19), mask)
+    observed = np.zeros_like(image) if flat else image
+    if channels == 1:
+        observed = cv2.cvtColor(observed, cv2.COLOR_BGR2GRAY)
+        reference, prepared = template.gray, template.matching_masks[0]
+    else:
+        reference, prepared = template.image, template.matching_masks[1]
+    expected = cv2.matchTemplate(observed, reference, method, mask=mask.copy())
+    actual = cv2.matchTemplate(observed, reference, method, mask=prepared)
+    np.testing.assert_array_equal(actual, expected)
+    assert template.matching_masks is template.matching_masks
+    np.testing.assert_array_equal(template.mask, mask)
 
 
 def test_masked_cache_reuses_only_identical_crops(tmp_path, monkeypatch):

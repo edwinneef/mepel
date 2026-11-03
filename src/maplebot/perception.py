@@ -127,6 +127,13 @@ class Template:
         return self.image[rows, cols], gray, cv2.pyrDown(gray)
 
     @cached_property
+    def matching_masks(self) -> tuple[np.ndarray, np.ndarray]:
+        """OpenCV's binary float masks, prepared once instead of per native crop."""
+        assert self.mask is not None
+        mask = (self.mask != 0).astype(np.float32)
+        return mask, np.repeat(mask[:, :, None], 3, axis=2)
+
+    @cached_property
     def masked_pixels(self) -> MaskedPixels:
         """Prepare once per immutable template, instead of per candidate/frame."""
         anchor = self.anchor
@@ -805,6 +812,7 @@ class TemplateDetector:
         anchor = template.anchor
         assert anchor is not None and template.mask is not None
         reference, reference_gray, reference_coarse = template.anchored
+        gray_mask, color_mask = template.matching_masks
         # Reuse only byte-identical native crops from this template's previous search.
         # Each template owns its entries while searches run in parallel.
         previous = self.masked_cache.get(id(template), ({}, template))[0]
@@ -819,7 +827,8 @@ class TemplateDetector:
                 current[key] = saved
                 result = saved[1]
             else:
-                result = cv2.matchTemplate(crop, reference, method, mask=template.mask)
+                mask = gray_mask if crop.ndim == 2 else color_mask
+                result = cv2.matchTemplate(crop, reference, method, mask=mask)
                 current[key] = (crop.copy(), result)
             # Structure is patched in-place below; color is only read by 1 - result.
             return result.copy() if method == cv2.TM_CCOEFF_NORMED else result
@@ -863,7 +872,7 @@ class TemplateDetector:
                 if abs(bound - floor) <= 5e-5:
                     structure = cv2.matchTemplate(
                         gray[top:bottom, left:right], reference_gray,
-                        cv2.TM_CCOEFF_NORMED, mask=template.mask)
+                        cv2.TM_CCOEFF_NORMED, mask=gray_mask)
                     cv2.patchNaNs(structure, -1)
             if (structure is not None
                     and COLOR_WEIGHT_CAP + 0.4 * cv2.minMaxLoc(structure)[1] >= floor):
@@ -877,17 +886,17 @@ class TemplateDetector:
                 _, confidence, _, (dx, dy) = cv2.minMaxLoc(score)
                 # Different reductions can differ in the last float32 bits. Use
                 # the original implementation for a borderline decision or tie.
-                near_peak = np.count_nonzero(np.abs(score - confidence) <= 5e-5)
                 if (abs(confidence - floor) <= 5e-5
                         or abs(confidence - self.config.confidence) <= 5e-5
-                        or (confidence >= floor and near_peak > 1)):
+                        or (confidence >= floor
+                            and np.count_nonzero(np.abs(score - confidence) <= 5e-5) > 1)):
                     native_gray = cv2.matchTemplate(
                         gray[top:bottom, left:right], reference_gray,
-                        cv2.TM_CCOEFF_NORMED, mask=template.mask)
+                        cv2.TM_CCOEFF_NORMED, mask=gray_mask)
                     cv2.patchNaNs(native_gray, -1)
                     native_color = 1 - cv2.matchTemplate(
                         image[top:bottom, left:right], reference,
-                        cv2.TM_SQDIFF_NORMED, mask=template.mask)
+                        cv2.TM_SQDIFF_NORMED, mask=color_mask)
                     score = np.nan_to_num(0.6 * native_color + 0.4 * native_gray,
                                           copy=False, nan=0, posinf=0, neginf=0)
                     _, confidence, _, (dx, dy) = cv2.minMaxLoc(score)
@@ -955,6 +964,7 @@ class TemplateDetector:
             if (template.anchor is not None and template.mask is not None
                     and template.mask.ndim == 2):
                 _ = template.masked_pixels
+                _ = template.matching_masks
 
         def search(template: Template) -> list[Detection]:
             if area is None or template.kind != "player":
