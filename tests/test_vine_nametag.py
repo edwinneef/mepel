@@ -32,6 +32,17 @@ def detector():
     instance.map_filter.close()
 
 
+@pytest.fixture
+def ambiguity_detector():
+    instance = TemplateDetector(FIXTURE / "ambiguity", PerceptionConfig(
+        confidence=.85, nametag_confidence=.85, player_margin=.04))
+    instance.nametags = [instance.load_nametag(path)
+                        for path in (FIXTURE / "nametag").glob("*.png")]
+    yield instance
+    instance.pool.shutdown()
+    instance.map_filter.close()
+
+
 def frame(name):
     image = cv2.imread(str(FIXTURE / f"{name}.png"))
     assert image is not None, f"Missing committed fixture: {name}"
@@ -101,3 +112,39 @@ def test_clear_name_after_gap_cannot_refresh_queued_input(detector, observation_
     assert "observation expired" in control.reason
     assert pending.observation.deadline == 100.5
     assert not backend.events and not control.held and not control.enabled
+
+
+def test_recorded_vine_has_two_distinct_high_confidence_body_hypotheses(ambiguity_detector):
+    detector = ambiguity_detector
+    image = frame("occluded")
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    players = detector._suppress(detector._candidates(image, gray, detector.templates, .7))
+    assert len(players) == 2
+    first, second = players
+    assert first.confidence == pytest.approx(1., abs=1e-5)
+    assert second.confidence == pytest.approx(.971711, abs=1e-5)
+    assert (first.box.x, first.box.y) == (155, 45)
+    assert (second.box.x, second.box.y) == (175, 17)
+    assert first.box.iou(second.box) < .25  # They are not suppression duplicates.
+    assert first.confidence - second.confidence < detector.config.player_margin
+    tags = detector._nametag_candidates(gray)
+    assert detector._occluded_tag_score(gray, tags[0][1], tags[0][0].box) == 0
+    failures = []
+    assert detector._resolve(players, tags, failures, gray, 100.)[0] is None
+    assert "Ambiguous player: multiple similar matches" in failures
+
+
+@pytest.mark.parametrize("identity", ["own", "other"])
+def test_cached_identity_cannot_choose_between_recorded_body_hypotheses(
+        ambiguity_detector, identity):
+    detector = ambiguity_detector
+    gray = cv2.cvtColor(frame("occluded"), cv2.COLOR_BGR2GRAY)
+    players = detector._suppress(detector._candidates(
+        frame("occluded"), gray, detector.templates, .7))
+    tags = detector._nametag_candidates(gray)
+    name = f"nametag:{tags[0][1].name}" if identity == "own" else "nametag:another-player"
+    detector.confirmed_sprites.observe(name, players[0].template, players[0].box, 99.9)
+    failures = []
+    assert detector._resolve(players, tags, failures, gray, 100.)[0] is None
+    assert detector.confirmed_sprites.last is None
+    assert "Ambiguous player: multiple similar matches" in failures

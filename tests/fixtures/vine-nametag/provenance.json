@@ -22,5 +22,18 @@
       "source_frame": "00000845.png",
       "source_sha256": "7f63fde5301644eb26cb83291fd742261873fd17713cbd03f8e749b782f07a12"
     }
-  ]
+  ],
+  "sprite_templates": [
+    {
+      "file": "ambiguity/player/captured-62ccb0dedb8244519644d6b70d29bc74.png",
+      "source": "data/templates/player/captured-62ccb0dedb8244519644d6b70d29bc74.png",
+      "sha256": "d26026cea0fa70dd911b75405e4f6cc8ad204818dac709ef06d8b2eaf1823906"
+    },
+    {
+      "file": "ambiguity/player/captured-6fa3fe9ed167464f898f0885336b3799.png",
+      "source": "data/templates/player/captured-6fa3fe9ed167464f898f0885336b3799.png",
+      "sha256": "d8d78dbd759352e45f75b4c1e002692b441510a66a2f4224c1acf7c88b871e85"
+    }
+  ],
+  "sprite_context": "Frozen from saved templates during offline diagnosis; this is a minimal present-source reproduction, not a historical runtime snapshot."
 }
