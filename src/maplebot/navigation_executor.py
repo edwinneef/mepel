@@ -7,6 +7,10 @@ from .input_timing import MIN_CHORD_LEAD_SECONDS, KeyHold
 from .navigation import Edge, Route, RouteMap
 from .public_map import span
 
+# Navigation acts only on a fused position younger than this. Operator decision (2026-11-03):
+# 0.8 s, up from 0.5 s, matching key-down freshness; frames take 370-480 ms to process.
+FEEDBACK_SECONDS = 0.8
+
 
 @dataclass(frozen=True)
 class Feedback:
@@ -183,7 +187,7 @@ class Navigator:
             return self.stop("Non-increasing navigation observation")
         self.last_time = f.now
         if (f.fingerprint != self.route.fingerprint or not f.focused or not f.motion_ok
-                or not math.isfinite(f.age) or not 0 <= f.age <= .5 or f.feet is None
+                or not math.isfinite(f.age) or not 0 <= f.age <= FEEDBACK_SECONDS or f.feet is None
                 or not all(math.isfinite(v) for v in f.feet)):
             return self.stop("Fresh fused position, map revision or focus lost")
         if reason := self.budget_blocker(f.now):
@@ -511,7 +515,7 @@ class EdgeStep:
             return self.stop("Non-increasing navigation observation")
         self.last_time = f.now
         if (f.fingerprint != self.graph.fingerprint or not f.focused
-                or not math.isfinite(f.age) or not 0 <= f.age <= .5 or f.feet is None
+                or not math.isfinite(f.age) or not 0 <= f.age <= FEEDBACK_SECONDS or f.feet is None
                 or not all(math.isfinite(v) for v in f.feet)):
             return self.stop("Fresh minimap marker, map revision or focus lost")
         if f.motion_ok and f.surface is not None:

@@ -53,7 +53,7 @@ def test_navigation_motion_uses_configured_player_threshold(app, monkeypatch, th
 
 
 @pytest.mark.parametrize(("age", "motion", "feet", "reason"), [
-    (.507, True, (150, 400), "stale"),
+    (.807, True, (150, 400), "stale"),
     (.1, False, (150, 400), "motion_or_marker_uncertain"),
     (.1, False, None, "motion_or_marker_uncertain"),
 ])
@@ -81,9 +81,9 @@ def test_feedback_boundary_and_physical_focus_gate_are_unchanged(app, monkeypatc
     from maplebot import navigation_runtime
     nav = preview(app)
     monkeypatch.setattr(navigation_runtime, "time", SimpleNamespace(perf_counter=lambda: 100))
-    nav.feedback = replace(nav.feedback, now=99.5)
+    nav.feedback = replace(nav.feedback, now=99.2)
     assert nav.trusted()
-    nav.feedback = replace(nav.feedback, now=99.499)
+    nav.feedback = replace(nav.feedback, now=99.199)
     assert not nav.trusted()
     nav.feedback = replace(nav.feedback, now=100)
     app.mode = "navigation"
@@ -98,14 +98,14 @@ def test_controller_refusal_survives_a_new_frame_before_stop_callback(app, monke
     from maplebot import navigation_runtime
     nav = preview(app)
     monkeypatch.setattr(navigation_runtime, "time", SimpleNamespace(perf_counter=lambda: 100))
-    nav.feedback = replace(nav.feedback, now=99.493)
+    nav.feedback = replace(nav.feedback, now=99.193)
     app.mode = "navigation"
     assert not app._input_safe()
     refusal = nav.last_input_refusal
     nav.feedback = replace(nav.feedback, now=100)
     assert app._input_safe()
     app._controller_stop("FOCUS_LOSS", "Target focus, geometry, or visibility lost")
-    assert refusal in app.stop_record.message and '"age_ms": 507.0' in refusal
+    assert refusal in app.stop_record.message and '"age_ms": 807.0' in refusal
     assert nav.snapshot()["last_input_refusal"] == refusal
     assert app.controller.backend.events == []
 

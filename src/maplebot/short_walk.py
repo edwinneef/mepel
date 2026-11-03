@@ -3,7 +3,7 @@
 import math
 
 from .input_timing import KeyHold
-from .navigation_executor import BRAKE_PX, Motion, Navigator
+from .navigation_executor import BRAKE_PX, FEEDBACK_SECONDS, Motion, Navigator
 
 
 class ShortWalk(Navigator):
@@ -43,7 +43,7 @@ class ShortWalk(Navigator):
             return Motion(release=True)
         if (not math.isfinite(f.now) or f.now <= self.last_time or f.feet is None
                 or not all(math.isfinite(v) for v in f.feet)
-                or not math.isfinite(f.age) or not 0 <= f.age <= .5 or not f.focused
+                or not math.isfinite(f.age) or not 0 <= f.age <= FEEDBACK_SECONDS or not f.focused
                 or not f.motion_ok or f.marker_only or f.fingerprint != self.route.fingerprint
                 or f.surface != self.route.origin or not self.graph.on_surface(f.surface, f.feet)):
             return self.stop("Short walk lost fresh same-platform position or focus")

@@ -89,7 +89,7 @@ def test_delayed_sequence_keeps_runtime_waiting_for_ticket_completion():
 def test_observation_delay_uses_older_positions_and_preserves_freshness_limit():
     delayed = run(Experiment(feedback_delay=.1))
     assert any(frame["feedback_age"] >= .333 for frame in delayed["frames"])
-    stale = run(Experiment(feedback_delay=.6, expected="safe_stop"))
+    stale = run(Experiment(feedback_delay=.9, expected="safe_stop"))
     assert stale["passed"] and not stale["keys"]
     assert "stale" in stale["stops"][-1]["reason"]
 

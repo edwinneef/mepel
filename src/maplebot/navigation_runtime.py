@@ -10,7 +10,7 @@ from .decision import Action
 from .move_proofs import PROOF_FAILURE_LIMIT, MoveProofs
 from .moves import Move, generate
 from .navigation import RouteMap, map_hash, pose_gaps, required_poses
-from .navigation_executor import EdgeStep, Feedback, Navigator, distance
+from .navigation_executor import FEEDBACK_SECONDS, EdgeStep, Feedback, Navigator, distance
 from .navigation_replay import recorded_step
 from .reacquisition import RECOVERY_SECONDS
 from .scheduler import SUSTAIN
@@ -188,7 +188,7 @@ class NavigationRuntime:
                 return "Map changed; preview again"
         else:
             # Before the countdown, a reading from the last ~3 fps frame is fresh enough;
-            # while moving, the executor keeps its own 0.5 s limit.
+            # while moving, the executor keeps its own FEEDBACK_SECONDS limit.
             # The name tag drops out at some spots, so a platform agreed within the grace
             # counts while the current frame shows no other surface.
             recent = f is not None and ((f.motion_ok and f.surface == self.route.origin) or (
@@ -378,7 +378,7 @@ class NavigationRuntime:
             if expired:
                 app._stop("POLICY_STOP", "Navigation vertical lease expired")
                 return
-        if (not feedback.feet or not feedback.focused or feedback.age > .5
+        if (not feedback.feet or not feedback.focused or feedback.age > FEEDBACK_SECONDS
                 or feedback.fingerprint != self.agent.route.fingerprint):
             app._stop("PLAYER_UNCERTAIN", "Recovery requires fresh map/marker and focus")
             return
@@ -407,7 +407,7 @@ class NavigationRuntime:
                 or self.app.source_generation != r["source"]
                 or self.app.view_generation != r["view"]):
             return "Navigation context changed during recognition recovery"
-        if (not f or time.perf_counter() - f.now > .5 or not f.feet or not f.focused
+        if (not f or time.perf_counter() - f.now > FEEDBACK_SECONDS or not f.feet or not f.focused
                 or f.fingerprint != self.agent.route.fingerprint
                 or self.graph.path_blocker((f.feet, f.feet))):
             return "Fresh map/marker or focus lost during recognition recovery"
@@ -443,8 +443,8 @@ class NavigationRuntime:
         """Screen columns that can hold the player during an edge step, else None.
 
         The camera clamps at a map end, so a marker at the right end means the player is
-        at the right of the screen. Searching only there keeps frames inside the 0.5 s
-        freshness limit while the name tag is missing.
+        at the right of the screen. Searching only there keeps frames inside the
+        FEEDBACK_SECONDS freshness limit while the name tag is missing.
         """
         f, agent = self.feedback, self.agent
         if not isinstance(agent, EdgeStep) or not agent.active or not f or f.feet is None:
@@ -477,7 +477,8 @@ class NavigationRuntime:
                 "surface": f.surface if f else None, "focused": f.focused if f else None,
                 "stage": self.agent.stage if self.agent else None,
                 "reason": (None if trusted else "unavailable" if not f else
-                           "stale" if now - f.now > .5 else "motion_or_marker_uncertain")}
+                           "stale" if now - f.now > FEEDBACK_SECONDS
+                           else "motion_or_marker_uncertain")}
 
     def feedback_block_reason(self) -> str | None:
         if self.recovery:
@@ -504,7 +505,7 @@ class NavigationRuntime:
     def _trusted_feedback(self, f, now: float) -> bool:
         if getattr(getattr(self.app, "position", None), "automatic", None):
             return False
-        if not f or now - f.now > .5:
+        if not f or now - f.now > FEEDBACK_SECONDS:
             return False
         agent = self.agent
         if isinstance(agent, ShortWalk):
@@ -756,8 +757,9 @@ class NavigationRuntime:
             "active": False, "route": self.route.snapshot() if self.route else None}
         recovery = {"active": self.recovery is not None,
                     "input_suspended": self.app.controller.suspended,
-                    "marker_fresh": bool(self.feedback and self.feedback.feet
-                                         and 0 <= time.perf_counter() - self.feedback.now <= .5),
+                    "marker_fresh": bool(
+                        self.feedback and self.feedback.feet
+                        and 0 <= time.perf_counter() - self.feedback.now <= FEEDBACK_SECONDS),
                     "map_hash": self.feedback.fingerprint if self.feedback else None,
                     "pending_publication": bool(self.recovery_resume_sequence and (
                         not self.app.published_frame or self.app.published_frame["sequence"]

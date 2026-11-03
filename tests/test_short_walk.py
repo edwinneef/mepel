@@ -44,7 +44,7 @@ def test_short_walk_pulses_then_releases_for_one_second_before_arrival():
 
 
 @pytest.mark.parametrize("change", [
-    {"age": .51}, {"focused": False}, {"surface": "ledge"}, {"motion_ok": False},
+    {"age": .81}, {"focused": False}, {"surface": "ledge"}, {"motion_ok": False},
     {"feet": None}, {"feet": (float("nan"), 400)}, {"fingerprint": "changed"},
     {"marker_only": True},
 ])

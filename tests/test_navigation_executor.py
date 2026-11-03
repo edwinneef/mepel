@@ -40,7 +40,7 @@ def test_jump_requires_departure_and_settled_destination_not_predicted_elapsed_t
 
 
 @pytest.mark.parametrize("changes", [
-    {"age": .51}, {"motion_ok": False}, {"focused": False}, {"fingerprint": "edited"},
+    {"age": .81}, {"motion_ok": False}, {"focused": False}, {"fingerprint": "edited"},
     {"feet": None}, {"feet": (590, 260)},
 ])
 def test_feedback_failure_cancels_and_never_automatically_resumes(changes):
@@ -386,7 +386,7 @@ def test_edge_step_stops_without_progress_away_from_edges_or_after_its_deadline(
 
 
 def test_edge_step_needs_a_fresh_marker_and_focus():
-    for changes in ({"age": .6}, {"focused": False}, {"feet": None}, {"fingerprint": "x"}):
+    for changes in ({"age": .9}, {"focused": False}, {"feet": None}, {"fingerprint": "x"}):
         step, f = edge_step()
         assert step.step(replace(f, **changes)).release and step.stage == "stopped"
 
@@ -642,3 +642,9 @@ def test_up_is_never_held_while_stepping_toward_a_rope_beside_a_portal():
     step = nav.step(replace(f, now=.55))
     assert [h.action for h in step.holds] == ["right"] and step.vertical is None
     assert nav.step(replace(f, now=.62, feet=(160, 400))).release  # no Up near a portal
+
+
+def test_navigation_freshness_is_the_operator_approved_window():
+    # Operator decision (2026-11-03); changing it is a safety-gate change for the operator.
+    from maplebot.navigation_executor import FEEDBACK_SECONDS
+    assert FEEDBACK_SECONDS == 0.8

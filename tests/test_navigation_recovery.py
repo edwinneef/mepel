@@ -69,7 +69,7 @@ def test_recovery_stops_without_resuming_after_hard_failure(route, failure):
     if failure == "timeout":
         now[0] += 2
     elif failure == "stale":
-        now[0] += .51
+        now[0] += .81
     elif failure == "view":
         app.view_generation += 1
     elif failure == "map":
