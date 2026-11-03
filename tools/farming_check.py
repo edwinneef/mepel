@@ -48,7 +48,8 @@ def rotation_blocker(status: dict, *, learn_moves: bool = False) -> str | None:
     position = status.get("position") or {}
     if position.get("kind") == "rope":
         return ON_ROPE
-    if position.get("stale") or position.get("held") or not position.get("feet"):
+    if (position.get("stale") or position.get("held") or not position.get("feet")
+            or position.get("kind") == "unknown"):
         return "Wait for a fresh mapped position before rotation"
     graph = (status.get("navigation") or {}).get("map") or {}
     origin = position.get("surface_id")
@@ -75,7 +76,8 @@ def fresh_position(api, status: dict, *, seconds: float = 2, clock=time.monotoni
     deadline = clock() + seconds
     while True:
         position = status.get("position") or {}
-        if not (position.get("stale") or position.get("held") or not position.get("feet")):
+        if not (position.get("stale") or position.get("held") or not position.get("feet")
+                or position.get("kind") == "unknown"):
             return status
         if clock() >= deadline:
             return status

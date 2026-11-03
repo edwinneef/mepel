@@ -2185,8 +2185,12 @@ def test_circuit_preview_does_not_require_or_change_tracked_map(app, monkeypatch
     from maplebot.navigation import RouteMap
     profile, evidence = fixture()
     monkeypatch.setattr(app.areas, "load", lambda area: {"profile": profile})
-    monkeypatch.setattr("maplebot.runtime.preview_graph",
-                        lambda value, proofs: RouteMap(value, evidence))
+    def graph(value, proofs):
+        # The slow build must not hold stop_lock: status, the frame loop and Stop need it.
+        assert not app.stop_lock._is_owned()
+        return RouteMap(value, evidence)
+
+    monkeypatch.setattr("maplebot.runtime.preview_graph", graph)
     previous = app.position
     result = app.request("farm_route_map", {"area_id": profile["id"]})
     assert result["map_hash"] == evidence["map_hash"]

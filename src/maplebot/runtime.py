@@ -454,11 +454,14 @@ class Application:
                 area_id = (payload.get("area_id") if name == "farm_route_map"
                            else payload.get("route", {}).get("area_id"))
                 profile = self.areas.load(area_id)["profile"]
-                graph = preview_graph(profile, self.navigation.proofs)
-                if name == "farm_route_map":
-                    return {"profile": profile, "map_hash": graph.fingerprint,
-                            **route_options(graph)}
-                return compile_route(payload.get("route"), graph)
+                proofs = self.navigation.proofs
+            # The input-free graph build takes seconds; holding stop_lock for it froze status,
+            # the frame loop and Stop, and the overlay then reported the engine silent.
+            graph = preview_graph(profile, proofs)
+            if name == "farm_route_map":
+                return {"profile": profile, "map_hash": graph.fingerprint,
+                        **route_options(graph)}
+            return compile_route(payload.get("route"), graph)
         if name in {"area_begin", "area_capture", "area_save", "area_end"}:
             with self.stop_lock:
                 if context is not None:

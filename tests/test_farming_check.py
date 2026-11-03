@@ -396,6 +396,13 @@ def test_rotation_connectivity_uses_computed_edges_but_not_unrotatable_platforms
     assert rotation_blocker(status) is None
 
 
+def test_unknown_position_waits_instead_of_leaving_the_map():
+    # A frame-loop gap restarts fusion: feet but no surface yet is not a fresh origin.
+    status = Api().status()
+    status["position"] |= {"kind": "unknown", "surface_id": None}
+    assert "fresh mapped position" in rotation_blocker(status)
+
+
 def test_existing_evidence_directory_rejected_before_commands(tmp_path):
     api = Api()
     output = tmp_path / "existing"
