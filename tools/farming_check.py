@@ -54,7 +54,9 @@ def rotation_blocker(status: dict, *, learn_moves: bool = False) -> str | None:
     origin = position.get("surface_id")
     nodes = {node["id"]: node for node in graph.get("nodes", [])}
     if origin not in nodes or nodes[origin].get("excluded"):
-        return "Rotation origin is outside the usable map"
+        why = ("not on the map graph" if origin not in nodes else "excluded from rotation")
+        return (f"Rotation origin is outside the usable map (surface {origin!r} {why}; "
+                f"position {position.get('kind')!r}, {len(nodes)} graph nodes)")
     targets = {key for key, node in nodes.items() if key != origin
                and node.get("kind") == "platform"
                and not node.get("excluded") and not node.get("unproven")}
