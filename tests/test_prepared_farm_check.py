@@ -127,3 +127,19 @@ def test_saved_circuit_keeps_selected_revision_duration_and_sustain(capsys, monk
     assert seen == [{"area": "tree", "session_minutes": 1,
                      "circuit": {"id": "lower-loop", "revision": 2},
                      "consumables": True, "require_enemy": True}]
+
+
+def test_stop_from_the_start_click_is_not_reported_as_the_batch_stop(capsys, monkeypatch):
+    monkeypatch.setattr(prepared_farm_check, "settle", lambda api, status, *a: (status, True))
+
+    class Stopped(Api):
+        def status(self):
+            return super().status() | {"stop": {"id": "click", "message": "settings opened"}}
+
+    monkeypatch.setattr(prepared_farm_check, "run",
+                        lambda api, output, **kw: {"outcome": "nothing_left"})
+    prepared_farm_check.main(["--run", "--area", "tree", "--origin", "fh308"],
+                             api=Stopped("fh308"))
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()
+             if line.startswith("{")]
+    assert next(line for line in lines if "outcome" in line)["stop"] is None

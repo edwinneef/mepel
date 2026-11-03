@@ -10,6 +10,7 @@ from pathlib import Path
 
 from maplebot.farming import CHECKPOINT_STOP, Farming
 from maplebot.farming_routes import identifier
+from maplebot.navigation import surface_y
 from tools.navigation_check import Debugger, readiness
 
 
@@ -110,6 +111,32 @@ def circuit_progress(samples: list[dict], stops: list[str]) -> dict:
             "combat_after_arrival": resumed}
 
 
+def enemy_on_stops(status: dict, profile: dict, stops: list[str], *,
+                   tolerance: float = 18) -> bool:
+    """A fresh confident enemy stands on one of the circuit's stops.
+
+    Enemies are placed on the map relative to the player, as the engine's rotation does.
+    A loop walks to its enemies, so the start platform itself may be empty.
+    """
+    box = (status.get("player") or {}).get("box") or {}
+    feet = (status.get("position") or {}).get("feet")
+    if not box or not feet or len(feet) != 2:
+        return False
+    player = (box["x"] + box["width"] / 2, box["y"] + box["height"])
+    platforms = [p for p in profile.get("platforms", []) if p["id"] in stops]
+    for monster in status.get("monsters") or []:
+        if monster.get("tracked") or monster.get("confidence", 0) < .9:
+            continue
+        mbox = monster["box"]
+        x = feet[0] + mbox["x"] + mbox["width"] / 2 - player[0]
+        y = feet[1] + mbox["y"] + mbox["height"] - player[1]
+        for platform in platforms:
+            x0, x1 = sorted((platform["start"]["x"], platform["end"]["x"]))
+            if x0 <= x <= x1 and abs(y - surface_y(platform, x)) <= tolerance:
+                return True
+    return False
+
+
 def checked_circuit(api, area: str, circuit: dict) -> dict:
     """Resolve a saved revision and validate it without granting input authority."""
     route_id = identifier(circuit.get("id"))
@@ -188,7 +215,12 @@ def run(api, output: Path, *, area: str, single_platform=False, session_minutes=
         player = before.get("player") or {}
         if player.get("tracked") or player.get("confidence", 0) < .9:
             raise RuntimeError("Player not freshly recognized; no farming started")
-    if require_enemy:
+    if require_enemy and route is not None:
+        profile = api.command("area_load", {"area_id": area}).get("profile") or {}
+        if not enemy_on_stops(before, profile, route["stops"]):
+            raise RuntimeError(
+                "No fresh enemy on " + " or ".join(route["stops"]) + "; no farming started")
+    elif require_enemy:
         box = player.get("box") or {}
         feet = box.get("y", 0) + box.get("height", 0)
         if not box or not any(

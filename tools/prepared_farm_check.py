@@ -96,6 +96,9 @@ def main(argv: list[str] | None = None, *, api=None) -> int:
                     ON_ROPE if on_rope else "Stand still on a recognized platform of this map first"
                 )
             status, steady = settle(api, status, args.area, args.origin)
+            # The dashboard click that started this batch already stopped the bot; report
+            # only a stop that happens during the batch.
+            earlier_stop = (status.get("stop") or {}).get("id")
         except RuntimeError as error:
             print(json.dumps({"blocked": str(error), "input_sent": False}), flush=True)
             return 1
@@ -159,7 +162,8 @@ def main(argv: list[str] | None = None, *, api=None) -> int:
                         )
                     ],
                     "input_state": after.get("input_state"),
-                    "stop": after.get("stop"),
+                    "stop": None if (after.get("stop") or {}).get("id") == earlier_stop
+                    else after.get("stop"),
                     "after_is_current": result["after_is_current"],
                     "status_error": result.get("status_error"),
                     "command_seconds": round(time.monotonic() - started, 2),

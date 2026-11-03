@@ -96,6 +96,46 @@ def test_changed_geometry_refuses_and_verified_revision_reaches_arm(tmp_path):
     assert api.calls[-1][0] == "stop"
 
 
+class EnemyCircuitApi(CircuitApi):
+    """Player on stop a at map (100, 500); stop b lies 80 px higher at x 300..500."""
+
+    def __init__(self, monster):
+        super().__init__()
+        self.monster = monster
+
+    def status(self):
+        sample = super().status()
+        sample["position"]["feet"] = [100, 500]
+        sample["player"]["box"] = {"x": 580, "y": 400, "width": 40, "height": 60}
+        sample["monsters"] = [{"confidence": 1, "box": self.monster}]
+        return sample
+
+    def command(self, name, payload=None):
+        if name == "area_load":
+            return {"profile": {"platforms": [
+                {"id": "a", "start": {"x": 0, "y": 500}, "end": {"x": 200, "y": 500}},
+                {"id": "b", "start": {"x": 300, "y": 420}, "end": {"x": 500, "y": 420}},
+                {"id": "c", "start": {"x": 0, "y": 700}, "end": {"x": 500, "y": 700}}]}}
+        return super().command(name, payload)
+
+
+def test_circuit_starts_when_an_enemy_waits_on_another_stop(tmp_path):
+    # Screen feet (900, 380) map to (400, 420): on stop b, not the start platform a.
+    api = EnemyCircuitApi({"x": 880, "y": 340, "width": 40, "height": 40})
+    run(api, tmp_path / "run", area="island", require_enemy=True,
+        circuit={"id": "loop", "revision": 2})
+    assert any(name == "arm" for name, _ in api.calls)
+
+
+def test_circuit_refuses_enemies_off_its_stops(tmp_path):
+    # Screen feet (900, 660) map to (400, 700): platform c is not a circuit stop.
+    api = EnemyCircuitApi({"x": 880, "y": 620, "width": 40, "height": 40})
+    with pytest.raises(RuntimeError, match="No fresh enemy on a or b"):
+        run(api, tmp_path / "run", area="island", require_enemy=True,
+            circuit={"id": "loop", "revision": 2})
+    assert not any(name == "arm" for name, _ in api.calls)
+
+
 def test_circuit_progress_needs_new_combat_after_an_observed_arrival():
     first = {"mode": "live", "position": {"surface_id": "a"},
              "combat_evidence": {"events": events()}}
