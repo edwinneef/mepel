@@ -1,0 +1,26 @@
+{
+  "source": "data/recordings/session-1793662725446843600-combat",
+  "crop": [
+    560,
+    390,
+    300,
+    150
+  ],
+  "frames": [
+    {
+      "file": "clear-before.png",
+      "source_frame": "00000839.png",
+      "source_sha256": "db6579d3dbfabc804deb3c0449c3442a41543ca4db6e662a2b3f68b59e1fe212"
+    },
+    {
+      "file": "occluded.png",
+      "source_frame": "00000841.png",
+      "source_sha256": "58c6d44601ba0fd1e2fcc7638671ff7d87e4cd2716f460a46dfeb546e005b0b4"
+    },
+    {
+      "file": "clear-after.png",
+      "source_frame": "00000845.png",
+      "source_sha256": "7f63fde5301644eb26cb83291fd742261873fd17713cbd03f8e749b782f07a12"
+    }
+  ]
+}
