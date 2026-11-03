@@ -18,7 +18,6 @@ import cv2
 import numpy as np
 
 from . import key_settings
-from .hotkeys import HotkeyCounter
 from .alarm import AlarmManager
 from .attack_ranges import RangeStore, range_options, range_profile
 from .autopotter import BarReading, PotionMonitor
@@ -45,6 +44,7 @@ from .farming_routes import (
 )
 from .frame_encoder import FrameEncoder, FramePacket
 from .geometry import Rect
+from .hotkeys import HotkeyCounter
 from .keyboard import (
     KEYS,
     DisabledInput,
@@ -1256,7 +1256,7 @@ class Application:
                 window = self.window
                 focused = bool(window) and self.windows.foreground(window.hwnd)
                 fired = self.hotkeys.update(self.windows.pressed,
-                                            lambda name: name == "stop" or focused)
+                                            lambda name, focused=focused: name == "stop" or focused)
             except Exception:  # A missing or closing window: try again next tick.
                 continue
             if "stop" in fired and self.mode != "capture":

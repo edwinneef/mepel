@@ -51,7 +51,9 @@ DISPLAY_LAYERS = ("enemies", "range", "lines")
 
 def display_settings(value):
     """The dashboard's drawing toggles, or None when the payload carries none or is invalid."""
-    if not isinstance(value, dict) or any(type(value.get(name)) is not bool for name in DISPLAY_LAYERS):
+    if not isinstance(value, dict):
+        return None
+    if any(type(value.get(name)) is not bool for name in DISPLAY_LAYERS):
         return None
     return {name: value[name] for name in DISPLAY_LAYERS}
 
@@ -105,7 +107,7 @@ class OverlaySession:
                    for deadline in self.companions.values())
 
     def dashboard_batch(self, payload):
-        """Queue one batch from the dashboard that holds the lease, for the in-game overlay to run."""
+        """Queue one batch from the dashboard holding the lease, for the in-game overlay to run."""
         owner = payload.get("owner")
         with self.lock:
             if not (self.dashboard_ready() and owner == self.owner):
@@ -156,8 +158,11 @@ class OverlaySession:
             same_owner = self.owner == owner and self.surface == surface
             live = self.owner is not None and not self.expired and self.clock() < self.deadline
             if live and not same_owner:
-                raise ValueError("Another dashboard tab holds controls; close it" if self.surface == "dashboard"
-                                 else "Another overlay is connected")
+                raise ValueError(
+                    "Another dashboard tab holds controls; close it"
+                    if self.surface == "dashboard"
+                    else "Another overlay is connected"
+                )
             replacing = not same_owner or not live
             if replacing:
                 self.close_requested = False

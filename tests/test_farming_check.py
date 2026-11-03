@@ -455,8 +455,8 @@ def test_learn_moves_is_accepted_and_changes_nothing(tmp_path):
 def test_recovery_thresholds_follow_the_potion_thresholds(tmp_path):
     api = Api()
     base = api.status
-    api.status = lambda: {**base(), "autopotter": {**base()["autopotter"],
-                                                    "settings": {"hp_threshold": 40.0, "mp_threshold": 0}}}
+    settings = {"hp_threshold": 40.0, "mp_threshold": 0}
+    api.status = lambda: {**base(), "autopotter": {**base()["autopotter"], "settings": settings}}
     run(api, tmp_path / "run", area="island")
     farming = api.calls[0][1]["farming"]
     assert farming["hp_threshold"] == 40.0 and farming["mp_threshold"] == 1
