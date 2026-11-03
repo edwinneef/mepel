@@ -7,21 +7,24 @@ import { expect, it, vi } from 'vitest';
 function fakeChild() {
   const handlers = {};
   const stream = () => ({ on: (name, callback) => { handlers[`out:${name}`] = callback; } });
-  return { handlers, stdout: stream(), stderr: stream(),
+  return { handlers, kill: vi.fn(), stdout: stream(), stderr: stream(),
     on: (name, callback) => { handlers[name] = callback; } };
 }
 
 let cursor = { x: 0, y: 0 };
 let engineStatus = {};
+const authorization = id => ({ id, session_id: 'session-a', owner: 'dashboard-owner', epoch: 1, nonce: `nonce-${id}` });
+const authArgs = id => ['--endpoint', 'http://127.0.0.1:8765', '--expected-session', 'session-a',
+  '--batch-token', JSON.stringify(authorization(id))];
 // Hands the overlay one request the way the engine queues a dashboard Start; returns its acknowledgement.
 async function queue({ intervals, requests }, id, fields) {
-  engineStatus = { batch_request: { id, ...fields } };
+  engineStatus = { batch_request: { id, token: authorization(id), ...fields } };
   await intervals[0]();
   engineStatus = {};
   await intervals[0]();
   return requests.map(request => request.body.batch_ack).filter(Boolean).find(ack => ack.id === id);
 }
-async function startOverlay(controllerReady = true) {
+async function startOverlay(controllerReady = true, options = {}) {
   const shortcuts = new Map(), requests = [], intervals = [];
   const spawn = vi.fn(() => fakeChild());
   const win = {
@@ -50,12 +53,14 @@ async function startOverlay(controllerReady = true) {
     require: name => ({ electron, 'node:path': path,
       'node:crypto': { randomUUID: () => 'overlay-owner' }, 'node:fs/promises': {},
       'node:child_process': { spawn } })[name],
-    __dirname: '/overlay', process: { env: {} }, Buffer, URL, AbortSignal,
+    __dirname: '/overlay', process: { env: options.env ?? {} }, Buffer, URL, AbortSignal,
     setInterval: callback => { intervals.push(callback); },
-    fetch: async (url, options) => {
-      if (options?.body) requests.push({ url, body: JSON.parse(options.body) });
+    fetch: async (url, request) => {
+      if (request?.body) requests.push({ url, body: JSON.parse(request.body) });
+      await options.beforeFetch?.(url, request);
       return { ok: true, text: async () => '<meta name="debug-token" content="token">',
-        json: async () => ({ connected: true, controller_ready: controllerReady, ...engineStatus }) };
+        json: async () => ({ connected: true, session_id: 'session-a', controller_ready: controllerReady,
+          input_state: { enabled: false, held_keys: [] }, ...engineStatus }) };
     },
   });
   await started;
@@ -150,7 +155,7 @@ it('starts one guarded dashboard batch at a time, validating the request', async
     expect(spawn).not.toHaveBeenCalled();
     expect(await queue(overlay, 3, { kind: 'single', area })).toEqual({ id: 3, started: true });
     expect(spawn.mock.calls[0][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', area, '--run', '--focus',
-      '--minutes', '15', '--single']);
+      '--minutes', '15', ...authArgs(3), '--single']);
     expect((await queue(overlay, 4, { kind: 'learn', area })).reason).toBe('A batch is already running');
     const child = spawn.mock.results[0].value;
     child.handlers['out:data'](Buffer.from('{"outcome": "nothing_left"}\n'));
@@ -164,11 +169,11 @@ it('starts one guarded dashboard batch at a time, validating the request', async
     expect(await queue(overlay, 8, { kind: 'learn', area,
       circuit: { id: 'lower-loop', revision: 2 }, minutes: 1 })).toEqual({ id: 8, started: true });
     expect(spawn.mock.calls[1][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', area,
-      '--run', '--focus', '--minutes', '1', '--circuit', 'lower-loop', '--revision', '2', '--consumables']);
+      '--run', '--focus', '--minutes', '1', ...authArgs(8), '--circuit', 'lower-loop', '--revision', '2', '--consumables']);
     spawn.mock.results[1].value.handlers.close(0);
     expect(await queue(overlay, 9, { kind: 'single', area, minutes: 1 })).toEqual({ id: 9, started: true });
     expect(spawn.mock.calls[2][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', area,
-      '--run', '--focus', '--minutes', '1', '--single']);
+      '--run', '--focus', '--minutes', '1', ...authArgs(9), '--single']);
   } finally { engineStatus = {}; }
 });
 
@@ -191,11 +196,11 @@ it('runs a dashboard batch request from the companion heartbeat once, through th
   try {
     const { win, electron, spawn, intervals, requests } = await startOverlay();
     electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: win.webContents });
-    engineStatus = { batch_request: { id: 3, kind: 'single', area: 'a'.repeat(32), minutes: 1 } };
+    engineStatus = { batch_request: { id: 3, token: authorization(3), kind: 'single', area: 'a'.repeat(32), minutes: 1 } };
     await intervals[0]();
     expect(spawn).toHaveBeenCalledTimes(1);
     expect(spawn.mock.calls[0][1]).toEqual(['-m', 'tools.prepared_farm_check', '--area', 'a'.repeat(32),
-      '--run', '--focus', '--minutes', '1', '--single']);
+      '--run', '--focus', '--minutes', '1', ...authArgs(3), '--single']);
     await intervals[0]();  // the engine still lists it until the acknowledgement arrives
     expect(spawn).toHaveBeenCalledTimes(1);
     const sent = requests.filter(r => r.url.endsWith('/api/overlay_companion')).map(r => r.body);
@@ -221,4 +226,68 @@ it('registers the engine’s configured stop key', async () => {
     const second = await startOverlay();
     expect([...second.shortcuts.keys()]).toEqual(['F8']);
   } finally { engineStatus = {}; }
+});
+
+
+it.each(['overlay_companion', 'batch_heartbeat'])('F8 cancels launch while awaiting %s', async route => {
+  let release, entered;
+  const waiting = new Promise(resolve => { entered = resolve; });
+  let armed = false, companions = 0;
+  const overlay = await startOverlay(true, { beforeFetch: async url => {
+    if (!armed || !url.endsWith(`/api/${route}`)) return;
+    if (route === 'overlay_companion' && ++companions === 1) return;
+    armed = false;
+    entered();
+    await new Promise(resolve => { release = resolve; });
+  } });
+  overlay.electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: overlay.win.webContents });
+  armed = true;
+  const launching = queue(overlay, 31, { kind: 'single', area: 'a'.repeat(32), minutes: 1 });
+  await waiting;
+  overlay.shortcuts.get('F8')();
+  release();
+  expect((await launching).started).toBe(false);
+  expect(overlay.spawn).not.toHaveBeenCalled();
+});
+
+it('passes the initiating endpoint and session and rejects mismatched authorization', async () => {
+  const overlay = await startOverlay(true, { env: { MAPLEBOT_PORT: '8877' } });
+  overlay.electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: overlay.win.webContents });
+  expect((await queue(overlay, 40, { kind: 'single', area: 'a'.repeat(32),
+    token: { ...authorization(40), session_id: 'other-engine' } })).started).toBe(false);
+  expect(overlay.spawn).not.toHaveBeenCalled();
+  expect((await queue(overlay, 41, { kind: 'single', area: 'a'.repeat(32) })).started).toBe(true);
+  const args = overlay.spawn.mock.calls[0][1];
+  expect(args[args.indexOf('--endpoint') + 1]).toBe('http://127.0.0.1:8877');
+  expect(args[args.indexOf('--expected-session') + 1]).toBe('session-a');
+  expect(JSON.parse(args[args.indexOf('--batch-token') + 1])).toEqual(authorization(41));
+});
+
+it('cancels the associated engine batch on runner failure and records release evidence', async () => {
+  const overlay = await startOverlay();
+  overlay.electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: overlay.win.webContents });
+  await queue(overlay, 51, { kind: 'single', area: 'a'.repeat(32) });
+  overlay.spawn.mock.results[0].value.handlers.close(1);
+  await vi.waitFor(() => expect(overlay.requests.some(r => r.url.endsWith('/batch_cancel'))).toBe(true));
+  await vi.waitFor(() => expect(overlay.win.webContents.send).toHaveBeenLastCalledWith('overlay-event', {
+    type: 'batch', value: expect.objectContaining({ running: false, code: 1,
+      output: expect.stringContaining('Engine input disabled; no held keys') }),
+  }));
+  expect(overlay.requests.find(r => r.url.endsWith('/batch_cancel')).body)
+    .toEqual({ token: authorization(51), failure: true });
+});
+
+it('kills only its child on Stop and ignores stale child completion after a new launch', async () => {
+  const overlay = await startOverlay();
+  overlay.electron.ipcMain.on.mock.calls.find(([name]) => name === 'overlay-paint')[1]({ sender: overlay.win.webContents });
+  await queue(overlay, 61, { kind: 'single', area: 'a'.repeat(32) });
+  const old = overlay.spawn.mock.results[0].value;
+  overlay.shortcuts.get('F8')();
+  expect(old.kill).toHaveBeenCalledOnce();
+  await queue(overlay, 62, { kind: 'single', area: 'a'.repeat(32) });
+  const sends = overlay.win.webContents.send.mock.calls.length;
+  old.handlers.close(1);
+  old.handlers.error(new Error('old child'));
+  expect(overlay.win.webContents.send.mock.calls.length).toBe(sends);
+  expect(overlay.requests.some(r => r.url.endsWith('/batch_cancel'))).toBe(false);
 });

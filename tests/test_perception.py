@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
+from maplebot import perception
 from maplebot.config import PerceptionConfig
 from maplebot.geometry import Rect
 from maplebot.perception import FULL_SCAN_EVERY, CameraTracker, Detection, TemplateDetector
@@ -21,15 +22,14 @@ def test_masked_cache_reuses_only_identical_crops(tmp_path, monkeypatch):
     template = detector._variants("player", "fixture", raw, Path("fixture.png"))[0]
     image = rng.integers(0, 255, (60, 60, 3), dtype=np.uint8)
     image[20:40, 20:40] = raw[:, :, :3]
-    original = cv2.matchTemplate
+    original = perception._native_masked_match
     calls = []
 
     def counted(*args, **kwargs):
-        if "mask" in kwargs:
-            calls.append(1)
+        calls.append(1)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(cv2, "matchTemplate", counted)
+    monkeypatch.setattr(perception, "_native_masked_match", counted)
 
     def search(frame):
         return detector._anchor_candidates(

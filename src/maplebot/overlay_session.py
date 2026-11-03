@@ -2,6 +2,7 @@
 
 import json
 import re
+import secrets
 import threading
 import time
 
@@ -76,6 +77,10 @@ class OverlaySession:
         # One dashboard batch request waits here until the in-game overlay takes it. The host runs
         # it through its own guarded batch launcher; this lease never starts input itself.
         self.batch_pending = None
+        self.batch_token = None
+        self.batch_epoch = 0
+        self.runner_deadline = 0.0
+        self.stopping = False
         self.batch_sequence = 0
         self.batch_state = {"running": False}
 
@@ -95,6 +100,7 @@ class OverlaySession:
             pending = self.batch_pending
             if isinstance(ack, dict) and pending and ack.get("id") == pending["id"]:
                 if ack.get("started") is not True:
+                    self.cancel_batch()
                     reason = str(ack.get("reason") or "The in-game overlay refused the batch")[:300]
                     self.batch_state = {"running": False, "output": json.dumps({"blocked": reason})}
                 self.batch_pending = None
@@ -104,22 +110,78 @@ class OverlaySession:
 
     def _companion_live(self):
         return any(deadline is not None and self.clock() < deadline
-                   for deadline in self.companions.values())
+                   for deadline in tuple(self.companions.values()))
 
     def dashboard_batch(self, payload):
         """Queue one batch from the dashboard holding the lease, for the in-game overlay to run."""
         owner = payload.get("owner")
-        with self.lock:
+        with self.app.stop_lock, self.lock:
+            if (payload.get("session_id") != self.app.session_id
+                    or type(payload.get("command_epoch")) is not int
+                    or payload["command_epoch"] != self.app.command_epoch):
+                raise ValueError("Start authorization is stale; click Start again")
             if not (self.dashboard_ready() and owner == self.owner):
                 raise ValueError("Dashboard controls are disconnected; reload the dashboard")
             if not self._companion_live():
                 raise ValueError("Start the in-game overlay first; batches run through it")
-            if self.batch_pending or self.batch_state.get("running"):
+            if (self.stopping or self.batch_token or self.batch_pending
+                    or self.batch_state.get("running")):
                 raise ValueError("A batch is already running")
+            if getattr(self.app, "mode", "capture") != "capture":
+                raise ValueError("Bot must be Off before starting a batch")
             request = batch_request(payload)
             self.batch_sequence += 1
-            self.batch_pending = {**request, "id": self.batch_sequence}
+            self.batch_token = {"id": self.batch_sequence,
+                                "session_id": getattr(self.app, "session_id", ""),
+                                "owner": self.owner, "epoch": self.batch_epoch,
+                                "nonce": secrets.token_hex(24)}
+            self.runner_deadline = self.clock() + 10  # bounded startup, then runner renews
+            self.batch_pending = {**request, "id": self.batch_sequence,
+                                  "token": dict(self.batch_token)}
             return {"queued": True, "id": self.batch_sequence}
+
+    def cancel_batch(self):
+        """Revoke authorization; called by Stop before any asynchronous cleanup."""
+        with self.lock:
+            self.batch_epoch += 1
+            self.batch_token = None
+            self.batch_pending = None
+            self.runner_deadline = 0.0
+            self.batch_state = {"running": False}
+
+    def validate_batch(self, token):
+        # Also used by input safety: never wait on a lease writer holding a stop path.
+        current = self.batch_token
+        if (not isinstance(token, dict) or current is None or token != current
+                or token.get("session_id") != getattr(self.app, "session_id", "")
+                or token.get("owner") != self.owner or token.get("epoch") != self.batch_epoch
+                or self.stopping or not self.dashboard_ready() or not self._companion_live()
+                or self.clock() >= self.runner_deadline):
+            raise ValueError("Batch authorization expired or canceled")
+        return True
+
+    def runner_heartbeat(self, payload):
+        with self.lock:
+            self.validate_batch(payload.get("token"))
+            self.runner_deadline = self.clock() + 2
+            return {"valid": True}
+
+    def runner_cancel(self, payload):
+        with self.lock:
+            # An old runner must never stop a replacement batch.
+            if not self.batch_token or payload.get("token") != self.batch_token:
+                return {"cancelled": False}
+            self.stopping = True
+            self.cancel_batch()
+            self.app.stop_requested.set()
+        try:
+            failed = payload.get("failure") is True
+            self.app.safe_stop("INPUT_BACKEND_FAILURE" if failed else "OPERATOR_STOP",
+                               "Batch runner failed; bot off" if failed else
+                               "Batch runner ended; bot off")
+        finally:
+            self.stopping = False
+        return {"cancelled": True}
 
     def batch_status(self):
         with self.lock:
@@ -172,8 +234,14 @@ class OverlaySession:
             self.owner, self.panel, self.surface = owner, panel, surface
             self.deadline, self.expired = self.clock() + 2, False
             if opening or replacing:
-                self.pause()
+                self.stopping = True
+                self.cancel_batch()
             self._start_watch()
+        if opening or replacing:
+            try:
+                self.pause()
+            finally:
+                self.stopping = False
         return {"connected": True, "panel": panel, "close_requested": self.close_requested,
                 "batch": self.batch_status()}
 
@@ -182,13 +250,18 @@ class OverlaySession:
         if not isinstance(owner, str) or not 16 <= len(owner) <= 80:
             raise ValueError("Invalid dashboard owner")
         with self.lock:
-            if self.surface == "dashboard" and self.owner == owner and not self.expired:
-                self.expired = True
-                self.deadline = 0.0
-                self.app.stop_requested.set()
-                self.app.safe_stop("OPERATOR_STOP", "Dashboard disconnected; bot off")
-                return {"disconnected": True}
-        return {"disconnected": False}
+            if not (self.surface == "dashboard" and self.owner == owner and not self.expired):
+                return {"disconnected": False}
+            self.expired = True
+            self.deadline = 0.0
+            self.stopping = True
+            self.cancel_batch()
+            self.app.stop_requested.set()
+        try:
+            self.app.safe_stop("OPERATOR_STOP", "Dashboard disconnected; bot off")
+        finally:
+            self.stopping = False
+        return {"disconnected": True}
 
     def request_close(self):
         """Ask the owning overlay to close; only its heartbeat can clear the gate."""
@@ -207,18 +280,29 @@ class OverlaySession:
                            preserve_completed_probe=True)
 
     def check(self):
+        reasons = []
         with self.lock:
             if self.owner and not self.expired and self.clock() >= self.deadline:
                 self.expired = True
-                self.app.stop_requested.set()
-                self.app.safe_stop("OPERATOR_STOP", f"{self.surface.title()} disconnected; bot off")
+                reasons.append(("OPERATOR_STOP", f"{self.surface.title()} disconnected; bot off"))
             for owner, deadline in list(self.companions.items()):
                 if deadline is not None and self.clock() >= deadline:
                     self.companions[owner] = None
-                    self.app.stop_requested.set()
                     silent = self.clock() - (deadline - 2)
-                    self.app.safe_stop("OPERATOR_STOP",
-                                       f"In-game overlay disconnected; bot off (silent {silent:.1f} s)")
+                    message = f"In-game overlay disconnected; bot off (silent {silent:.1f} s)"
+                    reasons.append(("OPERATOR_STOP", message))
+            if self.batch_token and self.clock() >= self.runner_deadline:
+                reasons.append(("INPUT_BACKEND_FAILURE", "Batch runner disconnected; bot off"))
+            if reasons:
+                self.stopping = True
+                self.cancel_batch()
+                self.app.stop_requested.set()
+        try:
+            for code, reason in reasons:
+                self.app.safe_stop(code, reason)
+        finally:
+            if reasons:
+                self.stopping = False
 
     def _watch(self):
         while not self.app.closed.wait(0.1):
@@ -226,10 +310,18 @@ class OverlaySession:
 
     def block_reason(self):
         # Watchdog reads must never wait for a lease writer that is releasing keys.
-        if self.owner and (self.expired or self.clock() >= self.deadline):
+        if not self.owner and self.companions:
+            return "Connect the browser dashboard before starting"
+        if not self.owner or self.expired or self.clock() >= self.deadline:
             return f"{self.surface.title()} disconnected; reconnect before starting"
         if self.companions and not self.dashboard_ready():
             return "Connect the browser dashboard before starting"
+        if self.stopping:
+            return "Controls stopping; wait before starting"
+        if self.surface == "dashboard" and not self._companion_live():
+            return "In-game overlay disconnected; start the overlay before starting"
+        if self.batch_token and self.clock() >= self.runner_deadline:
+            return "Batch runner disconnected; bot off"
         # Open settings no longer refuse a start (operator decision, 2026-11-01);
         # opening them still stops running work.
         return None

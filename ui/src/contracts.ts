@@ -67,6 +67,8 @@ export interface LivePosition {
   feet?: [number, number] | null; reason: string; map?: string; canvas?: Rect | null;
   marker?: [number, number] | null; calibrated?: boolean; stale?: boolean;
   captured_at?: number;
+  estimate?: { feet: [number, number] | null; confidence: number; captured_at: number | null;
+    fresh: boolean; held: boolean; consecutive: number; required: number };
   projection?: { x: number; y: number; scale: number; revision: number } | null;
   calibration?: WalkCalibration; input_sent: false;
   map_alignment?: { mode: 'automatic'; state: 'aligning' | 'uncertain' | 'ready';

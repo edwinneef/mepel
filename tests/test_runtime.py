@@ -1035,7 +1035,7 @@ def test_capture_stage_timing_excludes_encoder_png_work(app, monkeypatch):
     _, status = app._process(app.image, 10.0, 0.0)
     assert set(status["stage_timing"]) == {
         "map_ms", "perception_ms", "perception_stages_ms", "position_ms", "policy_ms",
-        "annotation_ms"}
+        "annotation_ms", "player_search_ms"}
     assert "pose" in status["stage_timing"]["perception_stages_ms"]
     assert "png_encode_ms" not in status["stage_timing"]
 

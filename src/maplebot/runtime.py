@@ -93,7 +93,7 @@ class StopRecord:
 
 
 REQUIRED_PROBES = frozenset({"left", "right", "attack", "jump", "skill"})
-OPTIONAL_PROBES = frozenset({"up", "down", "hp_potion", "mp_potion"})
+OPTIONAL_PROBES = frozenset({"up", "down", "hp_potion", "mp_potion", "pet_food"})
 PROBE_ACTIONS = REQUIRED_PROBES | OPTIONAL_PROBES
 PENDING_SLOW_GRACE_SECONDS = 2.0
 # Readouts keep showing the last platform through brief recognition gaps; input never uses it.
@@ -232,6 +232,7 @@ class Application:
         self.probe_generation = 0
         self.next_probe_id = 1
         self.active_probe: ProbeState | None = None
+        self.batch_authorization = None
         self.live_potion_ticket: int | None = None
         self.arbiter = Arbiter(min(0.06, config.input.max_action_seconds))
         # Potions that live combat may press: calibrated bar, threshold set, probe confirmed.
@@ -419,6 +420,10 @@ class Application:
     ) -> Any:
         if overlay := getattr(self, "overlay", None):
             overlay.guard(name)
+            if payload.get("_batch_token") is not None:
+                overlay.validate_batch(payload["_batch_token"])
+            elif name in START_COMMANDS and overlay.batch_token is not None:
+                raise ValueError("Active batch requires its original authorization")
         if name in START_COMMANDS and self._key_settings_snapshot()["restart_required"]:
             raise ValueError("Restart the engine to use the new keys")
         if name == "input_keys_set":
@@ -840,6 +845,7 @@ class Application:
                 "CALIBRATION",
                 "Preparing bounded input; focus the Game view within 3 seconds",
                 invalidate_probes=False,
+                cancel_batch=False,
             )
             self.stop_requested.clear()
             probe_id = self.next_probe_id
@@ -994,6 +1000,11 @@ class Application:
         if overlay := getattr(self, "overlay", None):
             if reason := overlay.block_reason():
                 return reason
+            if self.batch_authorization is not None:
+                try:
+                    overlay.validate_batch(self.batch_authorization)
+                except ValueError as error:
+                    return str(error)
         if farm := self.farming:
             if reason := farm.checkpoint_reason(time.perf_counter()):
                 return reason
@@ -1063,12 +1074,17 @@ class Application:
         *,
         invalidate_probes: bool | None = None,
         preserve_completed_probe: bool = False,
+        cancel_batch: bool = True,
     ) -> StopRecord:
         if code == "POLICY_STOP" and self.farming is not None:
             code = "FARMING_STOP"
         reason = STOP_REASONS.get(code)
         if reason is None:
             raise ValueError(f"Unknown stop code: {code}")
+        # Release before waiting on application or lease state.
+        self.controller.stop(message, code=code, notify=False)
+        if cancel_batch and (overlay := getattr(self, "overlay", None)):
+            overlay.cancel_batch()
         self.live_potion_ticket = None
         self.potion_hud_missing_since = None
         self.arbiter.reset()
@@ -1077,13 +1093,14 @@ class Application:
         if not (preserve_completed_probe and self.active_probe
                 and self.active_probe.phase == "awaiting_confirmation"):
             self._cancel_active_probe(message)
-        # This must happen before any recorder, encoder, status, or audio work.
-        self.controller.stop(message, code=code, notify=False)
         self.combat_evidence.stop(message)
         if hasattr(self, "navigation"):
             self.navigation.cancel(message)
         self.rotating = False
         with self.stop_lock:
+            # Serialize final revocation with dashboard click authorization.
+            if cancel_batch and (overlay := getattr(self, "overlay", None)):
+                overlay.cancel_batch()
             self.command_epoch += 1
             if self.stop_record is not None:
                 self.potter.stop()
@@ -1159,13 +1176,16 @@ class Application:
                 self.alarm.start(record.id)
             return record
 
+    def _player_ready(self, player) -> bool:
+        return (player is not None and not player.tracked
+                and player.confidence >= self.config.perception.confidence)
+
     def _reacquire(self, player, now: float) -> str | None:
         """Bounded recovery for a live or dry-run frame without fresh player identity.
 
         Returns why the policy must not run this frame (keys stay released), or None.
         """
-        fresh = (player is not None and not player.tracked
-                 and player.confidence >= self.config.perception.confidence)
+        fresh = self._player_ready(player)
         step = self.reacquisition.step(
             (getattr(player, "identity", None) or player.template.removesuffix(":tag-only"))
             if fresh else None, now)
@@ -1189,8 +1209,8 @@ class Application:
         self.policy_outcome = {"status": "not_sent"}
         return step.reason
 
-    def _stop(self, code: str, message: str) -> StopRecord:
-        return self.safe_stop(code, message)
+    def _stop(self, code: str, message: str, *, cancel_batch: bool = True) -> StopRecord:
+        return self.safe_stop(code, message, cancel_batch=cancel_batch)
 
     def _clear_stop_banner(self) -> None:
         self.input_refusal, self.refused_window = None, None
@@ -1259,10 +1279,11 @@ class Application:
                 window = self.window
                 focused = bool(window) and self.windows.foreground(window.hwnd)
                 fired = self.hotkeys.update(self.windows.pressed,
-                                            lambda name, focused=focused: name == "stop" or focused)
+                                            lambda name, focused=focused: name == "stop" or focused,
+                                            epoch=getattr(self, "command_epoch", 0))
             except Exception:  # A missing or closing window: try again next tick.
                 continue
-            if "stop" in fired and self.mode != "capture":
+            if "stop" in fired:
                 self.stop_requested.set()
                 self.safe_stop("OPERATOR_STOP", "Stop key pressed")
 
@@ -1293,6 +1314,15 @@ class Application:
             future.cancel()
 
     def _command(self, name: str, payload: dict) -> Any:
+        batch_token = payload.get("_batch_token")
+        if overlay := getattr(self, "overlay", None):
+            overlay.guard(name)
+            if batch_token is not None:
+                overlay.validate_batch(batch_token)
+            elif name in START_COMMANDS and overlay.batch_token is not None:
+                raise ValueError("Active batch requires its original authorization")
+        if name in START_COMMANDS:
+            self.batch_authorization = batch_token
         if self.area_editing and name in FRESH_FRAME_COMMANDS:
             raise ValueError("Finish area editing before starting input or preview decisions")
         context = payload.get("_context")
@@ -1476,6 +1506,8 @@ class Application:
             with self.stop_lock:
                 if context is not None:
                     context.validate(self.command_epoch - 1)
+                if batch_token is not None:
+                    self.overlay.validate_batch(batch_token)
                 self.stop_requested.clear()
                 self.mode = "potion_wait"
                 self.pending_at = time.perf_counter() + 3
@@ -1541,6 +1573,8 @@ class Application:
             self._stop("DRY_RUN_STOP", "Dry run: no keyboard input")
             farming = (Farming({"feed_seconds": self.config.input.pet_feed_seconds,
                                 **payload["farming"]}) if "farming" in payload else None)
+            if farming and "pet_food" not in self.probed:
+                farming.settings["feed_seconds"] = None
             if payload.get("circuit") is not None and farming is None:
                 raise ValueError("Circuits require a bounded farming session")
             if farming and not all(r in self.potter.bars for r in ("hp", "mp")):
@@ -1560,6 +1594,8 @@ class Application:
                     raise ValueError("Finish area editing before starting preview decisions")
                 if context is not None:
                     context.validate(self.command_epoch - 1)
+                if batch_token is not None:
+                    self.overlay.validate_batch(batch_token)
                 self.stop_requested.clear()
                 self.agent.start()
                 self.mode = "dry_run"
@@ -1577,6 +1613,7 @@ class Application:
                 "CALIBRATION",
                 "Preparing bounded input; focus the Game view within 3 seconds",
                 invalidate_probes=False,
+                cancel_batch=False,
             )
             if self.calibrating:
                 raise ValueError("Return to live view before issuing gameplay input")
@@ -1590,6 +1627,8 @@ class Application:
                 raise ValueError("Confirm required probes first: " + ", ".join(missing))
             farming = (Farming({"feed_seconds": self.config.input.pet_feed_seconds,
                                 **payload["farming"]}) if "farming" in payload else None)
+            if farming and "pet_food" not in self.probed:
+                farming.settings["feed_seconds"] = None
             if payload.get("circuit") is not None and farming is None:
                 raise ValueError("Circuits require a bounded farming session")
             if farming and not all(r in self.potter.bars for r in ("hp", "mp")):
@@ -1611,6 +1650,8 @@ class Application:
                     raise ValueError("Finish area editing before arming combat")
                 if context is not None:
                     context.validate(self.command_epoch - 1)
+                if batch_token is not None:
+                    self.overlay.validate_batch(batch_token)
                 self.stop_requested.clear()
                 self._clear_stop_banner()
                 self.farming = farming
@@ -1899,6 +1940,8 @@ class Application:
                 if farm.feed_ticket in self.arbiter.in_flight:
                     return "deferred: pet food in flight"
                 farm.feed_ticket = None
+            if "pet_food" not in self.probed:
+                farm.next_feed = None
             if farm.next_feed is not None and time.perf_counter() >= farm.next_feed:
                 self.controller.release_movement()
                 if self.arbiter.in_flight:
@@ -2348,10 +2391,7 @@ class Application:
             elif slow:
                 pass  # Never press on a stale frame; wait for the next timely one.
             elif now >= self.pending_at:
-                if (
-                    observation.player is None
-                    or observation.player.confidence < self.config.perception.confidence
-                ):
+                if not self._player_ready(observation.player):
                     raise RuntimeError("Player detection uncertain; input probe/arming canceled")
                 pending = self.mode
                 # Status takes stop_lock before controller.lock. Keep that order
@@ -2630,6 +2670,10 @@ class Application:
                 "map_ms": round(map_ms, 3),
                 "perception_ms": round(perception_ms, 3),
                 "perception_stages_ms": perception_stages,
+                "player_search_ms": {
+                    key: round(value, 3)
+                    for key, value in getattr(self.detector, "player_stage_ms", {}).items()
+                },
                 "position_ms": round(position_ms, 3),
                 "policy_ms": round(policy_ms, 3),
                 "annotation_ms": round(annotation_ms, 3),
@@ -2641,11 +2685,14 @@ class Application:
         move_failures = 0
         previous = time.perf_counter()
         previous_capture = None
+        previous_pace_ms = previous_loop_ms = None
+        previous_publish_ms = previous_detection_publish_ms = None
         try:
             capture = Capture(self.windows)
             while not self.closed.is_set():
                 began = time.perf_counter()
                 self._drain_commands()
+                commands_ms = (time.perf_counter() - began) * 1000
                 capture_ok = False
                 try:
                     capture_began = time.perf_counter()
@@ -2690,11 +2737,20 @@ class Application:
                         "capture_interval_ms": round(1000 * (capture_began - previous_capture), 3)
                         if previous_capture is not None else None,
                         "capture_ms": round(1000 * (capture_finished - capture_began), 3),
+                        "commands_ms": round(commands_ms, 3),
+                        "process_ms": round(1000 * (end - capture_finished), 3),
+                        "previous_pace_ms": previous_pace_ms,
+                        "previous_loop_ms": previous_loop_ms,
+                        "previous_publish_ms": previous_publish_ms,
+                        "previous_detection_publish_ms": previous_detection_publish_ms,
                         **result["stage_timing"],
                     }
                     previous_capture = capture_began
                     previous = end
+                    detection_publish_began = time.perf_counter()
                     self._publish_detections(status, image)
+                    previous_detection_publish_ms = round(
+                        (time.perf_counter() - detection_publish_began) * 1000, 3)
                     publish_began = time.perf_counter()
                     self.processing_frame = {**(self.processing_frame or {}), "stage": "publish"}
                     packet = FramePacket(
@@ -2706,9 +2762,12 @@ class Application:
                         policy_now,
                     )
                     self.encoder.publish(packet)
-                    status["stage_timing"]["publish_ms"] = round(
+                    previous_publish_ms = round(
                         (time.perf_counter() - publish_began) * 1000, 3
                     )
+                    # Preserve the existing field; the previous_* fields above are
+                    # complete before either consumer receives this frame.
+                    status["stage_timing"]["publish_ms"] = previous_publish_ms
                     self.sequence += 1
                 except CaptureMovedError:
                     move_failures = min(move_failures + 1, _CAPTURE_MOVE_ATTEMPTS)
@@ -2737,7 +2796,11 @@ class Application:
                             "catalog": self.detector.catalog_info,
                         }
                         self.latest, self.raw = None, None
+                pace_began = time.perf_counter()
                 self._pace(began)
+                loop_finished = time.perf_counter()
+                previous_pace_ms = round((loop_finished - pace_began) * 1000, 3)
+                previous_loop_ms = round((loop_finished - began) * 1000, 3)
         except Exception as error:
             with self.lock:
                 self.status = {"state": "IDLE", "reason": str(error)}

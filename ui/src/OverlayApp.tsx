@@ -27,6 +27,17 @@ import './overlay.css';
 import './dashboard.css';
 import './clear.css';
 
+// Cumulative event positions retain ordering even when several polls are missed.
+export function hotkeyStart(current: Record<string, number>, previous: Record<string, number>, epoch?: number) {
+  if (current.sequence !== undefined && previous.sequence !== undefined) {
+    return current.start_stop_sequence > previous.sequence
+      && current.start_stop_sequence > current.stop_sequence
+      && current.start_stop_epoch === epoch;
+  }
+  return (current.start_stop ?? 0) > (previous.start_stop ?? 0)
+    && (current.stop ?? 0) <= (previous.stop ?? 0);
+}
+
 export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   client: OverlayClient; dashboard?: DashboardSession; outlinesOnly?: boolean;
 }) {
@@ -187,7 +198,8 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
         // One start path: the in-game overlay runs the guarded batch tool.
         const area = s?.position?.area_id;
         if (!area) throw new Error("Can't start: this map isn't recognised");
-        await dashboard.startBatch({ ...action.payload, area });
+        await dashboard.startBatch({ ...action.payload, area,
+          session_id: s.session_id, command_epoch: s.command_epoch });
         client.message(`${action.label}: handed to the in-game overlay. Keep the game in front; Stop or F8 ends it.`);
         return;
       }
@@ -245,7 +257,7 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
   // itself only when no dashboard holds controls. Counts restart with the engine session,
   // so only an increase over the last reading of the same session counts.
   const hotkeys = s?.hotkeys;
-  const hotkeyKey = hotkeys ? `${s?.session_id}:${hotkeys.start_stop}:${hotkeys.drawings}:${hotkeys.stop}` : '';
+  const hotkeyKey = hotkeys ? `${s?.session_id}:${s?.command_epoch}:${hotkeys.sequence}:${hotkeys.start_stop}:${hotkeys.drawings}:${hotkeys.stop}` : '';
   useEffect(() => {
     if (!hotkeys) return;
     const seen = seenKeys.current;
@@ -255,7 +267,10 @@ export function OverlayApp({ client, dashboard, outlinesOnly = false }: {
     const pressed = (name: string) => (hotkeys[name] ?? 0) > (seen.counts[name] ?? 0);
     const keyName = (name: string) => String(s?.key_settings?.active[name] ?? '').toUpperCase();
     if (dashboard) {
-      if (pressed('start_stop')) currentToggle.current();
+      const stopped = pressed('stop') || (hotkeys.start_stop_epoch !== undefined
+        && hotkeys.start_stop_epoch !== s?.command_epoch);
+      if (stopped) { startRef.current = false; setStarting(false); }
+      if (hotkeyStart(hotkeys, seen.counts, s?.command_epoch)) currentToggle.current();
       if (pressed('drawings')) setLayers(value => !value);
       return;
     }

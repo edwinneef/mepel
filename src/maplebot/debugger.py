@@ -129,6 +129,14 @@ def serve(
                     result = overlay.companion_heartbeat(payload)
                     self.reply(200, json.dumps(result).encode(), "application/json")
                     return
+                if self.path in {"/api/batch_heartbeat", "/api/batch_cancel"}:
+                    if not isinstance(payload, dict):
+                        raise ValueError("Batch payload must be an object")
+                    method = (overlay.runner_heartbeat
+                              if self.path == "/api/batch_heartbeat" else overlay.runner_cancel)
+                    result = method(payload)
+                    self.reply(200, json.dumps(result).encode(), "application/json")
+                    return
                 if self.path == "/api/dashboard_batch":
                     if not isinstance(payload, dict):
                         raise ValueError("Dashboard payload must be an object")

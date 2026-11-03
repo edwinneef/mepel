@@ -9,7 +9,8 @@ from maplebot.overlay_session import OverlaySession
 def fixture():
     now = [0.0]
     events = []
-    app = SimpleNamespace(stop_lock=threading.RLock(), active_probe=None,
+    app = SimpleNamespace(session_id="engine-one", command_epoch=0, mode="capture",
+                          stop_lock=threading.RLock(), active_probe=None,
                           stop_requested=threading.Event(), closed=threading.Event())
 
     def stop(code, message, *, preserve_completed_probe=False):
@@ -90,6 +91,7 @@ def test_dashboard_uses_shared_gates_without_native_window_verification():
     def refuse_native(hwnd):
         raise ValueError("Native window verification required")
 
+    lease.companion_heartbeat({"owner": "w" * 32})
     app.windows = SimpleNamespace(verify_overlay=refuse_native)
     lease.dashboard_heartbeat({"owner": "a" * 32, "panel": True})
     assert app.stop_requested.is_set()
@@ -106,7 +108,7 @@ def test_dashboard_uses_shared_gates_without_native_window_verification():
         lease.guard("arm")
     lease.check()
     lease.check()
-    assert len(events) == 2 and events[-1][1] == "Dashboard disconnected; bot off"
+    assert len(events) == 3 and events[-2][1] == "Dashboard disconnected; bot off"
 
 
 @pytest.mark.parametrize("first", ["overlay", "dashboard"])
@@ -146,6 +148,7 @@ def test_dashboard_disconnect_stops_immediately_and_cannot_stop_replacement():
     assert lease.dashboard_disconnect({"owner": "a" * 32}) == {"disconnected": False}
     assert len(events) == 2
     lease.dashboard_heartbeat({"owner": "b" * 32, "panel": False})
+    lease.companion_heartbeat({"owner": "w" * 32})
     assert len(events) == 3
     assert lease.dashboard_disconnect({"owner": "a" * 32}) == {"disconnected": False}
     lease.guard("arm")
@@ -203,14 +206,16 @@ def _ready_dashboard_with_widget(lease):
 def test_dashboard_batch_is_queued_once_for_the_widget_host_and_never_starts_input():
     lease, app, now, events = fixture()
     _ready_dashboard_with_widget(lease)
-    request = {"owner": "d" * 32, "kind": "learn", "area": "a" * 32, "minutes": 1,
+    request = {"session_id": "engine-one", "command_epoch": 0,
+               "owner": "d" * 32, "kind": "learn", "area": "a" * 32, "minutes": 1,
                "circuit": {"id": "lower-loop", "revision": 2}}
     assert lease.dashboard_batch(request) == {"queued": True, "id": 1}
     with pytest.raises(ValueError, match="already running"):
         lease.dashboard_batch(request)
     pending = lease.companion_heartbeat({"owner": "w" * 32})["batch_request"]
     assert pending == {"kind": "learn", "area": "a" * 32, "minutes": 1,
-                       "circuit": {"id": "lower-loop", "revision": 2}, "id": 1}
+                       "circuit": {"id": "lower-loop", "revision": 2}, "id": 1,
+                       "token": lease.batch_token}
     # The host acknowledges and reports progress; the request is consumed exactly once.
     progress = {"running": True, "kind": "learn", "line": "Starting"}
     result = lease.companion_heartbeat({"owner": "w" * 32, "batch": progress,
@@ -223,14 +228,16 @@ def test_dashboard_batch_is_queued_once_for_the_widget_host_and_never_starts_inp
     done = {"running": False, "kind": "learn", "code": 0, "output": "x" * 5000}
     lease.companion_heartbeat({"owner": "w" * 32, "batch": done})
     assert len(lease.batch_status()["output"]) == 4000
+    lease.runner_cancel({"token": pending["token"]})
     single = {**request, "kind": "single", "circuit": None}
     assert lease.dashboard_batch(single) == {"queued": True, "id": 2}
-    assert len(events) == 1  # only the pause from opening the lease; queueing stops nothing
+    assert len(events) == 2  # initial pause and completed runner cancellation
 
 
 def test_dashboard_batch_refusals():
     lease, _, now, events = fixture()
-    good = {"owner": "d" * 32, "kind": "single", "area": "a" * 32, "minutes": 15}
+    good = {"session_id": "engine-one", "command_epoch": 0,
+               "owner": "d" * 32, "kind": "single", "area": "a" * 32, "minutes": 15}
     with pytest.raises(ValueError, match="disconnected"):
         lease.dashboard_batch(good)  # no dashboard lease
     lease.dashboard_heartbeat({"owner": "d" * 32, "panel": False})
@@ -251,7 +258,8 @@ def test_dashboard_batch_refusals():
 def test_widget_refusal_of_a_dashboard_batch_is_reported_and_clears_the_request():
     lease, _, now, events = fixture()
     _ready_dashboard_with_widget(lease)
-    lease.dashboard_batch({"owner": "d" * 32, "kind": "single", "area": "a" * 32, "minutes": 1})
+    lease.dashboard_batch({"session_id": "engine-one", "command_epoch": 0,
+               "owner": "d" * 32, "kind": "single", "area": "a" * 32, "minutes": 1})
     refused = {"id": 1, "started": False, "reason": "Widget renderer is not fresh"}
     lease.companion_heartbeat({"owner": "w" * 32, "batch_ack": refused})
     assert lease.batch_pending is None

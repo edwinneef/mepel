@@ -33,6 +33,8 @@ function setup() {
 }
 
 it('opens on Run with four pages and closes its lease gate before requesting a countdown', async () => {
+  // This test exercises lease ordering, not capture expiry under parallel suite load.
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now());
   const { client, dashboard, requests } = setup();
   render(<OverlayApp client={client} dashboard={dashboard} />);
   await waitFor(() => expect(client.getState().busy).toBe(false));

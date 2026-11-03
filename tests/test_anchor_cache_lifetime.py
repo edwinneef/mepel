@@ -2,6 +2,7 @@ from pathlib import Path
 
 import cv2
 
+from maplebot import perception
 from maplebot.config import PerceptionConfig
 from maplebot.perception import TemplateDetector
 
@@ -12,14 +13,13 @@ def test_subset_search_reuses_only_identical_pixels_and_evicts_removed_templates
     image = cv2.imread(str(root / 'occluded.png'))
     a, b = detector.templates[:2], detector.templates[2:]
     calls = []
-    original = cv2.matchTemplate
+    original = perception._native_masked_match
 
     def counted(*args, **kwargs):
-        if 'mask' in kwargs:
-            calls.append(1)
+        calls.append(1)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(cv2, 'matchTemplate', counted)
+    monkeypatch.setattr(perception, '_native_masked_match', counted)
 
     def search(templates, pixels=image):
         return detector._candidates(pixels, cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY),

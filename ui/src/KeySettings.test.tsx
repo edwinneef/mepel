@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { KeySettings, configKey } from './KeySettings';
 import { snapshot } from './test-fixtures';
@@ -51,12 +51,14 @@ it('Esc cancels a key change and unsupported keys are refused', () => {
   expect(command).not.toHaveBeenCalled();
 });
 
-it('shows real test status, never claims pet food works, and explains the restart', () => {
+it('requires pet food confirmation and explains the restart', () => {
   const { onTest } = view({ saved: { ...active, hp_potion: 'home' }, restart_required: true });
   expect(screen.getByText(/New keys are saved. Restart the engine/)).toBeTruthy();
   expect(screen.getByText('Applies after restart')).toBeTruthy();
-  expect(screen.getByText(/Can't be checked automatically/)).toBeTruthy();
-  fireEvent.click(screen.getAllByRole('button', { name: 'Go to the control tests' })[0]);
+  const petRow = screen.getByRole('button', { name: 'Pet food key: f. Change' }).closest('tr')!;
+  expect(within(petRow).getByText('Not tested')).toBeTruthy();
+  expect(within(petRow).queryByText('Works')).toBeNull();
+  fireEvent.click(within(petRow).getByRole('button', { name: 'Go to the control tests' }));
   expect(onTest).toHaveBeenCalled();
 });
 

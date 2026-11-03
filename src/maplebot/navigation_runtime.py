@@ -256,11 +256,14 @@ class NavigationRuntime:
             raise ValueError(blocker)
         if opt_in is not True:
             raise ValueError("Explicit supervision opt-in is required for a bounded route")
-        app._stop("OPERATOR_STOP", "Preparing navigation; focus the game within 3 seconds")
+        app._stop("OPERATOR_STOP", "Preparing navigation; focus the game within 3 seconds",
+                  cancel_batch=False)
         self.last_feedback_failure = self.last_input_refusal = None
         with app.stop_lock:
             if context is not None:
                 context.validate(app.command_epoch - 1)
+            if getattr(app, "batch_authorization", None) is not None:
+                app.overlay.validate_batch(app.batch_authorization)
             app.stop_requested.clear()
             app.mode, app.pending_at = "navigation_wait", time.perf_counter() + 3
         pulse = min(.12, app.config.input.max_action_seconds)

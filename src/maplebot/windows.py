@@ -54,6 +54,9 @@ class Windows:
         self.api.WindowFromPoint.restype = wintypes.HWND
         self.api.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
         self.api.GetAncestor.restype = wintypes.HWND
+        self.api.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+        self.api.GetWindow.restype = wintypes.HWND
+        self.api.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
         self.api.GetAsyncKeyState.argtypes = [ctypes.c_int]
         self.api.GetAsyncKeyState.restype = ctypes.c_short
         self.api.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
@@ -184,18 +187,39 @@ class Windows:
 
     def unobscured(self, hwnd: int, region: Rect) -> bool:
         # Sample the Game-view grid: an occluded screenshot is unsafe for input.
-        # One exception (operator decision, 2026-11-02): our own in-game overlay, while
-        # Windows still leaves it out of every capture, so the screenshot under it is the game.
+        # Capture exclusion hides our overlay, but says nothing about windows beneath it.
         for fx in (0.05, 0.5, 0.95):
             for fy in (0.05, 0.5, 0.95):
                 point = wintypes.POINT(
                     round(region.x + region.width * fx), round(region.y + region.height * fy)
                 )
                 root = self.api.GetAncestor(self.api.WindowFromPoint(point), 2)
-                if root != hwnd and not (root and root == self.overlay
-                                         and self._capture_excluded(root)):
-                    return False
+                if root != hwnd:
+                    if not (root and root == self.overlay and self._capture_excluded(root)
+                            and self._game_beneath_overlay(root, hwnd, point)):
+                        return False
         return True
+
+    def _game_beneath_overlay(self, overlay: int, game: int, point: wintypes.POINT) -> bool:
+        """Walk downward in Z order; unknown geometry or a changing/cyclic stack refuses."""
+        seen = {overlay}
+        current = overlay
+        for _ in range(256):
+            current = self.api.GetWindow(current, 2)  # GW_HWNDNEXT
+            if not current or current in seen or not self.api.IsWindow(current):
+                return False
+            seen.add(current)
+            if not self.api.IsWindowVisible(current) or self.api.IsIconic(current):
+                continue
+            rect = wintypes.RECT()
+            if not self.api.GetWindowRect(current, ctypes.byref(rect)):
+                return False
+            if rect.right <= rect.left or rect.bottom <= rect.top:
+                return False
+            if rect.left <= point.x < rect.right and rect.top <= point.y < rect.bottom:
+                # Conservatively refuse even transparent/disabled unrelated windows.
+                return current == game
+        return False
 
     def foreground(self, hwnd: int) -> bool:
         return self.api.GetForegroundWindow() == hwnd

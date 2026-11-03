@@ -1,9 +1,12 @@
+# src/maplebot/capture.py -- optimized whole-module replacement.
+# Requires the existing geometry.py/windows.py; this is not a standalone program.
 import json
 import shutil
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import cv2
 import mss
 import numpy as np
 from numpy.typing import NDArray
@@ -70,7 +73,9 @@ class Capture:
         shot = self.screen.grab(
             {"left": region.x, "top": region.y, "width": region.width, "height": region.height}
         )
-        return np.asarray(shot)[:, :, :3].copy()
+        # A fresh, contiguous BGR allocation, not a strided view or a reused buffer.
+        # Keeping ownership independent is essential for camera/encoder workers.
+        return cv2.cvtColor(np.asarray(shot), cv2.COLOR_BGRA2BGR)
 
     def window(self, hwnd: int, calibration: Calibration | None) -> tuple[Image, Window, Rect]:
         before = self.windows.get(hwnd)

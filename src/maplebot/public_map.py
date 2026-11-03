@@ -171,7 +171,8 @@ def match_score(captured: np.ndarray, image: np.ndarray) -> float:
     mask = (image[..., 3] > 200).astype(np.float32)
     scores = cv2.matchTemplate(padded.astype(np.float32), image[..., :3].astype(np.float32),
                                cv2.TM_SQDIFF, mask=cv2.merge([mask] * 3))
-    return float(scores.min() / max(1.0, 3 * np.count_nonzero(mask)))
+    score = float(scores.min() / max(1.0, 3 * np.count_nonzero(mask)))
+    return max(0.0, score) if np.isfinite(score) else float("inf")
 
 
 # Layout: public world geometry to area platforms, ropes and portal zones.
@@ -398,11 +399,16 @@ def identify(captured: np.ndarray, sources: dict[int, dict]) -> int:
 
     The best match must beat the runner-up by IDENTIFY_MARGIN, or the map stays unknown.
     """
-    scores = sorted((match_score(captured, picture(source["miniMap"])), map_id)
-                    for map_id, source in sources.items())
+    scores = []
+    for map_id, source in sources.items():
+        score = match_score(captured, picture(source["miniMap"]))
+        if np.isfinite(score):
+            scores.append((max(0.0, score), map_id))
+    scores.sort()
     if not scores or not np.isfinite(scores[0][0]):
         raise ValueError("No candidate map matches the captured minimap")
-    if len(scores) > 1 and scores[1][0] <= IDENTIFY_MARGIN * scores[0][0]:
+    if len(scores) > 1 and (scores[1][0] - scores[0][0] <= 1e-6
+                            or scores[1][0] <= IDENTIFY_MARGIN * scores[0][0]):
         raise ValueError("Several maps match the captured minimap; choose the map by ID")
     return scores[0][1]
 

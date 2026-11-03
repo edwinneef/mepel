@@ -114,17 +114,37 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as error:
         print(json.dumps({"error": str(error), "result": str(output)}), flush=True)
         result = {"failure": str(error)}
-    after = api.status()
+    after = result.get("after") or status
+    try:
+        after = api.status()
+        result["after_is_current"] = True
+    except Exception as error:
+        result["status_error"] = str(error)
+        result["after_is_current"] = False
+        result["failure"] = result.get("failure") or f"final status failed: {error}"
+    result["after"] = after
     print(json.dumps({"result": str(output / "result.json"), "arrived": result.get("arrived"),
                       "failure": result.get("failure"), "proven_after": result.get("proven_after"),
                       "input_state": after.get("input_state"), "stop": after.get("stop"),
+                      "after_is_current": result["after_is_current"],
+                      "status_error": result.get("status_error"),
                       "command_seconds": round(time.monotonic() - started, 2)}), flush=True)
     if result.get("failure"):
-        print("Control returned to operator. Move to safety; no retry.", flush=True)
-        if not (after.get("alarm") or {}).get("active"):
-            import winsound
-            winsound.PlaySound(str(Path(__file__).resolve().parents[1]
-                                   / "src/maplebot/static/alarm.wav"), winsound.SND_FILENAME)
+        try:
+            api.command("stop")
+        except Exception as error:
+            result["stop_error"] = str(error)
+        try:
+            output.mkdir(parents=True, exist_ok=True)
+            (output / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        except Exception as error:
+            print(json.dumps({"result_write_error": str(error)}), flush=True)
+        finally:
+            print("Control returned to operator. Move to safety; no retry.", flush=True)
+            if not result.get("after_is_current") or not (after.get("alarm") or {}).get("active"):
+                import winsound
+                winsound.PlaySound(str(Path(__file__).resolve().parents[1]
+                                       / "src/maplebot/static/alarm.wav"), winsound.SND_FILENAME)
         return 1
     return 0
 

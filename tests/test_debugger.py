@@ -57,6 +57,9 @@ def test_dashboard_lease_routes_require_token_and_stop_matching_owner():
         code, body = request(server, "POST", "/api/dashboard", token, heartbeat)
         assert code == 200 and json.loads(body)["panel"]
         assert app.held == set() and app.events == ["released"]
+        assert "overlay disconnected" in app.overlay.block_reason()
+        assert request(server, "POST", "/api/overlay_companion", token,
+                       {"owner": "w" * 32})[0] == 200
         assert app.overlay.block_reason() is None
         heartbeat["panel"] = False
         assert request(server, "POST", "/api/dashboard", token, heartbeat)[0] == 200

@@ -25,7 +25,7 @@ def test_counts_each_press_once_and_ignores_presses_that_may_not_count():
     assert step() == []  # pressed while it may not count
     allowed["start_stop"] = True
     assert step() == []  # and not counted later either, while still held
-    assert counter.snapshot() == {"start_stop": 1, "stop": 0}
+    assert counter.counts == {"start_stop": 1, "stop": 0}
 
 
 def test_engine_counts_start_stop_only_with_the_game_in_front_and_stop_always(monkeypatch):
@@ -50,9 +50,28 @@ def test_engine_counts_start_stop_only_with_the_game_in_front_and_stop_always(mo
 
     app.closed.wait = wait
     app._poll_hotkeys()
-    assert app.hotkeys.snapshot() == {"start_stop": 1, "drawings": 0, "stop": 1}
-    assert stops == []  # the bot was Off: nothing to stop
+    assert app.hotkeys.counts == {"start_stop": 1, "drawings": 0, "stop": 1}
+    assert stops == ["Stop key pressed"]  # Off can still have a pending start.
+    assert app.stop_requested.is_set()
     app.mode = "live"
     script[:] = [({119}, 9), (set(), 9)]
     app._poll_hotkeys()
-    assert stops == ["Stop key pressed"] and app.stop_requested.is_set()
+    assert stops == ["Stop key pressed", "Stop key pressed"] and app.stop_requested.is_set()
+
+
+def test_ordered_hotkeys_record_original_epoch_and_stop_wins_simultaneous_sample():
+    counter = HotkeyCounter({"stop": 119, "start_stop": 117})
+    counter.update(lambda key: key == 117, lambda name: True, epoch=4)
+    counter.update(lambda key: key == 119, lambda name: True, epoch=4)
+    snapshot = counter.snapshot()
+    assert snapshot["stop_sequence"] > snapshot["start_stop_sequence"]
+    assert snapshot["start_stop_epoch"] == 4
+    counter.update(lambda key: key == 117, lambda name: True, epoch=5)
+    snapshot = counter.snapshot()
+    assert snapshot["start_stop_sequence"] > snapshot["stop_sequence"]
+    assert snapshot["start_stop_epoch"] == 5
+    counter.update(lambda key: False, lambda name: True)
+    counter.update(lambda key: True, lambda name: True, epoch=6)
+    snapshot = counter.snapshot()
+    assert snapshot["stop_sequence"] > snapshot["start_stop_sequence"]
+    assert snapshot["sequence"] == 5

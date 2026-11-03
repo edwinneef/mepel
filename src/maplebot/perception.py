@@ -95,6 +95,18 @@ class SpriteSignature:
 
 
 @dataclass(frozen=True)
+class MaskedPixels:
+    """Immutable preparation shared by native verification and sprite scoring."""
+
+    rows: np.ndarray
+    cols: np.ndarray
+    colors: np.ndarray
+    centered_gray: np.ndarray
+    gray_norm: float
+    color_energy: float
+
+
+@dataclass(frozen=True)
 class Template:
     kind: str
     name: str
@@ -113,6 +125,19 @@ class Template:
         cols = slice(anchor.x, anchor.x + anchor.width)
         gray = self.gray[rows, cols]
         return self.image[rows, cols], gray, cv2.pyrDown(gray)
+
+    @cached_property
+    def masked_pixels(self) -> MaskedPixels:
+        """Prepare once per immutable template, instead of per candidate/frame."""
+        anchor = self.anchor
+        assert anchor is not None and self.mask is not None
+        rows, cols = np.nonzero(self.mask != 0)
+        colors = self.image[rows + anchor.y, cols + anchor.x].astype(np.float32)
+        gray = self.gray[rows + anchor.y, cols + anchor.x].astype(np.float32)
+        centered = gray - gray.mean() if gray.size else gray
+        return MaskedPixels(rows, cols, colors, centered,
+                            float(np.linalg.norm(centered)), float((colors * colors).sum()))
+
 
 
 @dataclass(frozen=True)
@@ -157,6 +182,60 @@ class SpriteLayout:
             heights=np.array([template.image.shape[0] for template in templates]),
             widths=np.array([template.image.shape[1] for template in templates]),
         )
+
+
+def _native_masked_match(crop: Image, template: Template, method: int) -> Image:
+    """The binary-mask OpenCV formula at the few offsets in a native proposal.
+
+    Large result maps, weighted masks and low-contrast references retain the
+    original OpenCV implementation. np.einsum(..., optimize=False) keeps these
+    tiny reductions out of multithreaded BLAS. This helper never mutates a crop.
+    """
+    anchor = template.anchor
+    assert anchor is not None and template.mask is not None
+    reference, reference_gray, _ = template.anchored
+    output_h = crop.shape[0] - anchor.height + 1
+    output_w = crop.shape[1] - anchor.width + 1
+    native = (template.mask.dtype == np.uint8 and template.mask.ndim == 2
+              and output_h > 0 and output_w > 0 and output_h * output_w <= 256
+              and method in (cv2.TM_CCOEFF_NORMED, cv2.TM_SQDIFF_NORMED))
+    ref = reference_gray if crop.ndim == 2 else reference
+    if not native:
+        return cv2.matchTemplate(crop, ref, method, mask=template.mask)
+    data = template.masked_pixels
+    if (not len(data.rows) or data.color_energy <= 0
+            or data.gray_norm ** 2 < 64 * len(data.rows)):
+        # Near-flat reference: retain OpenCV's normalization/degenerate behavior.
+        return cv2.matchTemplate(crop, ref, method, mask=template.mask)
+    yy, xx = np.indices((output_h, output_w))
+    yy, xx = yy.ravel(), xx.ravel()
+    result = np.empty(len(xx), dtype=np.float32)
+    # At most ~1 MiB of grayscale samples / ~3 MiB of color samples per chunk.
+    chunk = max(1, min(256, 262_144 // len(data.rows)))
+    for start in range(0, len(xx), chunk):
+        stop = min(start + chunk, len(xx))
+        py = yy[start:stop, None] + data.rows
+        px = xx[start:stop, None] + data.cols
+        observed = crop[py, px].astype(np.float32)
+        if method == cv2.TM_CCOEFF_NORMED:
+            observed -= observed.mean(axis=1, keepdims=True)
+            numerator = np.einsum('ij,j->i', observed, data.centered_gray, optimize=False)
+            variance_sum = np.einsum('ij,ij->i', observed, observed, optimize=False)
+            if np.any((variance_sum > 0) & (variance_sum < 64 * len(data.rows))):
+                return cv2.matchTemplate(crop, reference_gray, method, mask=template.mask)
+            denominator = data.gray_norm * np.sqrt(variance_sum)
+            # Flat observed pixels remain NaN; the caller converts them to -1.
+            values = np.full(stop - start, np.nan, dtype=np.float32)
+            np.divide(numerator, denominator, out=values, where=denominator > 0)
+        else:
+            energy = np.einsum('ijk,ijk->i', observed, observed, optimize=False)
+            difference = observed - data.colors
+            distance = np.einsum('ijk,ijk->i', difference, difference, optimize=False)
+            denominator = np.sqrt(data.color_energy * energy)
+            values = np.full(stop - start, np.inf, dtype=np.float32)
+            np.divide(distance, denominator, out=values, where=denominator > 0)
+        result[start:stop] = values
+    return result.reshape(output_h, output_w)
 
 
 @dataclass(frozen=True)
@@ -735,20 +814,14 @@ class TemplateDetector:
         """Full-mask confidence at the given sprite positions, best first."""
         anchor = template.anchor
         assert anchor is not None and template.mask is not None
-        mask = template.mask != 0
-        reference = template.image[
-            anchor.y : anchor.y + anchor.height, anchor.x : anchor.x + anchor.width
-        ][mask].astype(np.float32)
-        reference_gray = template.gray[
-            anchor.y : anchor.y + anchor.height, anchor.x : anchor.x + anchor.width
-        ][mask].astype(np.float32)
-        # Score every proposed position at once; same formula as masked_score().
-        rows, cols = np.nonzero(mask)
-        rows, cols = rows + anchor.y, cols + anchor.x
-        centered = reference_gray - reference_gray.mean()
-        reference_norm = float(np.linalg.norm(centered))
-        energy = float((reference * reference).sum())
+        data = template.masked_pixels
+        if not len(xs) or not len(data.rows):
+            return []
+        reference, centered = data.colors, data.centered_gray
+        rows, cols = data.rows + anchor.y, data.cols + anchor.x
+        reference_norm, energy = data.gray_norm, data.color_energy
         confidences = np.empty(len(xs), dtype=np.float32)
+        # Preserve the original batch/reduction order at confidence boundaries.
         for start in range(0, len(xs), 256):
             py = ys[start:start + 256, None] + rows
             px = xs[start:start + 256, None] + cols
@@ -796,11 +869,14 @@ class TemplateDetector:
             key = (method, bounds)
             saved = previous.get(key)
             if saved is not None and np.array_equal(crop, saved[0]):
+                # Reuse immutable stored inputs/results, not three new copies.
+                current[key] = saved
                 result = saved[1]
             else:
-                result = cv2.matchTemplate(crop, reference, method, mask=template.mask)
-            current[key] = (crop.copy(), result.copy())
-            return result.copy()
+                result = _native_masked_match(crop, template, method)
+                current[key] = (crop.copy(), result)
+            # Structure is patched in-place below; color is only read by 1 - result.
+            return result.copy() if method == cv2.TM_CCOEFF_NORMED else result
         # Half-resolution grayscale proposals, then masked verification in native crops.
         coarse = cv2.pyrDown(gray) if coarse is None else coarse
         if (reference_coarse.shape[0] > coarse.shape[0]
@@ -836,6 +912,13 @@ class TemplateDetector:
                 # NaN (a flat crop) would score 0; -1 keeps it below every floor.
                 cv2.patchNaNs(structure, -1)
             # Color agreement is at most 1, so weak structure alone rules the crop out.
+            if structure is not None:
+                bound = COLOR_WEIGHT_CAP + 0.4 * cv2.minMaxLoc(structure)[1]
+                if abs(bound - floor) <= 5e-5:
+                    structure = cv2.matchTemplate(
+                        gray[top:bottom, left:right], reference_gray,
+                        cv2.TM_CCOEFF_NORMED, mask=template.mask)
+                    cv2.patchNaNs(structure, -1)
             if (structure is not None
                     and COLOR_WEIGHT_CAP + 0.4 * cv2.minMaxLoc(structure)[1] >= floor):
                 color = 1 - match(
@@ -846,6 +929,22 @@ class TemplateDetector:
                 if not cv2.checkRange(score)[0]:
                     score = np.nan_to_num(score, copy=False, nan=0, posinf=0, neginf=0)
                 _, confidence, _, (dx, dy) = cv2.minMaxLoc(score)
+                # Different reductions can differ in the last float32 bits. Use
+                # the original implementation for a borderline decision or tie.
+                near_peak = np.count_nonzero(np.abs(score - confidence) <= 5e-5)
+                if (abs(confidence - floor) <= 5e-5
+                        or abs(confidence - self.config.confidence) <= 5e-5
+                        or (confidence >= floor and near_peak > 1)):
+                    native_gray = cv2.matchTemplate(
+                        gray[top:bottom, left:right], reference_gray,
+                        cv2.TM_CCOEFF_NORMED, mask=template.mask)
+                    cv2.patchNaNs(native_gray, -1)
+                    native_color = 1 - cv2.matchTemplate(
+                        image[top:bottom, left:right], reference,
+                        cv2.TM_SQDIFF_NORMED, mask=template.mask)
+                    score = np.nan_to_num(0.6 * native_color + 0.4 * native_gray,
+                                          copy=False, nan=0, posinf=0, neginf=0)
+                    _, confidence, _, (dx, dy) = cv2.minMaxLoc(score)
                 box = Rect(
                     left + dx - anchor.x,
                     top + dy - anchor.y,
@@ -885,9 +984,31 @@ class TemplateDetector:
             if any(template.signature is not None for template in usable) else None
         )
 
-        coarse = cv2.pyrDown(gray) if any(t.anchor is not None for t in usable) else None
-
         area = self.player_area
+        anchored = [t for t in usable if t.anchor is not None and t.signature is None]
+        coarse = player_coarse = None
+        if anchored:
+            if (area is not None and all(t.kind == "player" for t in anchored)
+                    and not (area[0] & 1 or area[1] & 1)):
+                x, y, w, h = area
+                # pyrDown has a 5x5 footprint. The halo preserves the full-frame
+                # result, including the real frame boundary's reflection rule.
+                left, top = max(0, x - 2), max(0, y - 2)
+                right, bottom = min(gray.shape[1], x + w + 2), min(gray.shape[0], y + h + 2)
+                halo = cv2.pyrDown(gray[top:bottom, left:right])
+                player_coarse = halo[(y - top) // 2 : (y + h + 1) // 2 - top // 2,
+                                     (x - left) // 2 : (x + w + 1) // 2 - left // 2]
+            else:
+                coarse = cv2.pyrDown(gray)
+                if area is not None:
+                    x, y, w, h = area
+                    player_coarse = coarse[y // 2 : (y + h + 1) // 2,
+                                           x // 2 : (x + w + 1) // 2]
+        # Prewarm immutable preparation on the owner thread, before parallel jobs.
+        for template in usable:
+            if (template.anchor is not None and template.mask is not None
+                    and template.mask.ndim == 2):
+                _ = template.masked_pixels
 
         def search(template: Template) -> list[Detection]:
             if area is None or template.kind != "player":
@@ -897,8 +1018,7 @@ class TemplateDetector:
             x, y, w, h = area
             found = self._template_candidates(
                 image[y : y + h, x : x + w], gray[y : y + h, x : x + w], template, floor,
-                color_index, None if coarse is None
-                else coarse[y // 2 : (y + h + 1) // 2, x // 2 : (x + w + 1) // 2])
+                color_index, player_coarse)
             return [replace(item, box=item.box.translated(x, y)) for item in found]
 
         def match(batch: list[Template]) -> list[list[Detection]]:
@@ -1103,6 +1223,7 @@ class TemplateDetector:
         """monsters=False searches only the player, for work that never targets an enemy."""
         now = time.monotonic() if now is None else now
         began = time.perf_counter()
+        self.player_stage_ms = {}
         # Camera motion only needs the frame, so it runs beside recognition.
         pending = self.pending_camera
         if pending is not None and pending[0] is image:
@@ -1498,21 +1619,37 @@ class TemplateDetector:
     def _observe(
         self, image: Image, now: float, templates: list[Template], floor: float
     ) -> tuple[Detection | None, list[Detection], list[str], float]:
+        # These are cumulative wall times if this frame searches multiple ROIs.
+        details = getattr(self, "player_stage_ms", None)
+        mark = time.perf_counter()
+
+        def stage(name: str) -> None:
+            nonlocal mark
+            current = time.perf_counter()
+            if details is not None:
+                details[name] = details.get(name, 0.0) + (current - mark) * 1000
+            mark = current
+
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         self._set_occluders(image.shape[:2], self.track[0] if self.track else None,
                             self.origin)
+        stage("gray_occluders_ms")
         # Name tags match in the pool while the sprite templates are searched.
         searches = self._nametag_search(gray)
         tag_area = self._tag_first_area(gray, searches, now)
         if tag_area is not None:
             self.player_area = tag_area
+        stage("tag_first_wait_ms")
         candidates = self._candidates(image, gray, templates, floor)
+        stage("templates_ms")
         kept = self._suppress(candidates)
         players = [item for item in kept if item.kind == "player"]
         tags = self._nametag_candidates(gray, searches)
+        stage("tags_finish_ms")
         if (not any(p.confidence >= self.config.confidence for p in players)
                 and not any(m.confidence >= self.config.nametag_confidence for m, _ in tags)):
             players = self._suppress(players + self._dark_player_candidates(image, gray, now))
+        stage("dark_fallback_ms")
         failures: list[str] = []
         player, tag_confidence, conflict = self._resolve(players, tags, failures, gray, now)
         if player is None and not conflict and self.fresh:
@@ -1543,6 +1680,7 @@ class TemplateDetector:
                 player.box.translated(*self.origin), now, TRACK_MAX_RADIUS)
         if player is None:
             failures.append("Player detection missing or below confidence threshold")
+        stage("resolve_fresh_follow_ms")
         # With this frame's player known, rescore monsters it or other monsters partly cover.
         kept = self._suppress(self._uncover(image, gray, candidates, templates, player))
         monsters = [
@@ -1554,6 +1692,7 @@ class TemplateDetector:
             failures.append("No visible monster template matches")
         elif not any(item.confidence >= self.config.confidence for item in monsters):
             failures.append("Monster matches below confidence threshold")
+        stage("uncover_ms")
         return player, monsters, failures, tag_confidence
 
     def _dark_player_candidates(self, image: Image, gray: Image, now: float) -> list[Detection]:
@@ -1612,6 +1751,14 @@ class TemplateDetector:
         region = Rect(left, top, right - left, bottom - top)
         if any(item.box.iou(region) > 0.05 for item in monsters):
             return  # A neighbouring sprite would become part of the player template.
+        # Back off failed segmentations too. Previously an empty fresh deque
+        # could cause five GrabCut iterations on EVERY confirmed-tag frame.
+        context = (id(self.confirmed_sprites), image.shape, player.template.split(":")[1])
+        previous_attempt = getattr(self, "_sprite_refresh_attempt", None)
+        if (previous_attempt is not None and previous_attempt[0] == context
+                and 0 <= now - previous_attempt[1] < REFRESH_SECONDS):
+            return
+        self._sprite_refresh_attempt = (context, now)
         crop = image[top:bottom, left:right].copy()
         anchor, mask = self._player_anchor(crop)
         if anchor is None or mask is None:
@@ -1743,9 +1890,11 @@ class TemplateDetector:
     def _nametag_search(self, gray: Image) -> list[Future[list[Detection]]]:
         """Start matching each searched name tag in the pool, in self.search_tags order."""
         floor = max(0.5, self.config.nametag_confidence - 0.15)
-        near_white = np.float32(gray >= NAMETAG_TEXT)
         # Remember the pool so results pair with the same tags even if a label changes.
         self.searched_tags = self.search_tags
+        if not self.searched_tags:
+            return []
+        near_white = np.float32(gray >= NAMETAG_TEXT)
         return [self.pool.submit(self.nametag_matches, gray, tag, floor, near_white)
                 for tag in self.searched_tags]
 

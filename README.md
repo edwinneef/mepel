@@ -91,7 +91,7 @@ disconnect/crash stops remain in force.
 
 The target is the MapleStory client on the bot-friendly server, whose title must contain `[capture] window_title` (`MapleStory`) from `config.toml`. Run it windowed at native 1x pixels with the game area unobscured; the client runs elevated, so input-capable sessions use the elevated task described above. Gameplay input is allowed only on that server.
 
-Key bindings live under `[input]` in `config.toml`. The shipped file maps movement to the arrow keys, attack and skill to `ctrl`, jump to `alt`, potions to `insert` and `delete`, pet food to `f` (pressed every 10 minutes during farming sessions that allow consumables), and the emergency stop to `f8`. Supported names are `left`, `right`, `up`, `down`, `insert`, `delete`, `home`, `end`, `pageup`, `pagedown`, `ctrl`, `alt`, `space`, single letters `a`-`z`, digits `0`-`9` and `f1`-`f12` (`src/maplebot/keyboard.py`). Every bound control is verified through a bounded probe before combat. Restart after changing config, and repeat verification.
+Key bindings live under `[input]` in `config.toml`. The shipped file maps movement to the arrow keys, attack and skill to `ctrl`, jump to `alt`, potions to `insert` and `delete`, pet food to `f` (pressed every 10 minutes during farming sessions that allow consumables, only after its bounded probe is confirmed), and the emergency stop to `f8`. Supported names are `left`, `right`, `up`, `down`, `insert`, `delete`, `home`, `end`, `pageup`, `pagedown`, `ctrl`, `alt`, `space`, single letters `a`-`z`, digits `0`-`9` and `f1`-`f12` (`src/maplebot/keyboard.py`). Every bound control is verified through a bounded probe before combat. Restart after changing config, and repeat verification.
 
 ## Calibration: capture first
 
@@ -110,6 +110,10 @@ Live input releases immediately and requires an explicit restart; observation
 and potion preview recover when stable capture returns.
 
 At startup the debugger automatically reconnects when exactly one visible window matches the saved title, dimensions, DPI and crop. The **Game connection** panel verifies the matching saved view automatically when a fresh, unobscured frame confidently recognizes the player or a calibrated HP/MP bar. Cached player tracking does not qualify. Window selection, manual regions, crop editing and manual confirmation are under **Advanced setup**. If the game was opened later, use **Reconnect**. Ambiguous or changed windows require explicit setup. No input starts automatically.
+
+Pet feeding stays disabled until **Set up > Keys > Pet food > Test** has been confirmed. Changing that binding invalidates its confirmation. Probes and gameplay countdowns require fresh, non-tracked player evidence.
+
+Dashboard batches retain the original click's engine session, control owner and cancellation authorization. Stop, disconnect, owner replacement or runner loss revokes that authorization; reconnecting cannot resume it. A runner renews its own two-second lease independently of the overlay. Missing control ownership refuses gameplay, including before the first connection.
 
 Successful control probes are saved in `data/confirmed-probes.json`. Reattaching the same game title, crop, dimensions and DPI restores matching confirmations. Changing a key invalidates only that control; changing a potion HUD reference invalidates that potion. Starting another probe revokes its previous confirmation until the new test succeeds. Capture verification resets on restart and is restored by confident recognition (or explicit manual confirmation); combat/live potions always start stopped. During a freeze/selection, input is stopped; **Return to live view** before probing or arming.
 

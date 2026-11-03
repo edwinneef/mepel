@@ -12,7 +12,7 @@ export type KeySettingsState = NonNullable<Snapshot['key_settings']>;
 const GAME: { id: string; label: string; used: string; probe?: string; uncheckable?: boolean }[] = [
   { id: 'hp_potion', label: 'HP potion', used: 'When HP drops under its line.', probe: 'hp_potion' },
   { id: 'mp_potion', label: 'MP potion', used: 'When MP drops under its line.', probe: 'mp_potion' },
-  { id: 'pet_food', label: 'Pet food', used: 'On a timer, so pet loot keeps working.', uncheckable: true },
+  { id: 'pet_food', label: 'Pet food', used: 'On a timer after its key is confirmed.', probe: 'pet_food' },
   { id: 'attack', label: 'Attack', used: 'Basic attack.', probe: 'attack' },
   { id: 'skill', label: 'Attack skill', used: 'Used while MP is high enough.', probe: 'skill' },
   { id: 'jump', label: 'Jump', used: 'Moving between platforms.', probe: 'jump' },

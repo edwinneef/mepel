@@ -7,6 +7,7 @@ that does not arrive, sends Stop at the end, and writes one result file with cli
 import argparse
 import json
 import re
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -18,33 +19,79 @@ READY_SECONDS = 8  # wait this long for a confirmed position on the origin befor
 
 
 class Debugger:
-    def __init__(self, base: str = "http://127.0.0.1:8765"):
-        self.base = base
+    def __init__(self, base: str = "http://127.0.0.1:8765", *,
+                 expected_session: str | None = None, batch_token: dict | None = None):
+        self.base = base.rstrip("/")
+        self.expected_session = expected_session
+        self.batch_token = batch_token
+        self.lease_error = None
+        self.closed = threading.Event()
+        self.lease_worker = None
         with urlopen(self.base + "/", timeout=2) as response:
             self.token = re.search(r"[A-Za-z0-9_\-]{43}", response.read().decode()).group()
+        if batch_token is not None:
+            if not expected_session or batch_token.get("session_id") != expected_session:
+                raise ValueError("Expected engine session is required for a batch")
+            self.status()  # refuse a wrong endpoint before renewing or sending commands
+            self._post("batch_heartbeat", {"token": batch_token})
+            self.lease_worker = threading.Thread(target=self._renew, daemon=True,
+                                                 name="batch-runner-lease")
+            self.lease_worker.start()
+
+    def _renew(self):
+        while not self.closed.wait(.5):
+            try:
+                self._post("batch_heartbeat", {"token": self.batch_token})
+            except Exception as error:
+                self.lease_error = str(error)
+                return  # no retry: the engine independently expires this runner
+
+    def close(self):
+        self.closed.set()
+        try:
+            if self.batch_token:
+                self._post("batch_cancel", {"token": self.batch_token})
+        finally:
+            if self.lease_worker:
+                self.lease_worker.join(3)
 
     def status(self) -> dict:
         with urlopen(self.base + "/api/status", timeout=2) as response:
-            return json.load(response)
+            status = json.load(response)
+        if self.expected_session is None:
+            self.expected_session = status["session_id"]
+        if status["session_id"] != self.expected_session:
+            raise RuntimeError("Engine session changed; batch refused")
+        return status
 
-    def command(self, name: str, payload: dict | None = None) -> dict:
-        status = self.status()
-        envelope = {"schema_version": 1, "session_id": status["session_id"],
-                    "command_id": uuid.uuid4().hex, "issued_at": time.time(),
-                    "command_epoch": status["command_epoch"],
-                    "expected_frame_id": status["frame"]["id"], "name": name,
-                    "payload": payload or {}}
-        request = Request(self.base + "/api/v1/command", data=json.dumps(envelope).encode(),
+    def _post(self, path: str, payload: dict) -> dict:
+        request = Request(self.base + "/api/" + path, data=json.dumps(payload).encode(),
                           headers={"X-Debug-Token": self.token,
                                    "Content-Type": "application/json"})
         try:
-            with urlopen(request, timeout=15) as response:
+            with urlopen(request, timeout=2 if path.startswith("batch_") else 15) as response:
                 return json.load(response)
         except HTTPError as error:
             with error:
                 body = error.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"{name} rejected: {body.replace(self.token, '[redacted]')}") \
+            raise RuntimeError(f"{path} rejected: {body.replace(self.token, '[redacted]')}") \
                 from error
+
+    def command(self, name: str, payload: dict | None = None) -> dict:
+        if self.batch_token and name == "stop":
+            return self._post("batch_cancel", {"token": self.batch_token})
+        if self.lease_error:
+            raise RuntimeError(f"Batch runner lease lost: {self.lease_error}")
+        status = self.status()
+        body = dict(payload or {})
+        if self.batch_token:
+            body["_batch_token"] = self.batch_token
+        envelope = {"schema_version": 1, "session_id": self.expected_session,
+                    "command_id": uuid.uuid4().hex, "issued_at": time.time(),
+                    "command_epoch": status["command_epoch"],
+                    "expected_frame_id": status["frame"]["id"], "name": name,
+                    "payload": body}
+        return self._post("v1/command", envelope)
 
 
 def readiness(status: dict) -> str | None:
@@ -103,13 +150,14 @@ def run(api, output: Path, *, limit: int, chosen: list[str] | None = None,
     problem = readiness(status)
     if problem:
         raise RuntimeError(problem)
-    api.command("nav_refresh")
-    status = api.status()
-    queue = list(chosen) if chosen else targets(status)
     routes, failure = [], None
+    stop_error = status_error = None
     try:
+        api.command("nav_refresh")
+        status = api.status()
+        queue = list(chosen) if chosen else targets(status)
         for target in queue[:limit]:
-            current = api.status()
+            current = status = api.status()
             row = {"target": target, "before": compact(current)}
             routes.append(row)
             if coverage and (current.get("navigation", {}).get("map") or {}).get(
@@ -122,7 +170,7 @@ def run(api, output: Path, *, limit: int, chosen: list[str] | None = None,
             # gate: the preview's stop pauses fused feedback for about a second.
             try:
                 while True:
-                    sample = api.status()
+                    sample = status = api.status()
                     surface = (sample.get("position") or {}).get("surface_id") or None
                     if surface and surface != previewed:
                         api.command("nav_preview", {"origin": surface, "target": target})
@@ -148,12 +196,12 @@ def run(api, output: Path, *, limit: int, chosen: list[str] | None = None,
             started = clock()
             while clock() - started < ROUTE_SECONDS:
                 sleep(.25)
-                sample = api.status()
+                sample = status = api.status()
                 if sample["mode"] not in {"navigation", "navigation_wait"}:
                     break
             else:
                 api.command("stop")
-                sample = api.status()
+                sample = status = api.status()
             row["after"] = compact(sample)
             row["seconds"] = round(clock() - started, 2)
             if row["after"]["stage"] == "arrived":
@@ -164,15 +212,25 @@ def run(api, output: Path, *, limit: int, chosen: list[str] | None = None,
                 failure = (row["after"]["reason"]
                            or (row["after"]["stop"] or {}).get("message") or "stopped")
                 break
+    except Exception as error:
+        failure = failure or str(error)
     finally:
         try:
             api.command("stop")
         except Exception as error:  # the run result still records what happened
+            stop_error = str(error)
             failure = failure or f"final stop failed: {error}"
+        try:
+            status = api.status()
+        except Exception as error:
+            status_error = str(error)
+            failure = failure or f"final status failed: {error}"
         output.mkdir(parents=True, exist_ok=False)
         result = {"limit": limit, "routes": routes, "failure": failure,
                   "arrived": sum(r.get("outcome") == "arrived" for r in routes),
-                  "proven_after": compact(api.status())["proven"]}
+                  "proven_after": compact(status)["proven"], "after": status,
+                  "status_error": status_error, "stop_error": stop_error,
+                  "after_is_current": status_error is None}
         if coverage:
             result["coverage"] = coverage
         (output / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")

@@ -85,6 +85,7 @@ def test_farming_disables_bot_potions_and_stop_clears_session(app):
 
 
 def test_feeding_waits_for_combat_and_queues_once(app):
+    app.probed.add("pet_food")
     app.farming = Farming({"feed_seconds": 60})
     app._start_sustain()
     app.farming.next_feed = 0

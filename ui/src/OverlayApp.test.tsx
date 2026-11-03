@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { OverlayApp } from './OverlayApp';
+import { OverlayApp, hotkeyStart } from './OverlayApp';
 import { OverlayClient } from './overlay';
 import { DashboardSession } from './dashboard';
 import type { OverlayEvent } from './overlay';
@@ -405,4 +405,17 @@ it('acts on hotkeys the engine counted in game: confirms each and toggles drawin
   await waitFor(() => expect(screen.queryByLabelText('Detection boxes')).toBeNull());
   Object.assign(current, { hotkeys: { start_stop: 1, drawings: 1, stop: 0 } });
   expect(await screen.findByText('F6 · open the browser dashboard to start; F8 still stops')).toBeTruthy();
+});
+
+
+it('orders delayed hotkey updates and never revives a cancelled start', () => {
+  const previous = { sequence: 0, start_stop: 0, stop: 0 };
+  const stopped = { sequence: 2, start_stop_sequence: 1, stop_sequence: 2, start_stop_epoch: 4 };
+  expect(hotkeyStart(stopped, previous, 5)).toBe(false); // F6 then F8
+  const restarted = { sequence: 3, start_stop_sequence: 3, stop_sequence: 2, start_stop_epoch: 5 };
+  expect(hotkeyStart(restarted, previous, 5)).toBe(true); // a genuinely later F6
+  expect(hotkeyStart(restarted, restarted, 5)).toBe(false); // duplicate/reconnect baseline
+  expect(hotkeyStart(restarted, previous, 6)).toBe(false); // HTTP Stop invalidated F6
+  expect(hotkeyStart({ ...restarted, sequence: 100, stop_sequence: 100 }, previous, 5)).toBe(false);
+  expect(hotkeyStart({ start_stop: 1, stop: 1 }, previous, 5)).toBe(false); // ambiguous legacy update
 });

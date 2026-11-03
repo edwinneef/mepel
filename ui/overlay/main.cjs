@@ -10,6 +10,7 @@ const base = `http://127.0.0.1:${port}`;
 const owner = randomUUID();
 let win, token, panel = false, quitting = false, lastPaint = 0, polling = false;
 let session = null, lastBounds = '', transition = false, batch = null;
+let batchGeneration = 0, preparing = null;
 // Why the engine may report this overlay as disconnected: stalls are appended here, never sent anywhere.
 const logStall = text => fs.appendFile?.(path.resolve(__dirname, '..', '..', 'data', 'overlay-stalls.log'),
   `${new Date().toISOString()} ${text}
@@ -46,7 +47,18 @@ async function post(route, body) {
   }
   return value;
 }
-const stop = () => post('stop', {}).catch(() => {});
+const stop = () => {
+  const hadBatch = Boolean(batch || preparing);
+  batchGeneration += 1;
+  preparing = null;
+  if (batch) {
+    const child = batch;
+    batch = null;
+    try { child.kill(); } catch (error) { logStall(`Batch termination failed: ${error.message}`); }
+  }
+  if (hadBatch) reportBatch({ running: false, output: 'Batch cancelled; Stop requested' });
+  return post('stop', {}).catch(() => {});
+};
 /** Electron accelerator for the engine's active stop key (F1-F12). F6 and F9 never reached
  * these system-wide hotkeys with MapleStory in front; the engine reads those keys itself. */
 async function activeKeys() {
@@ -63,6 +75,7 @@ async function activeKeys() {
 const send = (type, value) => { if (win && !win.isDestroyed()) win.webContents.send('overlay-event', { type, value }); };
 const reportBatch = value => { batchReport = value; send('batch', value); };
 const heartbeat = async open => {
+  const generation = batchGeneration;
   const ack = batchAck;
   const state = await post('overlay_companion', { owner, panel: open,
     hwnd: Number(win.getNativeWindowHandle().readBigUInt64LE()), batch: batchReport,
@@ -73,7 +86,7 @@ const heartbeat = async open => {
   // The dashboard's drawing toggles; none while no dashboard holds controls.
   if (state.display) send('display', state.display);
   const request = state.batch_request;
-  if (request && Number.isInteger(request.id) && request.id !== handledRequest) {
+  if (generation === batchGeneration && request && Number.isInteger(request.id) && request.id !== handledRequest) {
     // The batch launcher: validation, renderer freshness, controller check and
     // one-at-a-time all apply. The engine only queued the request.
     handledRequest = request.id;
@@ -97,7 +110,7 @@ async function startBatch(request) {
   if (!['learn', 'single'].includes(kind) || !/^[a-f0-9]{32}$/.test(area)) {
     return { started: false, reason: 'Invalid batch request' };
   }
-  if (batch) return { started: false, reason: 'A batch is already running' };
+  if (batch || preparing) return { started: false, reason: 'A batch is already running' };
   const circuit = request?.circuit;
   if (kind === 'learn' && (!circuit || !/^[A-Za-z0-9_-]{1,80}$/.test(circuit.id)
       || !Number.isInteger(circuit.revision) || circuit.revision < 1
@@ -112,36 +125,72 @@ async function startBatch(request) {
   if (Date.now() - lastPaint >= 1200) {
     return { started: false, reason: 'Overlay renderer is not fresh' };
   }
-  await heartbeat(false);
-  if (!controllerReady) {
-    return { started: false, reason: 'Connect the browser dashboard before starting a batch' };
+  const authorization = request?.token;
+  if (!authorization || !Number.isInteger(authorization.id)
+      || typeof authorization.session_id !== 'string' || !authorization.session_id
+      || typeof authorization.owner !== 'string' || !authorization.owner
+      || !Number.isInteger(authorization.epoch)
+      || typeof authorization.nonce !== 'string' || !authorization.nonce
+      || (session && authorization.session_id !== session)) {
+    return { started: false, reason: 'Invalid or stale batch authorization' };
   }
-  if (batch) return { started: false, reason: 'A batch is already running' };
-  const root = path.resolve(__dirname, '..', '..');
-  const args = ['-m', 'tools.prepared_farm_check', '--area', area, '--run', '--focus',
-    '--minutes', String(minutes),
-    ...(kind === 'single' ? ['--single'] : ['--circuit', circuit.id,
-      '--revision', String(circuit.revision), '--consumables'])];
-  let output = '';
-  const child = spawn(path.join(root, '.venv', 'Scripts', 'python.exe'), args,
-    { cwd: root, windowsHide: true });
-  batch = child;
-  const read = chunk => {
-    output = (output + chunk.toString()).slice(-4000);
-    reportBatch({ running: true, kind, line: output.trim().split(/\r?\n/).pop() });
-  };
-  child.stdout.on('data', read);
-  child.stderr.on('data', read);
-  child.on('error', error => {
-    if (batch === child) batch = null;
-    reportBatch({ running: false, kind, code: -1, output: error.message });
-  });
-  child.on('close', code => {
-    if (batch === child) batch = null;
-    reportBatch({ running: false, kind, code, output });
-  });
-  reportBatch({ running: true, kind, line: 'Starting one guarded batch; restoring game focus...' });
-  return { started: true };
+  const launch = { generation: batchGeneration, token: authorization };
+  preparing = launch;
+  const cancelled = () => preparing !== launch || launch.generation !== batchGeneration;
+  try {
+    await heartbeat(false);
+    if (cancelled()) return { started: false, reason: 'Batch cancelled' };
+    if (!controllerReady) {
+      return { started: false, reason: 'Connect the browser dashboard before starting a batch' };
+    }
+    await post('batch_heartbeat', { token: authorization });
+    if (cancelled()) return { started: false, reason: 'Batch cancelled' };
+    if (batch) return { started: false, reason: 'A batch is already running' };
+    const root = path.resolve(__dirname, '..', '..');
+    const args = ['-m', 'tools.prepared_farm_check', '--area', area, '--run', '--focus',
+      '--minutes', String(minutes), '--endpoint', base,
+      '--expected-session', authorization.session_id, '--batch-token', JSON.stringify(authorization),
+      ...(kind === 'single' ? ['--single'] : ['--circuit', circuit.id,
+        '--revision', String(circuit.revision), '--consumables'])];
+    let output = '';
+    const child = spawn(path.join(root, '.venv', 'Scripts', 'python.exe'), args,
+      { cwd: root, windowsHide: true });
+    batch = child;
+    const read = chunk => {
+      if (batch !== child) return;
+      output = (output + chunk.toString()).slice(-4000);
+      reportBatch({ running: true, kind, line: output.trim().split(/\r?\n/).pop() });
+    };
+    child.stdout.on('data', read);
+    child.stderr.on('data', read);
+    let finished = false;
+    const finish = async (code, text) => {
+      if (finished || batch !== child) return;
+      finished = true;
+      if (code !== 0) {
+        let stopEvidence = 'Engine stop unverified';
+        try {
+          const result = await post('batch_cancel', { token: authorization, failure: true });
+          const input = result.input_state;
+          if (input?.enabled === false && Array.isArray(input.held_keys) && input.held_keys.length === 0) {
+            stopEvidence = 'Engine input disabled; no held keys';
+          }
+        } catch (error) { stopEvidence += `: ${error.message}`; }
+        if (batch !== child) return;
+        text = `${text}\n${stopEvidence}`;
+      }
+      batch = null;
+      reportBatch({ running: false, kind, code, output: text });
+    };
+    child.on('error', error => { void finish(-1, error.message); });
+    child.on('close', code => { void finish(code, output); });
+    reportBatch({ running: true, kind, line: 'Starting one guarded batch; restoring game focus...' });
+    return { started: true };
+  } catch (error) {
+    return { started: false, reason: error.message };
+  } finally {
+    if (preparing === launch) preparing = null;
+  }
 }
 async function settings(open) {
   if (open) return; // The native window is outlines only; settings stay in the dashboard.

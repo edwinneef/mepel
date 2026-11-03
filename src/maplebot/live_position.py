@@ -30,6 +30,7 @@ from .map_alignment import PositionInterval, align
 from .minimap_reader import AreaMinimap, MinimapFix
 from .motion_learning import PassiveMovement
 from .perception import Detection, Observation
+from .position_filter import PositionFilter
 from .profiles import AreaStore
 
 STALE_SECONDS = 0.5
@@ -107,6 +108,8 @@ class LivePosition:
         self._load(area_id)
 
     def _load(self, area_id: str) -> None:
+        self.position_filter = PositionFilter(threshold=self.player_threshold)
+        self.position_surface = None
         self.set_supplement(False)
         profile = self.store.load(area_id)["profile"]
         calibration = profile.get("minimap_calibration")
@@ -287,6 +290,28 @@ class LivePosition:
                         and extra.kind == "platform"):
                     location, provisional = extra, True
         canvas = fix.canvas
+        if location.surface_id is not None:
+            if self.position_surface is not None and self.position_surface != location.surface_id:
+                self.position_filter.reset()
+            self.position_surface = location.surface_id
+        agreeing = location.kind in {"platform", "rope"} or location.reason in {
+            "Waiting for a second fused observation", "Waiting for a second platform observation",
+            "Waiting for platform confirmation time",
+        }
+        name = (player.template.removesuffix(":tag-only") if player is not None
+                and player.template.startswith("nametag") else None)
+        estimate = self.position_filter.update(
+            location.reference_feet, name, player.confidence if player else 0., now,
+            (self.profile["id"], self.profile["revision"], observation_context),
+            fresh=bool(agreeing and player and not player.tracked
+                       and fix.dot is not None and name))
+        estimate["captured_at"] = (captured_at - estimate["age_seconds"]
+                                   if estimate["age_seconds"] is not None else None)
+        # Smoothed/held coordinates are for display only. Movement retains the current
+        # measurement, and cannot use it until consecutive named frames confirm it.
+        if location.kind in {"platform", "rope"} and not estimate["fresh"]:
+            location = Location("unknown", None, None,
+                                "Waiting for consecutive fresh name-tag observations")
         # Project saved area coordinates into this same observation's crop pixels.
         # Never infer a camera transform from an unconfirmed/airborne position.
         projection = None
@@ -317,6 +342,7 @@ class LivePosition:
             "calibration": {**self._calibration_status(), "learned": learned},
             "map_alignment": alignment_status,
             "movement_learning": movement,
+            "estimate": estimate,
             "captured_at": captured_at,
             "input_sent": False,
         }

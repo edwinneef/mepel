@@ -174,6 +174,8 @@ def main() -> None:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data", type=Path, default=Path("data"))
     parser.add_argument("--config", type=Path, default=Path("config.toml"))
+    parser.add_argument("--max-sources", type=int,
+                        help="Limit recorded sources for bounded comparisons")
     parser.add_argument("--limit", type=int, help="At most this many frames per source")
     parser.add_argument("--write", type=Path, help="Save outputs as the reference (JSONL)")
     parser.add_argument("--compare", type=Path, help="Compare outputs with a saved reference")
@@ -213,6 +215,8 @@ def main() -> None:
     else:
         runs = [(name, [(path.name, path, now, monsters) for path, now, monsters in frames])
                 for name, frames in sources(args.data, args.limit)]
+    runs = runs[:args.max_sources]
+    replay_began = time.perf_counter()
     for name, frames in runs:
         reset(detector)
         timings = []
@@ -240,10 +244,13 @@ def main() -> None:
                             "p90_ms": percentile(timings, 0.9)}
     report = {
         "frames": len(all_ms),
+        "offline_loop_fps": round(len(all_ms) / (time.perf_counter() - replay_began), 2),
         "load_seconds": round(load_seconds, 2),
         "mean_ms": round(statistics.fmean(all_ms), 1),
         "p50_ms": percentile(all_ms, 0.5),
         "p90_ms": percentile(all_ms, 0.9),
+        "p95_ms": percentile(all_ms, 0.95),
+        "processing_fps": round(1000 / statistics.fmean(all_ms), 2),
         "stages_ms_per_frame": {key: round(value / len(all_ms), 1)
                                 for key, value in stage_ms.items()},
         "sources": per_source,

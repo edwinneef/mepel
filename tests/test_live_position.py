@@ -53,6 +53,34 @@ def calibrate(position):
     return position.finish_calibration()
 
 
+def test_temporal_estimate_never_replaces_measured_movement_position(store):
+    position = LivePosition(store, AREA)
+    try:
+        calibrate(position)
+        for index in range(3):
+            result = step(position, 60, 10 + index * .2)
+        assert result["kind"] == "platform" and result["estimate"]["fresh"]
+        moved = step(position, 61, 10.6)
+        assert moved["feet"][0] == pytest.approx(508, abs=1)
+        assert moved["estimate"]["feet"][0] < moved["feet"][0]
+        image = view(((61, 20),))
+        missing = position.update(image, position.read_map(image), Observation(None, []), 10.8)
+        assert missing["kind"] == "unknown"
+        assert missing["estimate"]["held"] and not missing["estimate"]["fresh"]
+        assert missing["estimate"]["confidence"] < moved["estimate"]["confidence"]
+        for now in (11., 11.2):
+            warming = step(position, 61, now)
+            assert warming["kind"] == "unknown" and warming["projection"] is None
+            assert not warming["estimate"]["fresh"]
+        assert step(position, 61, 11.4)["kind"] == "platform"
+        disagree = position.update(image, position.read_map(image), observe(900), 11.6)
+        assert disagree["reason"] == "Minimap marker and name tag disagree"
+        assert not disagree["estimate"]["fresh"]
+        assert disagree["estimate"]["held"]
+    finally:
+        position.close()
+
+
 def test_uncalibrated_area_reports_why_and_sends_no_input(store):
     position = LivePosition(store, AREA)
     try:
@@ -137,7 +165,7 @@ def test_walk_calibration_saves_transform_and_residual_then_locates(store):
         # A camera scroll changes screen placement without moving saved geometry.
         image = view(((60, 20),))
         moved = Observation(observe(470).player, [], camera_shift=(-30, 0), camera_confidence=0.9)
-        scrolled = position.update(image, position.read_map(image), moved, 11)
+        scrolled = position.update(image, position.read_map(image), moved, 10.6)
         assert scrolled["projection"]["x"] == pytest.approx(projection["x"] - 30)
     finally:
         position.close()
