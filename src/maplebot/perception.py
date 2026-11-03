@@ -869,7 +869,15 @@ class TemplateDetector:
             template for template in templates
             if template.gray.shape[0] <= image.shape[0] and template.gray.shape[1] <= image.shape[1]
         ]
-        active_ids = {id(template) for template in usable}
+        # A fallback search uses only learned poses; it must not evict the taught
+        # poses needed on the next frame. Retain only currently owned templates,
+        # their live dark variants, and this call's temporary templates. Each entry
+        # still holds only its latest search's bounded proposal crops.
+        live_ids = {id(t) for t in self.templates}
+        live_ids.update(id(t) for group in self.fresh for t in group)
+        active_ids = live_ids | {id(t) for t in usable}
+        active_ids.update(id(t) for source, t in self.dark_templates.items()
+                          if source in live_ids)
         self.masked_cache = {key: value for key, value in self.masked_cache.items()
                              if key in active_ids}
         color_index = (
