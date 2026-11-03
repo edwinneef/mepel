@@ -184,60 +184,6 @@ class SpriteLayout:
         )
 
 
-def _native_masked_match(crop: Image, template: Template, method: int) -> Image:
-    """The binary-mask OpenCV formula at the few offsets in a native proposal.
-
-    Large result maps, weighted masks and low-contrast references retain the
-    original OpenCV implementation. np.einsum(..., optimize=False) keeps these
-    tiny reductions out of multithreaded BLAS. This helper never mutates a crop.
-    """
-    anchor = template.anchor
-    assert anchor is not None and template.mask is not None
-    reference, reference_gray, _ = template.anchored
-    output_h = crop.shape[0] - anchor.height + 1
-    output_w = crop.shape[1] - anchor.width + 1
-    native = (template.mask.dtype == np.uint8 and template.mask.ndim == 2
-              and output_h > 0 and output_w > 0 and output_h * output_w <= 256
-              and method in (cv2.TM_CCOEFF_NORMED, cv2.TM_SQDIFF_NORMED))
-    ref = reference_gray if crop.ndim == 2 else reference
-    if not native:
-        return cv2.matchTemplate(crop, ref, method, mask=template.mask)
-    data = template.masked_pixels
-    if (not len(data.rows) or data.color_energy <= 0
-            or data.gray_norm ** 2 < 64 * len(data.rows)):
-        # Near-flat reference: retain OpenCV's normalization/degenerate behavior.
-        return cv2.matchTemplate(crop, ref, method, mask=template.mask)
-    yy, xx = np.indices((output_h, output_w))
-    yy, xx = yy.ravel(), xx.ravel()
-    result = np.empty(len(xx), dtype=np.float32)
-    # At most ~1 MiB of grayscale samples / ~3 MiB of color samples per chunk.
-    chunk = max(1, min(256, 262_144 // len(data.rows)))
-    for start in range(0, len(xx), chunk):
-        stop = min(start + chunk, len(xx))
-        py = yy[start:stop, None] + data.rows
-        px = xx[start:stop, None] + data.cols
-        observed = crop[py, px].astype(np.float32)
-        if method == cv2.TM_CCOEFF_NORMED:
-            observed -= observed.mean(axis=1, keepdims=True)
-            numerator = np.einsum('ij,j->i', observed, data.centered_gray, optimize=False)
-            variance_sum = np.einsum('ij,ij->i', observed, observed, optimize=False)
-            if np.any((variance_sum > 0) & (variance_sum < 64 * len(data.rows))):
-                return cv2.matchTemplate(crop, reference_gray, method, mask=template.mask)
-            denominator = data.gray_norm * np.sqrt(variance_sum)
-            # Flat observed pixels remain NaN; the caller converts them to -1.
-            values = np.full(stop - start, np.nan, dtype=np.float32)
-            np.divide(numerator, denominator, out=values, where=denominator > 0)
-        else:
-            energy = np.einsum('ijk,ijk->i', observed, observed, optimize=False)
-            difference = observed - data.colors
-            distance = np.einsum('ijk,ijk->i', difference, difference, optimize=False)
-            denominator = np.sqrt(data.color_energy * energy)
-            values = np.full(stop - start, np.inf, dtype=np.float32)
-            np.divide(distance, denominator, out=values, where=denominator > 0)
-        result[start:stop] = values
-    return result.reshape(output_h, output_w)
-
-
 @dataclass(frozen=True)
 class NameTag:
     """The character's name label: white text on a translucent dark box under the feet."""
@@ -873,7 +819,7 @@ class TemplateDetector:
                 current[key] = saved
                 result = saved[1]
             else:
-                result = _native_masked_match(crop, template, method)
+                result = cv2.matchTemplate(crop, reference, method, mask=template.mask)
                 current[key] = (crop.copy(), result)
             # Structure is patched in-place below; color is only read by 1 - result.
             return result.copy() if method == cv2.TM_CCOEFF_NORMED else result
