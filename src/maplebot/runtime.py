@@ -493,12 +493,8 @@ class Application:
             return self.acknowledge_stop(payload.get("incident_id"), require_id=True)
         if name == "restart_capture":
             return self.restart_capture()
-        if name == "probe":
-            return self.request_probe(payload)
-        if name == "confirm_probe":
-            return self.confirm_probe(payload)
-        if name == "reject_probe":
-            return self.reject_probe(payload)
+        if name in {"probe", "confirm_probe", "reject_probe"}:
+            payload = {**payload, "_probe_epoch": self.command_epoch}
         canceled_navigation = name in POSITION_COMMANDS and self.mode in {
             "navigation", "navigation_wait",
         }
@@ -797,6 +793,10 @@ class Application:
         return bar.read(image, resource)
 
     def request_probe(self, payload: dict) -> dict[str, object]:
+        epoch = payload.get("_probe_epoch", self.command_epoch)
+        generation = self.controller.generation
+        if epoch != self.command_epoch:
+            raise ValueError("Probe request cancelled by Stop")
         if self.capture_only:
             raise ValueError("Capture-only session: gameplay controls are unavailable")
         self._clear_alarm("a control probe")
@@ -832,38 +832,41 @@ class Application:
             baseline_percent = reading.percent
         self.probed.discard(action)
         self._save_probes()
-        self._clear_stop_banner()
-        self.safe_stop(
-            "CALIBRATION",
-            "Preparing bounded input; focus the Game view within 3 seconds",
-            invalidate_probes=False,
-        )
-        self.stop_requested.clear()
-        probe_id = self.next_probe_id
-        self.next_probe_id += 1
-        instruction = (
-            "stand away from portals and ropes"
-            if action == "up"
-            else "Click the game window now; F8 cancels"
-        )
-        self.active_probe = ProbeState(
-            probe_id,
-            self.controller.generation,
-            action,
-            "countdown",
-            instruction,
-            resource=resource,
-            baseline_percent=baseline_percent,
-        )
-        self.mode = "probe_wait"
-        self.pending_at = time.perf_counter() + 3
-        self.combat_evidence.start(f"probe:{action}")
-        return {
-            "mode": self.mode,
-            "id": probe_id,
-            "generation": self.active_probe.generation,
-            "instruction": instruction,
-        }
+        with self.stop_lock, self.controller.lock:
+            if epoch != self.command_epoch or generation != self.controller.generation:
+                raise ValueError("Probe request cancelled by Stop")
+            self._clear_stop_banner()
+            self.safe_stop(
+                "CALIBRATION",
+                "Preparing bounded input; focus the Game view within 3 seconds",
+                invalidate_probes=False,
+            )
+            self.stop_requested.clear()
+            probe_id = self.next_probe_id
+            self.next_probe_id += 1
+            instruction = (
+                "stand away from portals and ropes"
+                if action == "up"
+                else "Click the game window now; F8 cancels"
+            )
+            self.active_probe = ProbeState(
+                probe_id,
+                self.controller.generation,
+                action,
+                "countdown",
+                instruction,
+                resource=resource,
+                baseline_percent=baseline_percent,
+            )
+            self.mode = "probe_wait"
+            self.pending_at = time.perf_counter() + 3
+            self.combat_evidence.start(f"probe:{action}")
+            return {
+                "mode": self.mode,
+                "id": probe_id,
+                "generation": self.active_probe.generation,
+                "instruction": instruction,
+            }
 
     def confirm_probe(self, payload: dict) -> dict[str, object]:
         active = self.active_probe
@@ -1396,6 +1399,12 @@ class Application:
             raise ValueError("Capture-only session: gameplay controls are unavailable")
         if name == "probe":
             return self.request_probe(payload)
+        if name in {"confirm_probe", "reject_probe"}:
+            with self.stop_lock:
+                if payload.get("_probe_epoch", self.command_epoch) != self.command_epoch:
+                    raise ValueError("Probe request cancelled by Stop")
+                return (self.confirm_probe(payload) if name == "confirm_probe"
+                        else self.reject_probe(payload))
         if name == "confirm_controls":
             raise ValueError("Use the per-probe confirmation controls")
         if name == "nav_reload_code":

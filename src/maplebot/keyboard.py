@@ -155,6 +155,49 @@ class Win32Input:
         return 0x0008 | (0 if down else 0x0002) | (0x0001 if key in EXTENDED_KEYS else 0)
 
 
+class _ControllerLock:
+    """Publish stop notifications only after this thread releases its outermost lock."""
+
+    def __init__(self):
+        self._lock = threading.RLock()
+        self._local = threading.local()
+        self.pending_notifications = 0
+
+    def _is_owned(self):
+        return self._lock._is_owned()
+
+    def acquire(self, *args, **kwargs):
+        return self._lock.acquire(*args, **kwargs)
+
+    def release(self):
+        self._lock.release()
+        if self._is_owned():
+            return
+        callbacks = getattr(self._local, "callbacks", [])
+        self._local.callbacks = []
+        try:
+            for callback in callbacks:
+                callback()
+        finally:
+            with self._lock:
+                self.pending_notifications -= len(callbacks)
+
+    def notify_after_release(self, callback):
+        # Called under the lock: enable cannot slip between release and cleanup.
+        callbacks = getattr(self._local, "callbacks", None)
+        if callbacks is None:
+            callbacks = self._local.callbacks = []
+        callbacks.append(callback)
+        self.pending_notifications += 1
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *args):
+        self.release()
+
+
 class KeyboardController:
     def __init__(
         self,
@@ -181,7 +224,7 @@ class KeyboardController:
         self.enabled = False
         self.stopped = threading.Event()
         self.closed = threading.Event()
-        self.lock = threading.RLock()
+        self.lock = _ControllerLock()
         self.execution_lock = threading.Lock()
         self.generation = 0
         self.next_ticket = 1
@@ -221,6 +264,8 @@ class KeyboardController:
         if not self.safe() or self.emergency():
             raise RuntimeError("Target not safe/focused, or emergency key held")
         with self.lock:
+            if self.lock.pending_notifications:
+                raise RuntimeError("Stop cleanup is still pending")
             self.stopped.clear()
             self.reason, self.enabled = "Ready", True
 
@@ -239,8 +284,9 @@ class KeyboardController:
             self.reason = reason
             self._cancel_queued()
             self.release_all()
-        if notify and self.on_stop is not None:
-            self.on_stop(code, reason)
+            if notify and self.on_stop is not None:
+                callback = self.on_stop
+                self.lock.notify_after_release(lambda: callback(code, reason))
 
     def suspend(self, *, lease: int | None = None) -> bool:
         """Cancel input while keeping the physical-safety watchdog active."""

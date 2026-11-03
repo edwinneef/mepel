@@ -747,3 +747,27 @@ def test_focus_loss_or_emergency_releases_every_overlapping_key(emergency):
         assert not control.enabled
     finally:
         control.close()
+
+
+def test_nested_stop_releases_before_callback_and_blocks_enable_until_cleanup(controller):
+    control, backend, _ = controller
+    callbacks = []
+    control.enable()
+
+    def stopped(code, reason):
+        assert not control.lock._is_owned()
+        assert not control.enabled and not control.held
+        with pytest.raises(RuntimeError, match="cleanup"):
+            control.enable()
+        callbacks.append((code, reason))
+
+    control.on_stop = stopped
+    with control.lock:
+        with control.lock:
+            control.stop("nested stop")
+            assert not control.enabled and not control.held
+            assert callbacks == []
+        assert callbacks == []
+    assert callbacks == [("INPUT_BACKEND_FAILURE", "nested stop")]
+    control.enable()
+    assert control.enabled
