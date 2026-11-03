@@ -216,7 +216,9 @@ class OverlaySession:
                 if deadline is not None and self.clock() >= deadline:
                     self.companions[owner] = None
                     self.app.stop_requested.set()
-                    self.app.safe_stop("OPERATOR_STOP", "In-game overlay disconnected; bot off")
+                    silent = self.clock() - (deadline - 2)
+                    self.app.safe_stop("OPERATOR_STOP",
+                                       f"In-game overlay disconnected; bot off (silent {silent:.1f} s)")
 
     def _watch(self):
         while not self.app.closed.wait(0.1):

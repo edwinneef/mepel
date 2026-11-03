@@ -10,6 +10,10 @@ const base = `http://127.0.0.1:${port}`;
 const owner = randomUUID();
 let win, token, panel = false, quitting = false, lastPaint = 0, polling = false;
 let session = null, lastBounds = '', transition = false, batch = null;
+// Why the engine may report this overlay as disconnected: stalls are appended here, never sent anywhere.
+const logStall = text => fs.appendFile?.(path.resolve(__dirname, '..', '..', 'data', 'overlay-stalls.log'),
+  `${new Date().toISOString()} ${text}
+`)?.catch(() => {});
 let controllerReady = false, gameFocused = false;
 // Dashboard starts arrive through the companion heartbeat; each runs once through startBatch.
 let batchReport = { running: false }, batchAck = null, handledRequest = null;
@@ -162,6 +166,7 @@ async function settings(open) {
 async function poll() {
   if (polling || quitting) return;
   polling = true;
+  const began = Date.now();
   try {
     const response = await fetch(`${base}/api/v1/status`, { signal: AbortSignal.timeout(1000) });
     if (!response.ok) throw new Error('Engine unavailable');
@@ -177,7 +182,7 @@ async function poll() {
     if (Date.now() - lastPaint < 1200 && !transition) {
       const lease = await heartbeat(panel);
       if (lease.close_requested && panel) await settings(false);
-    }
+    } else logStall(`no heartbeat sent: renderer silent ${Date.now() - lastPaint} ms, transition=${transition}`);
     const desktop = desktopBounds();
     const key = JSON.stringify(desktop);
     if (key !== lastBounds) { win.setBounds(desktop); lastBounds = key; }
@@ -200,12 +205,16 @@ async function poll() {
     }
     gameFocused = status.focused === true;
   } catch (error) {
+    logStall(`poll failed after ${Date.now() - began} ms: ${error.message}`);
     controllerReady = false;
     send('controller', false);
     send('error', error.message);
     send('game-bounds', null);
     if (error.status >= 400 && error.status < 500) app.quit();
-  } finally { polling = false; }
+  } finally {
+    if (Date.now() - began > 700) logStall(`slow poll ${Date.now() - began} ms`);
+    polling = false;
+  }
 }
 if (!app.requestSingleInstanceLock()) app.quit();
 else app.whenReady().then(async () => {
