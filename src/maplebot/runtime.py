@@ -177,6 +177,12 @@ def identify_area(store, image: Image, title: str | None) -> str:
     return detect_area(store, image)
 
 
+# Key-down freshness: a key goes down only while the frame that planned it is younger than
+# this. Operator decision (2026-11-03): 0.8 s, up from 0.5 s. With enemies on screen frames
+# take 370-480 ms to process, so 0.5 s refused attacks that passed every other gate.
+INPUT_OBSERVATION_SECONDS = 0.8
+
+
 class Application:
     """One worker owns capture, calibration, perception and ordered commands."""
 
@@ -985,7 +991,8 @@ class Application:
                 or not isinstance(captured, (int, float)) or not math.isfinite(captured)
                 or not isinstance(frame.get("sequence"), int)):
             return InputObservation(-1., -1., self.source_generation, self.view_generation, -1)
-        return InputObservation(captured, captured + .5, source, view, frame["sequence"])
+        return InputObservation(captured, captured + INPUT_OBSERVATION_SECONDS, source, view,
+                                frame["sequence"])
 
     def _input_safe(self) -> bool:
         reason = self._input_block_reason()

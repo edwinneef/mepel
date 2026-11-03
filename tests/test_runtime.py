@@ -14,7 +14,13 @@ from maplebot.config import Config
 from maplebot.contracts import CommandContext
 from maplebot.geometry import Rect
 from maplebot.navigation_runtime import POSE_COVERAGE
-from maplebot.runtime import REQUIRED_PROBES, STOP_REASONS, Application, StopSeverity
+from maplebot.runtime import (
+    INPUT_OBSERVATION_SECONDS,
+    REQUIRED_PROBES,
+    STOP_REASONS,
+    Application,
+    StopSeverity,
+)
 from maplebot.windows import Window
 
 
@@ -68,6 +74,11 @@ def test_versioned_start_uses_published_readiness_before_mutating_mode(app):
         assert not app.controller.backend.events
 
 
+def test_key_down_freshness_is_the_operator_approved_window():
+    # Operator decision (2026-11-03); changing it is a safety-gate change for the operator.
+    assert INPUT_OBSERVATION_SECONDS == 0.8
+
+
 def test_input_observation_binds_capture_clock_and_source_without_locking_app(app):
     captured = time.perf_counter()
     app.processing_frame = {"sequence": 18, "capture_clock": captured,
@@ -75,12 +86,13 @@ def test_input_observation_binds_capture_clock_and_source_without_locking_app(ap
                             "view_generation": app.view_generation}
     with app.lock:
         origin = app.controller.observation()
-    assert origin.capture_clock == captured and origin.deadline == captured + .5
+    assert origin.capture_clock == captured
+    assert origin.deadline == captured + INPUT_OBSERVATION_SECONDS
     assert origin.sequence == 18
     app.processing_frame = {**app.processing_frame, "capture_clock": captured + .2,
                             "sequence": 19}
     assert app.controller.observation().sequence == 19
-    assert origin.sequence == 18 and origin.deadline == captured + .5
+    assert origin.sequence == 18 and origin.deadline == captured + INPUT_OBSERVATION_SECONDS
     app.source_generation += 1
     assert app.controller.observation().deadline < 0
 
